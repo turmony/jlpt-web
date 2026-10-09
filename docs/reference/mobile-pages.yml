@@ -1,0 +1,70 @@
+name: iPhone image cards (Cloudflare)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jlpt-notes/grammar/n1/**'
+      - 'jlpt-notes/grammar/n2/**'
+      - 'jlpt-notes/grammar/n3/**'
+      - 'jlpt-notes/grammar/n4/**'
+      - 'jlpt-notes/grammar/n5/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'jlpt-notes/grammar/n1/**'
+      - 'jlpt-notes/grammar/n2/**'
+      - 'jlpt-notes/grammar/n3/**'
+      - 'jlpt-notes/grammar/n4/**'
+      - 'jlpt-notes/grammar/n5/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: uv sync --locked
+      - run: npm ci --prefix mobile
+      - run: uv run python -m pytest tests/test_mobile_site.py -q
+      - run: npm --prefix mobile test
+      - name: Build UI and image proxy from this commit
+        run: uv run python -m jlpt_notes.mobile_site --repository "$GITHUB_REPOSITORY" --output _site
+      - run: npm exec --prefix mobile -- playwright install --with-deps webkit
+      - name: Verify iPhone interactions
+        run: npm --prefix mobile run test:browser
+        env:
+          JLPT_MOBILE_SITE: ${{ github.workspace }}/_site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jlpt-mobile-proxy
+          path: _site
+      - name: Check Cloudflare configuration
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT" ]; then
+            echo '::error::Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in repository Actions secrets; see docs/mobile-image-cards.md.'
+            exit 1
+          fi
+      - name: Publish to Cloudflare Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        id: deployment
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy _site --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jlpt-image-cards' }} --branch=main

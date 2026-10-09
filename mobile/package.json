@@ -1,0 +1,11 @@
+{
+  "name": "jlpt-image-cards",
+  "private": true,
+  "scripts": {
+    "test": "node --test ../tests/mobile/core.test.mjs ../tests/mobile/proxy.test.mjs",
+    "test:browser": "node --test ../tests/mobile/browser.test.mjs ../tests/mobile/cache.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

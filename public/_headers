@@ -1,0 +1,7 @@
+# Let the application own the bounded daily image cache.
+/images/*
+  Cache-Control: no-store
+
+# Refresh UI and catalog so updates do not keep an older image revision.
+/*
+  Cache-Control: no-cache

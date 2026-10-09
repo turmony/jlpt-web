@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#262624">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="JLPT 看图">
+  <title>JLPT 语法看图</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css?v=range-shortcuts-2">
+  <script type="module" src="./app.mjs?v=range-shortcuts-2"></script>
+</head>
+<body>
+  <main class="shell">
+    <section id="setup" aria-labelledby="page-title">
+      <header class="brand"><svg class="brand-mark" viewBox="0 0 28 32" fill="none" aria-hidden="true"><path d="M5 3h18v25H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2 0v21m-4 0h20M12 9h6m-6 5h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>JLPT 学习册</span></header>
+      <div class="intro"><h1 id="page-title">语法，<br>慢慢读懂。</h1><p class="muted">看接续，读例句。<br>选一组卡片，逐张理解。</p></div>
+      <form id="range-form" novalidate>
+        <fieldset class="levels"><legend>JLPT 等级</legend><div class="level-options">
+          <label><input type="radio" name="level" value="N5"><span>N5</span></label>
+          <label><input type="radio" name="level" value="N4"><span>N4</span></label>
+          <label><input type="radio" name="level" value="N3"><span>N3</span></label>
+          <label><input type="radio" name="level" value="N2"><span>N2</span></label>
+          <label><input type="radio" name="level" value="N1" checked><span>N1</span></label>
+        </div></fieldset>
+        <p id="level-summary" class="field-hint">正在读取卡片目录…</p>
+        <fieldset class="range"><legend>卡片区间</legend><div class="range-fields">
+          <label for="start">开始编号<input id="start" name="start" type="number" inputmode="numeric" min="1" max="9999" step="1" value="31" required aria-describedby="range-hint range-error"></label>
+          <span class="range-dash" aria-hidden="true">—</span>
+          <label for="end">结束编号<input id="end" name="end" type="number" inputmode="numeric" min="1" max="9999" step="1" value="40" required aria-describedby="range-hint range-error"></label>
+        </div></fieldset>
+        <div class="quick-ranges neighbor-ranges" aria-label="相邻区间快速填写"><button id="quick-previous" type="button" disabled>前一区间</button><button id="quick-next" type="button" disabled>后一区间</button></div>
+        <p id="range-hint" class="field-hint">包含起止编号。每张卡片都有接续与例句两张图。</p>
+        <p id="range-error" class="error" role="alert" hidden></p>
+        <button id="start-reading" class="primary" type="submit" disabled>开始看图</button>
+      </form>
+      <div id="catalog-error" class="notice" hidden><p role="alert">卡片目录加载失败，请检查网络后重试。</p><button id="reload-catalog" type="button">重新加载</button></div>
+      <button id="resume" class="resume" type="button" hidden><span class="muted">继续上次阅读</span><strong id="resume-label"></strong><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m8 5 5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <footer class="setup-footer">打开大图后，双击切图，点按翻卡。</footer>
+    </section>
+
+    <section id="reader" aria-labelledby="card-title" hidden>
+      <header class="reader-header"><button id="change-range" class="text-button" type="button"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m12 5-5 5 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>更换范围</button><span id="range-label" class="range-label"></span></header>
+      <div class="reader-heading"><div class="card-meta"><strong id="card-id"></strong><span id="card-progress" class="counter"></span></div></div>
+      <div class="thumbnail-frame">
+        <button id="thumbnail" class="thumbnail" type="button" aria-label="打开接续大图"><img id="thumbnail-image" alt="" draggable="false"><span id="thumbnail-status" class="image-status" role="status">正在加载图片…</span><span class="expand-label">查看大图 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button>
+        <button id="retry-thumbnail" class="retry-button" type="button" hidden>重新加载图片</button>
+      </div>
+      <div class="progress-track" aria-hidden="true"><span id="progress-fill"></span></div>
+      <nav class="card-navigation" aria-label="翻阅语法卡"><button id="previous" type="button">上一张</button><button id="next" type="button">下一张</button></nav>
+      <div class="card-title-slot"><h2 id="card-title" class="card-title"></h2></div>
+      <form id="jump-form" class="jump-form" novalidate><label for="jump">跳转编号</label><div class="jump-controls"><input id="jump" type="number" inputmode="numeric" min="1" max="9999" placeholder="例如 35" required aria-describedby="jump-error"><button type="submit">前往</button></div><p id="jump-error" class="error" role="alert" hidden></p></form>
+      <p class="reader-note">阅读位置会自动保存。图片缓存次日清理。</p>
+    </section>
+  </main>
+
+  <dialog id="lightbox" aria-labelledby="lightbox-title">
+    <div class="lightbox-layout">
+      <header class="lightbox-header"><div><h2 id="lightbox-title"></h2><p id="lightbox-progress" class="muted"></p></div><button id="close-lightbox" class="close-button" type="button" aria-label="关闭大图">×</button></header>
+      <div id="image-stage" class="image-stage" tabindex="0" role="group" aria-label="图片区：单击左侧上一张，其余位置下一张；双击切换接续与例句">
+        <img id="full-image" alt="" draggable="false"><span id="full-status" class="image-status" role="status">正在加载图片…</span>
+      </div>
+      <button id="retry-full" class="retry-button" type="button" hidden>重新加载图片</button>
+      <footer class="lightbox-footer"><p class="gesture-hint">点左侧上一张，其余下一张；双击切图</p><nav class="lightbox-controls" aria-label="大图控制"><button id="full-previous" type="button" aria-label="上一张卡">上一张</button><button id="toggle-image" class="toggle-button" type="button">看例句</button><button id="full-next" type="button" aria-label="下一张卡">下一张</button></nav></footer>
+    </div>
+  </dialog>
+  <noscript><p class="notice">请启用 JavaScript 以选择卡片和查看图片。</p></noscript>
+</body>
+</html>
