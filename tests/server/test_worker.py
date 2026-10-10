@@ -21,7 +21,8 @@ class WorkerTests(unittest.TestCase):
 import json, re, sys
 from pathlib import Path
 text = sys.stdin.read()
-task, turn = re.search(r'web/([a-zA-Z0-9-]+)/turn-(\\d+).json', text).groups()
+context = json.loads(Path('jlpt-notes/quizzes/web/current-turn.json').read_text())
+task, turn = context['task_id'], str(context['turn'])
 folder = Path('jlpt-notes/quizzes/web') / task
 folder.mkdir(parents=True, exist_ok=True)
 (folder / ('turn-' + turn + '.json')).write_text(json.dumps({'task_id':task,'turn':int(turn),'operation':'clarify','message':'请补充范围'}))
@@ -58,3 +59,25 @@ print(json.dumps({'type':'item.completed','item':{'type':'agent_message','text':
         self.worker.cancel('task')
         self.assertFalse(self.worker.run_once())
         self.assertEqual(self.store.get('tasks', 'task')['status'], 'cancelled')
+
+    def test_short_prompt_uses_current_context_and_preserves_existing_workspace_rules(self):
+        rules = self.root / 'AGENTS.md'
+        original = '# Existing study rules\nKeep learner text.\n'
+        rules.write_text(original)
+        prompt = '请使用判卷 skill：.claude/skills/quiz-grade/SKILL.md\n\n请补充'
+        with patch.dict(os.environ, {'PATH': str(self.bin) + ':' + os.environ['PATH']}):
+            for generation in (0, 1):
+                self.store.put('previews', f'p{generation}', {'task_id': 'task', 'cli': 'codex',
+                    'prompt': prompt, 'operation': 'grade', 'generation': generation})
+                self.store.enqueue(f'p{generation}')
+                self.worker.run_once()
+                self.assertEqual(self.store.get('tasks', 'task')['status'], 'waiting')
+                context = json.loads((self.root / 'jlpt-notes/quizzes/web/current-turn.json').read_text())
+                self.assertEqual(context['task_id'], 'task')
+                self.assertEqual(context['turn'], generation + 1)
+                self.assertEqual(context['operation'], 'grade')
+                self.assertEqual(context['handoff'], f'jlpt-notes/quizzes/web/task/turn-{generation + 1}.json')
+        self.assertTrue(rules.read_text().startswith(original))
+        self.assertEqual(rules.read_text().count('<!-- jlpt-web-workflow:start -->'), 1)
+        self.assertIn('git push', rules.read_text())
+        self.assertIn('attempts.jsonl', rules.read_text())

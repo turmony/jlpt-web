@@ -27,9 +27,20 @@ class CLITests(unittest.TestCase):
         event = decode_event('qoder', {'type': 'assistant', 'session_id': 'q', 'message': {'content': [{'type': 'text', 'text': '请补充'}]}})
         self.assertEqual(event, {'session': 'q', 'text': '请补充'})
 
-    def test_prompt_preserves_input_and_handoff_identity(self):
-        text = build_prompt('t-1', 2, '用户原文\n出题', [])
-        self.assertIn('用户原文\n出题', text)
-        self.assertIn('web/t-1/turn-2.json', text)
-        self.assertIn('git push', text)
-        self.assertIn('attempts.jsonl', text)
+    def test_model_and_effort_are_passed_for_new_and_resumed_sessions(self):
+        for session in (None, 'existing-session'):
+            for cli, effort_flag in [('codex', '-c'), ('agy', '--effort'), ('qoder', '--reasoning-effort')]:
+                argv, _ = command(cli, '用户原文', session, model='example-model', effort='high')
+                self.assertEqual(argv[argv.index('--model') + 1], 'example-model')
+                if cli == 'codex':
+                    self.assertIn('model_reasoning_effort="high"', argv)
+                else:
+                    self.assertEqual(argv[argv.index(effort_flag) + 1], 'high')
+
+    def test_prompt_contains_only_selected_skill_and_unchanged_user_input(self):
+        user_text = '  用户原文\n出题  '
+        for operation, name, label in [('generate', 'quiz-generate', '出卷'), ('grade', 'quiz-grade', '判卷')]:
+            self.assertEqual(build_prompt(operation, user_text),
+                             f'请使用{label} skill：.claude/skills/{name}/SKILL.md\n\n{user_text}')
+        with self.assertRaises(ValueError):
+            build_prompt('unknown', user_text)

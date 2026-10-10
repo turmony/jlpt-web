@@ -4,6 +4,7 @@ import threading
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 from pathlib import Path
 from server.app import Application, create_server
 from server.auth import Auth
@@ -76,6 +77,28 @@ class HTTPTests(unittest.TestCase):
         second = json.load(self.request('/api/papers/slug/submit', {'version': 1}))
         self.assertEqual(first['submission']['id'], second['submission']['id'])
         self.assertEqual(self.request('/api/papers/slug/draft', {'answers': {}, 'version': 1}).status, 409)
+
+    def test_selected_skill_is_preserved_from_preview_through_execution(self):
+        self.login()
+        for operation, skill in [('generate', 'quiz-generate'), ('grade', 'quiz-grade')]:
+            preview = json.load(self.request('/api/previews', {'cli': 'codex', 'operation': operation, 'text': '用户原文'}))
+            self.assertEqual(preview['operation'], operation)
+            self.assertIn(f'.claude/skills/{skill}/SKILL.md', preview['prompt'])
+            self.assertLess(len(preview['prompt']), 100)
+            task = json.load(self.request('/api/tasks', {'preview_id': preview['id']}))
+            self.assertEqual(task['operation'], operation)
+        self.assertEqual(self.request('/api/previews', {'cli': 'codex', 'operation': 'other', 'text': '用户原文'}).status, 400)
+
+    def test_model_selection_is_validated_and_execution_uses_saved_selection(self):
+        self.login()
+        catalog = {'models': [{'id': 'example', 'label': 'Example', 'efforts': ['low', 'high']}], 'efforts': ['low', 'high']}
+        with patch('server.models.catalog', return_value=catalog):
+            preview = json.load(self.request('/api/previews', {'cli': 'codex', 'text': '用户原文', 'model': 'example', 'effort': 'high'}))
+            task = json.load(self.request('/api/tasks', {'preview_id': preview['id'], 'model': 'tampered', 'effort': 'low'}))
+            self.assertEqual((task['model'], task['effort']), ('example', 'high'))
+            self.assertEqual(task['prompt'], preview['prompt'])
+            for model, effort in [('wrong', 'high'), ('example', 'max')]:
+                self.assertEqual(self.request('/api/previews', {'cli': 'codex', 'text': '用户原文', 'model': model, 'effort': effort}).status, 400)
 
     def test_traversal_and_encoded_paths_do_not_serve_secrets(self):
         self.login()

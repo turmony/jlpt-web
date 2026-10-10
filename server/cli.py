@@ -5,21 +5,26 @@ import shutil
 import signal
 import subprocess
 import time
+from .models import catalog
 
 CLIS = ('codex', 'qoder', 'agy')
 
 
-def command(cli, prompt, session=None):
+def command(cli, prompt, session=None, model='', effort=''):
+    model_flags = ['--model', model] if model else []
     if cli == 'codex':
-        flags = ['--json', '-c', 'approval_policy="never"', '-c', 'sandbox_workspace_write.network_access=true']
+        flags = ['--json', '-c', 'approval_policy="never"', '-c', 'sandbox_workspace_write.network_access=true',
+                 *model_flags, *(['-c', 'model_reasoning_effort=' + json.dumps(effort)] if effort else [])]
         if session:
             return ['codex', 'exec', 'resume', *flags, session, '-'], prompt
         return ['codex', 'exec', '--sandbox', 'workspace-write', *flags, '-'], prompt
     if cli == 'qoder':
         return ['qoder', '-p', prompt, '--output-format', 'stream-json', '--permission-mode', 'auto',
+                *model_flags, *(['--reasoning-effort', effort] if effort else []),
                 *(['--session-id', session] if session else [])], ''
     if cli == 'agy':
         return ['agy', '-p', prompt, '--output-format', 'stream-json', '--dangerously-skip-permissions',
+                *model_flags, *(['--effort', effort] if effort else []),
                 *(['--conversation', session] if session else [])], ''
     raise ValueError('不支持的 CLI')
 
@@ -69,12 +74,16 @@ def status():
                     item.update(auth='ready' if p.returncode == 0 else 'required', detail='已登录' if p.returncode == 0 else '需要登录')
             except (OSError, subprocess.TimeoutExpired) as error:
                 item['detail'] = str(error)
+        options = catalog(cli)
+        item['models'] = options['models']
+        if options.get('error'):
+            item['models_error'] = options['error']
         result.append(item)
     return result
 
 
-def run_cli(cli, prompt, session, cwd, callback, cancelled, timeout=3600):
-    argv, stdin = command(cli, prompt, session)
+def run_cli(cli, prompt, session, cwd, callback, cancelled, timeout=3600, model='', effort=''):
+    argv, stdin = command(cli, prompt, session, model, effort)
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, start_new_session=True)
     selector = selectors.DefaultSelector()

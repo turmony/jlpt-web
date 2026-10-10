@@ -3,6 +3,15 @@ import sys
 from pathlib import Path
 from server.app import Application, create_server
 from server.auth import Auth
+from server import cli, models
+
+catalogs = {
+    'codex': [{'id': 'codex-example', 'label': 'Codex Example', 'efforts': ['low', 'high']}],
+    'agy': [{'id': 'gemini-example', 'label': 'Gemini Example', 'efforts': ['low', 'medium', 'high']}],
+    'qoder': [{'id': 'auto', 'label': 'Auto', 'efforts': ['low', 'high']}],
+}
+models.catalog = lambda name: {'models': catalogs[name]}
+cli.status = lambda: [{'id': name, 'installed': True, 'detail': '测试执行器', 'models': items} for name, items in catalogs.items()]
 
 base = Path(sys.argv[1])
 app = Application({'state': str(base), 'study': str(base/'study'), 'static': str(Path('server-public').resolve()),

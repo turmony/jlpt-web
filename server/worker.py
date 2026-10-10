@@ -98,6 +98,27 @@ class Worker:
                 else:
                     atomic_write(path, data)
 
+    def prepare_context(self, task):
+        context = {'task_id': task['id'], 'turn': task['generation'],
+                   'operation': task.get('operation', 'generate'),
+                   'handoff': f"{QUIZZES}/web/{task['id']}/turn-{task['generation']}.json",
+                   'papers': [{key: paper.get(key) for key in ('id', 'title', 'task_id', 'submission')}
+                              for paper in self.store.list('papers')]}
+        atomic_write(self.destination(f'{QUIZZES}/web/current-turn.json'),
+                     (json.dumps(context, ensure_ascii=False, indent=2) + '\n').encode())
+        rules = self.destination('AGENTS.md')
+        original = rules.read_text() if rules.exists() else ''
+        start, end = '<!-- jlpt-web-workflow:start -->', '<!-- jlpt-web-workflow:end -->'
+        before, marker, rest = original.partition(start)
+        if marker:
+            _, closed, after = rest.partition(end)
+            if not closed:
+                raise ValueError('网页工作区规则标记不完整')
+        else:
+            before, after = original + '\n', ''
+        workflow = Path(__file__).with_name('workflow.md').read_text()
+        atomic_write(rules, (before + start + '\n' + workflow + end + after).encode())
+
     def run_once(self):
         if not self.mutex.acquire(blocking=False):
             return False
@@ -113,6 +134,7 @@ class Worker:
                     return True
                 self.check_cancelled()
                 self.export_submissions()
+                self.prepare_context(task)
                 attempts_path = self.destination(f'{QUIZZES}/attempts.jsonl')
                 attempts_before = attempts_path.read_bytes() if attempts_path.exists() else b''
                 head = self.git_head()
@@ -122,7 +144,8 @@ class Worker:
                     for key in ('text', 'diagnostic', 'error'):
                         if data.get(key):
                             self.store.event(task['id'], 'message' if key == 'text' else key, data[key])
-                run_cli(task['cli'], task['prompt'], task.get('session'), self.study, event, self.cancelled)
+                run_cli(task['cli'], task['prompt'], task.get('session'), self.study, event, self.cancelled,
+                        model=task.get('model', ''), effort=task.get('effort', ''))
                 self.check_cancelled()
                 if self.git_head() != head:
                     raise ValueError('CLI 修改了 Git 历史；网页流程禁止模型提前提交')

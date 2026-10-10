@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlsplit, parse_qs
 
-from . import cli
+from . import cli, models
 from .artifacts import safe_file
 from .auth import Auth, YEAR
 from .prompts import build_prompt
@@ -31,8 +31,10 @@ class Application:
     def preview(self, data):
         text = data.get('text')
         executor = data.get('cli')
+        operation = data.get('operation', 'generate')
         if executor not in cli.CLIS or not isinstance(text, str) or not text.strip() or len(text) > 20000:
             raise ValueError('请选择 CLI 并输入有效提示词（最多 20000 字符）')
+        model, effort = models.validate_selection(models.catalog(executor), data.get('model', ''), data.get('effort', ''))
         task_id = data.get('task_id') or str(uuid.uuid4())
         generation = 0
         if data.get('task_id'):
@@ -41,7 +43,7 @@ class Application:
                 raise Conflict('会话不能跨 CLI 继续')
             generation = task['generation']
         preview = {'id': str(uuid.uuid4()), 'task_id': task_id, 'cli': executor, 'generation': generation,
-                   'text': text, 'prompt': build_prompt(task_id, generation + 1, text, self.store.list('papers'))}
+                   'model': model, 'effort': effort, 'operation': operation, 'text': text, 'prompt': build_prompt(operation, text)}
         return self.store.put('previews', preview['id'], preview)
 
 

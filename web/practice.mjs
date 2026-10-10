@@ -1,5 +1,7 @@
 const $ = id => document.getElementById(id);
 let currentTask = null, currentPaper = null, preview = null, cursor = 0, busy = false;
+let cliStates = [];
+const effortNames = {none:'无',minimal:'最低',low:'低',medium:'中',high:'高',xhigh:'很高',max:'最高',ultra:'极高'};
 let draftTimer, saveChain = Promise.resolve(), draftRevision = 0, draftDirty = false, draftConflict = false, previewRevision = 0;
 const stateNames = { queued:'排队中',running:'智能体处理中',checking:'正在检查实际产物',waiting:'等待补充提示词',ready:'试卷已准备，可作答',failed:'处理失败，可继续提示',cancelled:'已取消，资料保留',interrupted:'重启中断，可继续提示',committing:'正在提交本地学习历史',commit_failed:'判卷通过，本地提交失败',complete:'判卷与本地提交完成' };
 
@@ -12,10 +14,28 @@ async function api(path, data) {
 }
 function notice(error) { $('notice').textContent = error.message || String(error); $('notice').hidden = false; }
 function wrap(fn) { return async event => { try { $('notice').hidden = true; await fn(event); } catch(error) { notice(error); } }; }
-function invalidate() { previewRevision++; preview = null; $('execute').disabled = true; $('preview').textContent = ''; }
+function invalidate() { previewRevision++; preview = null; $('execute').disabled = true; $('preview').textContent = ''; $('preview-settings').textContent = ''; }
+function renderEfforts(value = '') {
+  const state = cliStates.find(item => item.id === $('cli').value);
+  const selected = state?.models?.find(item => item.id === $('model').value);
+  $('model-status').textContent = state?.models_error || '';
+  $('effort').replaceChildren(new Option('沿用 CLI／会话配置', ''), ...(selected?.efforts || []).map(effort => new Option(`${effortNames[effort] || effort} · ${effort}`, effort)));
+  if (value && ![...$('effort').options].some(option => option.value === value)) $('effort').add(new Option('已保存 · '+value, value));
+  $('effort').value = value; $('effort').disabled = !selected?.efforts?.length && !value;
+  if (selected && !selected.efforts?.length && !$('model-status').textContent) $('model-status').textContent = '该模型未提供可选推理强度，沿用执行器配置。';
+}
+function renderModels(model = '', effort = '') {
+  const state = cliStates.find(item => item.id === $('cli').value);
+  $('model').replaceChildren(new Option('沿用 CLI／会话配置', ''), ...(state?.models || []).map(item => new Option(item.label, item.id)));
+  if (model && ![...$('model').options].some(option => option.value === model)) $('model').add(new Option('已保存 · '+model, model));
+  $('model').value = model; $('model-status').textContent = state?.models_error || '';
+  renderEfforts(effort);
+}
 function selectTask(task) {
   currentTask = task; cursor = 0; $('events').textContent = '';
   $('cli').value = task.cli; $('cli').disabled = true;
+  $('operation').value = task.operation || 'generate';
+  renderModels(task.model || '', task.effort || '');
   $('conversation').textContent = '继续对话 · ' + task.id.slice(0,8);
   invalidate(); updateTask(task);
 }
@@ -120,6 +140,7 @@ $('answer-form').addEventListener('submit', wrap(async event => {
     await saveDraft(); const paper = await api(`/papers/${currentPaper.id}/submit`, {version:currentPaper.version});
     currentPaper = paper; await openPaper(paper.id);
     const task = await api('/tasks/'+paper.task_id); selectTask(task);
+    $('operation').value = 'grade';
     $('prompt').value = '请按项目流程判卷已交卷试卷 '+paper.id+'，给出完整成绩报告。';
     $('conversation').textContent += ' · 已交卷，请预览判卷提示词后执行';
     await refresh();
@@ -127,17 +148,21 @@ $('answer-form').addEventListener('submit', wrap(async event => {
 }));
 $('preview-button').addEventListener('click', wrap(async () => {
   invalidate(); const revision = previewRevision;
-  const result = await api('/previews',{cli:$('cli').value,text:$('prompt').value,...(currentTask ? {task_id:currentTask.id} : {})});
+  const result = await api('/previews',{cli:$('cli').value,model:$('model').value,effort:$('effort').value,operation:$('operation').value,text:$('prompt').value,...(currentTask ? {task_id:currentTask.id} : {})});
   if (revision !== previewRevision) return;
   preview = result;
+  $('preview-settings').textContent = `智能体：${preview.cli} · 模型：${preview.model || '沿用 CLI／会话配置'} · 推理强度：${preview.effort || '沿用 CLI／会话配置'}`;
   $('preview').textContent = preview.prompt; $('preview-details').open = true; $('execute').disabled = false;
 }));
 $('execute').addEventListener('click', wrap(async () => {
   if (!preview) return; const id = preview.id; $('execute').disabled = true;
   const task = await api('/tasks',{preview_id:id}); selectTask(task); await refresh();
 }));
-$('prompt').addEventListener('input', invalidate); $('cli').addEventListener('change', invalidate);
-$('new-task').addEventListener('click', () => { currentTask = null; cursor=0; $('events').textContent=''; $('cli').disabled=false; $('conversation').textContent='新对话'; $('task-state').textContent='新对话'; $('cancel').disabled=true; $('commit-retry').hidden=true; invalidate(); });
+$('prompt').addEventListener('input', invalidate); $('cli').addEventListener('change', () => { renderModels(); invalidate(); });
+$('model').addEventListener('change', () => { renderEfforts(); invalidate(); });
+$('effort').addEventListener('change', invalidate);
+$('operation').addEventListener('change', invalidate);
+$('new-task').addEventListener('click', () => { currentTask = null; cursor=0; $('events').textContent=''; $('cli').disabled=false; $('operation').value='generate'; renderModels(); $('conversation').textContent='新对话'; $('task-state').textContent='新对话'; $('cancel').disabled=true; $('commit-retry').hidden=true; invalidate(); });
 $('cancel').addEventListener('click', wrap(async () => { updateTask(await api(`/tasks/${currentTask.id}/cancel`,{})); }));
 $('commit-retry').addEventListener('click', wrap(async () => { updateTask(await api(`/tasks/${currentTask.id}/commit`,{})); }));
 $('refresh').addEventListener('click', wrap(refresh));
@@ -155,6 +180,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 try {
   await api('/session');
   const states = await api('/clis');
+  cliStates = states; renderModels();
   $('cli-status').textContent = states.map(s => `${s.id}：${s.detail}`).join(' · ');
   for (const option of $('cli').options) option.disabled = !states.find(s=>s.id===option.value)?.installed;
   await refresh();

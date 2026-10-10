@@ -6,11 +6,13 @@
   <header class="intro"><p class="eyebrow">智能体练习</p><h1>把疑问，变成练习。</h1><p>描述你想练的语法，或让智能体为已交卷试卷判卷。</p></header>
   <p id="notice" role="alert" hidden></p>
   <section class="panel" aria-labelledby="prompt-title"><h2 id="prompt-title">告诉智能体你的需求</h2>
-    <div class="row"><label>执行器<select id="cli"><option value="codex">Codex</option><option value="qoder">Qoder</option><option value="agy">Antigravity</option></select></label><button id="new-task" type="button">新建对话</button></div>
+    <div class="row"><label>执行器<select id="cli"><option value="codex">Codex</option><option value="qoder">Qoder</option><option value="agy">Antigravity</option></select></label><label>操作<select id="operation"><option value="generate">出卷 · quiz-generate</option><option value="grade">判卷 · quiz-grade</option></select></label><button id="new-task" type="button">新建对话</button></div>
+    <div class="row"><label>模型<select id="model"><option value="">沿用 CLI／会话配置</option></select></label><label>推理强度<select id="effort"><option value="">沿用 CLI／会话配置</option></select></label></div>
+    <p id="model-status" class="muted" role="status"></p>
     <p id="cli-status" class="muted" role="status">正在检查执行器…</p><p id="conversation" class="muted">新对话</p>
     <label for="prompt">提示词</label><textarea id="prompt" rows="5" placeholder="例如：请为 N3 第 31–40 张卡出 10 道形式选择题。"></textarea>
     <div class="row"><button id="preview-button" class="primary" type="button">预览最终提示词</button><button id="execute" type="button" disabled>执行此预览</button></div>
-    <details id="preview-details"><summary>完整任务提示词</summary><pre id="preview"></pre></details>
+    <details id="preview-details"><summary>完整任务提示词</summary><p id="preview-settings" class="muted"></p><pre id="preview"></pre></details>
   </section>
   <div class="columns"><section class="panel" aria-labelledby="tasks-title"><div class="row"><h2 id="tasks-title">任务与对话</h2><button id="refresh" type="button">刷新</button></div><div id="tasks"></div></section>
     <section class="panel" aria-labelledby="progress-title"><h2 id="progress-title">运行进度</h2><p id="task-state" role="status">选择或执行一个任务</p><div class="row"><button id="cancel" type="button" disabled>取消任务</button><button id="commit-retry" type="button" hidden>重试本地提交</button></div><pre id="events" class="events" aria-live="polite"></pre></section></div>

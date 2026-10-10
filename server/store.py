@@ -75,7 +75,8 @@ class Store:
                 raise Conflict('任务已改变，请重新预览；已判卷任务仅可重试提交')
             if task['cli'] != p['cli']:
                 raise Conflict('继续对话必须使用原 CLI')
-            task.update(status='queued', prompt=p['prompt'], preview_id=preview_id,
+            task.update(status='queued', prompt=p['prompt'], operation=p.get('operation', 'generate'), preview_id=preview_id,
+                        model=p.get('model', ''), effort=p.get('effort', ''),
                         generation=task['generation'] + 1, updated=time.time(), error=None)
             p['used'] = True
             self._put(db, 'tasks', task['id'], task)
