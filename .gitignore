@@ -7,3 +7,7 @@ node_modules/
 .dev.vars.*
 *.log
 jlpt-notes/
+server-public/
+__pycache__/
+*.pyc
+.superpowers/

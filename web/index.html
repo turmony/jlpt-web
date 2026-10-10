@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>JLPT 学习册</title><link rel="stylesheet" href="/site.css"><script type="module" src="/practice.mjs"></script></head>
+<body><main class="page">
+  <nav class="topbar" aria-label="学习导航"><strong>JLPT 学习册</strong><a href="/grammar/">语法记忆</a><button id="logout" type="button">退出</button></nav>
+  <header class="intro"><p class="eyebrow">智能体练习</p><h1>把疑问，变成练习。</h1><p>描述你想练的语法，或让智能体为已交卷试卷判卷。</p></header>
+  <p id="notice" role="alert" hidden></p>
+  <section class="panel" aria-labelledby="prompt-title"><h2 id="prompt-title">告诉智能体你的需求</h2>
+    <div class="row"><label>执行器<select id="cli"><option value="codex">Codex</option><option value="qoder">Qoder</option><option value="agy">Antigravity</option></select></label><button id="new-task" type="button">新建对话</button></div>
+    <p id="cli-status" class="muted" role="status">正在检查执行器…</p><p id="conversation" class="muted">新对话</p>
+    <label for="prompt">提示词</label><textarea id="prompt" rows="5" placeholder="例如：请为 N3 第 31–40 张卡出 10 道形式选择题。"></textarea>
+    <div class="row"><button id="preview-button" class="primary" type="button">预览最终提示词</button><button id="execute" type="button" disabled>执行此预览</button></div>
+    <details id="preview-details"><summary>完整任务提示词</summary><pre id="preview"></pre></details>
+  </section>
+  <div class="columns"><section class="panel" aria-labelledby="tasks-title"><div class="row"><h2 id="tasks-title">任务与对话</h2><button id="refresh" type="button">刷新</button></div><div id="tasks"></div></section>
+    <section class="panel" aria-labelledby="progress-title"><h2 id="progress-title">运行进度</h2><p id="task-state" role="status">选择或执行一个任务</p><div class="row"><button id="cancel" type="button" disabled>取消任务</button><button id="commit-retry" type="button" hidden>重试本地提交</button></div><pre id="events" class="events" aria-live="polite"></pre></section></div>
+  <section class="panel" aria-labelledby="papers-title"><h2 id="papers-title">我的试卷</h2><div id="papers"></div></section>
+  <section id="paper-section" class="panel" hidden><h2 id="paper-title"></h2><p id="save-state" class="muted" role="status"></p>
+    <div id="draft-conflict" role="alert" hidden><p>另一标签页修改了草稿。本页作答仍然保留，请选择要保存的版本。</p><div class="row"><button id="load-server-draft" type="button">读取服务器草稿</button><button id="keep-local-draft" type="button">保存本页作答</button></div></div>
+    <div class="row"><button id="view-answers" type="button">查看答案与解析</button><button id="view-report" type="button" hidden>查看成绩报告</button></div>
+    <details id="answer-details" hidden><summary>答案与解析</summary><pre id="answer-text"></pre></details>
+    <details id="report-details" hidden><summary>成绩报告</summary><pre id="report-text"></pre></details>
+    <form id="answer-form"><div id="questions"></div><button id="submit-paper" class="primary" type="submit">正式交卷并锁定答案</button></form>
+  </section>
+  <footer class="muted">草稿自动保存。每份试卷只能正式交卷一次；判卷通过后保存本地学习历史。</footer>
+</main></body></html>

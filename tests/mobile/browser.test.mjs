@@ -351,8 +351,9 @@ test('failed catalog and image can be retried without losing selection', async (
 test('a stalled image times out and retry keeps the selected card', async () => {
   const ctx = await context(); const page = await ctx.newPage();
   await page.addInitScript(() => {
+    window.shortenImageTimeout = true;
     const schedule = window.setTimeout.bind(window);
-    window.setTimeout = (callback, delay, ...args) => schedule(callback, delay === 20000 ? 150 : delay, ...args);
+    window.setTimeout = (callback, delay, ...args) => schedule(callback, window.shortenImageTimeout && delay === 20000 ? 150 : delay, ...args);
   });
   await ready(page);
   let stalled = true;
@@ -364,6 +365,7 @@ test('a stalled image times out and retry keeps the selected card', async () => 
   await page.waitForSelector('#retry-thumbnail:not([hidden])', { timeout: 2000 });
   assert.match(await page.locator('#thumbnail-status').textContent(), /超时/);
   stalled = false;
+  await page.evaluate(() => { window.shortenImageTimeout = false; });
   await page.locator('#retry-thumbnail').click();
   await page.waitForFunction(() => !document.getElementById('thumbnail-image').hidden);
   assert.equal(await page.locator('#card-id').textContent(), 'N1-G-0031');

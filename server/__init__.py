@@ -1,0 +1,1 @@
+"""Personal JLPT application server."""

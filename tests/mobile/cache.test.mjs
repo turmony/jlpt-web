@@ -163,3 +163,27 @@ test('a competing storage transaction cannot block downloads or retries', async 
   assert.equal(requests, 2);
   await ctx.close();
 });
+
+test('explicit retry replaces a still-pending image request', async () => {
+  const { ctx, page } = await pageForTest();
+  const body = await readFile(resolve(study, 'jlpt-notes/assets/grammar/n1/N1-G-0031-connection.png'));
+  let requests = 0;
+  await page.route('**/retry.png', route => {
+    requests++;
+    if (requests === 1) return;
+    return route.fulfill({ contentType: 'image/png', body });
+  });
+  const result = await page.evaluate(async () => {
+    const { createImageLoader } = await import('/image-loader.mjs');
+    const loader = createImageLoader();
+    loader.load('/retry.png', 'revision-a').catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return Promise.race([
+      loader.load('/retry.png', 'revision-a', { retry: true }).then(blob => blob.type === 'image/png'),
+      new Promise(resolve => setTimeout(() => resolve(false), 2500)),
+    ]);
+  });
+  assert.equal(result, true, 'retry should start a new download while the old one is pending');
+  assert.equal(requests, 2);
+  await ctx.close();
+});

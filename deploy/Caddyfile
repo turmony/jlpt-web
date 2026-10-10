@@ -1,0 +1,37 @@
+{
+    admin 127.0.0.1:2019
+    auto_https off
+}
+
+# The cloud HTTP proxy terminates trusted HTTPS and forwards to port 8080.
+# Set origin in state/config.json to the exact public HTTPS endpoint.
+:8080 {
+    root * /srv/jlpt/static
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+        Content-Security-Policy "default-src 'self'; img-src 'self' blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        Cache-Control "no-store"
+    }
+    route {
+        @public path /login.html /login.mjs /site.css
+        handle @public {
+            file_server
+        }
+        @api path /api/* /auth/check
+        handle @api {
+            reverse_proxy 127.0.0.1:8765
+        }
+        handle {
+            forward_auth 127.0.0.1:8765 {
+                uri /auth/check
+                @unauthorized status 401
+                handle_response @unauthorized {
+                    redir * /login.html 303
+                }
+            }
+            file_server
+        }
+    }
+}

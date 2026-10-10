@@ -21,7 +21,10 @@ export function createImageLoader({ cache = createImageCache(), now = () => new 
     const day = localDay(now());
     const key = `${revision}|${url}`;
     const requestKey = `${day}|${key}`;
-    if (pending.has(requestKey)) return pending.get(requestKey).promise;
+    if (pending.has(requestKey)) {
+      if (!retry) return pending.get(requestKey).promise;
+      pending.get(requestKey).controller.abort();
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     const promise = (async () => {
@@ -39,7 +42,7 @@ export function createImageLoader({ cache = createImageCache(), now = () => new 
         return blob;
       } finally {
         clearTimeout(timeout);
-        pending.delete(requestKey);
+        if (pending.get(requestKey)?.controller === controller) pending.delete(requestKey);
       }
     })();
     pending.set(requestKey, { promise, controller, day });
