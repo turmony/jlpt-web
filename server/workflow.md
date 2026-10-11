@@ -2,7 +2,9 @@
 
 此节适用于网页启动的当前轮次，覆盖出卷／判卷 skill 中的提交与历史追加步骤。
 每轮先读取 `jlpt-notes/quizzes/web/current-turn.json`，不可沿用对话历史中的任务编号或轮次。
-其中 `task_id`、`turn`、`operation`、`handoff` 指定本轮身份、选定操作和交接路径；
+其中 `task_id`、`turn`、`operation`、`handoff` 指定本轮身份、操作提示和交接路径；
+`operation=auto` 表示按用户原文处理：介绍、解释、问答等普通对话直接回复，不必产生文件或交接记录。
+实际出卷／判卷或修改练习产物时，仍须执行下述交接和校验流程。历史操作提示不覆盖用户本轮原文。
 `papers` 列出网页试卷及正式作答，空 submission 表示尚未交卷。
 用户指定等级、卡片、题量、题型和目标试卷；目标不能唯一确定或流程要求确认时，向用户提问并保留已生成资料。
 
@@ -11,7 +13,7 @@
 不要直接修改 attempts.jsonl；判卷按既有 schema 产生每题 attempts，交给后台幂等追加。
 禁止改写用户已交卷答案。排序题仍按完整拼句是否自然计分。
 
-每轮在当前上下文的 `handoff` 路径写入 UTF-8 JSON 交接文件：
+出卷／判卷及需要澄清练习需求时，在当前上下文的 `handoff` 路径写入 UTF-8 JSON 交接文件：
 `task_id` 与 `turn` 取本轮上下文的值，`operation` 为 `generate`、`grade` 或 `clarify`，
 `message` 写实际结果或问题；出卷／判卷的 `slug` 写试卷 stem。
 

@@ -1,16 +1,16 @@
 import json
 import os
 import selectors
-import shutil
 import signal
 import subprocess
 import time
 from .models import catalog
+from .executables import resolve_cli
 
 CLIS = ('codex', 'qoder', 'agy')
 
 
-def command(cli, prompt, session=None, model='', effort=''):
+def command(cli, prompt, session=None, model='', effort='', persist_session=True):
     model_flags = ['--model', model] if model else []
     if cli == 'codex':
         flags = ['--json', '-c', 'approval_policy="never"', '-c', 'sandbox_workspace_write.network_access=true',
@@ -19,9 +19,10 @@ def command(cli, prompt, session=None, model='', effort=''):
             return ['codex', 'exec', 'resume', *flags, session, '-'], prompt
         return ['codex', 'exec', '--sandbox', 'workspace-write', *flags, '-'], prompt
     if cli == 'qoder':
-        return ['qoder', '-p', prompt, '--output-format', 'stream-json', '--permission-mode', 'auto',
+        return [resolve_cli(cli) or 'qoder', '-p', prompt, '--output-format', 'stream-json', '--include-partial-messages', '--permission-mode', 'auto',
                 *model_flags, *(['--reasoning-effort', effort] if effort else []),
-                *(['--session-id', session] if session else [])], ''
+                *([] if persist_session else ['--no-session-persistence']),
+                *(['--resume', session] if session else [])], ''
     if cli == 'agy':
         return ['agy', '-p', prompt, '--output-format', 'stream-json', '--dangerously-skip-permissions',
                 *model_flags, *(['--effort', effort] if effort else []),
@@ -51,8 +52,15 @@ def decode_event(cli, event):
             if result.get('status') != 'SUCCESS':
                 out['error'] = result.get('error') or result.get('status') or 'CLI 失败'
     else:
+        if event.get('type') == 'stream_event':
+            block = event.get('event', {})
+            delta = block.get('delta', {})
+            if block.get('type') == 'content_block_delta' and delta.get('type') == 'text_delta':
+                out.update(type='assistant', text=delta.get('text', ''), delta=True)
         if event.get('type') == 'assistant':
             out['text'] = '\n'.join(p.get('text', '') for p in event.get('message', {}).get('content', []) if p.get('type') == 'text')
+            if event.get('message', {}).get('id') and out['text']:
+                out.update(type='assistant', message_id='qoder-'+event['message']['id'])
         if event.get('type') == 'result':
             out['text'] = event.get('result', '')
             if event.get('is_error'):
@@ -63,7 +71,7 @@ def decode_event(cli, event):
 def status():
     result = []
     for cli in CLIS:
-        binary = shutil.which(cli)
+        binary = resolve_cli(cli)
         item = {'id': cli, 'installed': bool(binary), 'auth': 'unverified', 'detail': '未安装' if not binary else '已安装，登录状态尚未验证'}
         if binary:
             try:
@@ -82,8 +90,13 @@ def status():
     return result
 
 
-def run_cli(cli, prompt, session, cwd, callback, cancelled, timeout=3600, model='', effort=''):
-    argv, stdin = command(cli, prompt, session, model, effort)
+def run_cli(cli, prompt, session, cwd, callback, cancelled, timeout=3600, model='', effort='', transport=None, persist_session=True):
+    use_acp = cli == 'codex' and transport != 'exec'
+    if use_acp:
+        from .acp import command as acp_command
+        argv, stdin = acp_command(prompt, session, cwd, model, effort, timeout)
+    else:
+        argv, stdin = command(cli, prompt, session, model, effort, persist_session)
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, start_new_session=True)
     selector = selectors.DefaultSelector()
@@ -91,6 +104,8 @@ def run_cli(cli, prompt, session, cwd, callback, cancelled, timeout=3600, model=
     total = 0
     deadline = time.monotonic() + timeout
     error = None
+    assistant_texts = []
+    qoder_message_id = 'qoder-response'
     try:
         process.stdin.write(stdin.encode())
         process.stdin.close()
@@ -123,7 +138,24 @@ def run_cli(cli, prompt, session, cwd, callback, cancelled, timeout=3600, model=
                         callback({'diagnostic': line})
                         continue
                     try:
-                        event = decode_event(cli, json.loads(line))
+                        parsed = json.loads(line)
+                        event = parsed if use_acp else decode_event(cli, parsed)
+                        if cli == 'qoder' and not use_acp:
+                            partial=parsed.get('event', {})
+                            if partial.get('type') == 'message_start':
+                                qoder_message_id = 'qoder-'+partial.get('message', {}).get('id', 'response')
+                            if event.get('delta'):
+                                event['message_id'] = qoder_message_id
+                        if not use_acp and cli in ('qoder', 'agy'):
+                            terminal = parsed.get('type') == 'result' if cli == 'qoder' else parsed.get('event') == 'result'
+                            duplicate = event.get('text', '').strip() in [text.strip() for text in (*assistant_texts, ''.join(assistant_texts))]
+                            if terminal and assistant_texts and duplicate:
+                                # Result repeats the completed assistant response; retain its session/error.
+                                event.pop('text', None)
+                            elif not terminal and event.get('text'):
+                                assistant_texts.append(event['text'])
+                                if cli == 'agy':
+                                    event.update(type='assistant', message_id='agy-response', delta=True)
                     except (ValueError, TypeError, AttributeError):
                         event = {'diagnostic': line}
                     callback(event)
@@ -134,7 +166,12 @@ def run_cli(cli, prompt, session, cwd, callback, cancelled, timeout=3600, model=
     finally:
         selector.close()
         if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
+            # Let the ACP parent send session/cancel and clean up descendants.
+            # Sending SIGTERM to the whole group first would prevent delivery.
+            if use_acp:
+                process.send_signal(signal.SIGTERM)
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
             try:
                 process.wait(timeout=3)
             except subprocess.TimeoutExpired:

@@ -1,0 +1,629 @@
+{
+  "repository": "https://github.com/iOfficeAI/AionUi",
+  "version": "v1.9.25",
+  "commit": "bbada2a9268060d2b41ddf1d885a9b27ecd2103d",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "a515d5a76da6c082f0d3d33a597bf82e32ecdac8841ed1783ac081ebd6d62ebf",
+      "upstream_sha256": "a515d5a76da6c082f0d3d33a597bf82e32ecdac8841ed1783ac081ebd6d62ebf"
+    },
+    {
+      "path": "README.md",
+      "sha256": "e029a063ac4083e0d431ff0d01821c946fe92577ec9aaa00fbf080b62c070456"
+    },
+    {
+      "path": "src/common/adapter/ipcBridge.ts",
+      "sha256": "7bce8242af15f5541129775683d949aee0df461ace30e5222056cefe0f86f3e9",
+      "upstream_sha256": "7bce8242af15f5541129775683d949aee0df461ace30e5222056cefe0f86f3e9"
+    },
+    {
+      "path": "src/common/chat/chatLib.ts",
+      "sha256": "ed184b062d725172bbb46b58a2f3aeb43920ea5626ea8166afcdb4b6444b30bf",
+      "upstream_sha256": "ed184b062d725172bbb46b58a2f3aeb43920ea5626ea8166afcdb4b6444b30bf"
+    },
+    {
+      "path": "src/common/config/constants.ts",
+      "sha256": "adb0ccdb389e98886930f3bc08f6eb791cdcae9fa57e20e4b5fa0d39e815a1d4",
+      "upstream_sha256": "adb0ccdb389e98886930f3bc08f6eb791cdcae9fa57e20e4b5fa0d39e815a1d4"
+    },
+    {
+      "path": "src/common/config/presets/assistantPresets.ts",
+      "sha256": "69709c78688bf90fda3ca1e66a07e68f1eab1a26be664072e58835f4ba1177d0",
+      "upstream_sha256": "69709c78688bf90fda3ca1e66a07e68f1eab1a26be664072e58835f4ba1177d0"
+    },
+    {
+      "path": "src/common/types/acpTypes.ts",
+      "sha256": "7e829701a3081cb1e8cd9d06a9e2d0336a57628aafdb5261298daba091292832",
+      "upstream_sha256": "7e829701a3081cb1e8cd9d06a9e2d0336a57628aafdb5261298daba091292832"
+    },
+    {
+      "path": "src/common/utils/index.ts",
+      "sha256": "4283016b3d7769c31b7c8c91fb10083d607467dc8c6f6581de2cc0aa490226e8",
+      "upstream_sha256": "4283016b3d7769c31b7c8c91fb10083d607467dc8c6f6581de2cc0aa490226e8"
+    },
+    {
+      "path": "src/common/utils/utils.ts",
+      "sha256": "9e73cf4dbe6f789a6949e94bcc0669a3719e9ad9905073972676caa04c696a11",
+      "upstream_sha256": "9e73cf4dbe6f789a6949e94bcc0669a3719e9ad9905073972676caa04c696a11"
+    },
+    {
+      "path": "src/process/agent/acp/AcpConnection.ts",
+      "sha256": "2343dd1c5f5087f7dffa9089755bd34195d550fe6b67e0f73e83675b3ee84d1a",
+      "upstream_sha256": "48511478be1961d4e52c4303b17bbaec9952ac1d0bad3db7f20e50c161816163",
+      "adaptation": "Use ACP selected/reject-option and cancelled outcomes; rejected is invalid in the maintained bridge SDK."
+    },
+    {
+      "path": "src/process/agent/acp/acpConnectors.ts",
+      "sha256": "953b362886b5edf45b5557e671f052d756ded6b7d77a7f013b2b824611bddea3",
+      "upstream_sha256": "953b362886b5edf45b5557e671f052d756ded6b7d77a7f013b2b824611bddea3"
+    },
+    {
+      "path": "src/process/agent/acp/utils.ts",
+      "sha256": "90c2b8b0d12e8f96f32dd88af6eeedb79a3be58e990787bef7c8c78ec9a19da1",
+      "upstream_sha256": "90c2b8b0d12e8f96f32dd88af6eeedb79a3be58e990787bef7c8c78ec9a19da1"
+    },
+    {
+      "path": "src/renderer/assets/icons/cowork.svg",
+      "sha256": "ae57c28873a255adc9b1f1a95d71c39164b0d6aaa4c401386d7c4e2e9c47b831",
+      "upstream_sha256": "ae57c28873a255adc9b1f1a95d71c39164b0d6aaa4c401386d7c4e2e9c47b831"
+    },
+    {
+      "path": "src/renderer/assets/icons/file-icon.svg",
+      "sha256": "37f3ee6945d1329f25458aba071dce7604f160cb9f9d128cb1e0310eecc6d36e",
+      "upstream_sha256": "37f3ee6945d1329f25458aba071dce7604f160cb9f9d128cb1e0310eecc6d36e"
+    },
+    {
+      "path": "src/renderer/assets/logos/ai-china/kimi.svg",
+      "sha256": "487355284101e43d1f605eaf29aff4b669cc25c2036e28317e6f82369f21d876",
+      "upstream_sha256": "487355284101e43d1f605eaf29aff4b669cc25c2036e28317e6f82369f21d876"
+    },
+    {
+      "path": "src/renderer/assets/logos/ai-china/qwen.svg",
+      "sha256": "e127517d17e532000b77af336e472b3a5e99e91a4a17d13c69e582ebee2b6986",
+      "upstream_sha256": "e127517d17e532000b77af336e472b3a5e99e91a4a17d13c69e582ebee2b6986"
+    },
+    {
+      "path": "src/renderer/assets/logos/ai-major/claude.svg",
+      "sha256": "d4366130584b1027bbc376e3c06a48500d6e862403a69556726d7722610e5561",
+      "upstream_sha256": "d4366130584b1027bbc376e3c06a48500d6e862403a69556726d7722610e5561"
+    },
+    {
+      "path": "src/renderer/assets/logos/ai-major/gemini.svg",
+      "sha256": "0aefe8c31800242e62cb3dd853dccaed34d4275d4d955e0819cb8e00f6ed2ba9",
+      "upstream_sha256": "0aefe8c31800242e62cb3dd853dccaed34d4275d4d955e0819cb8e00f6ed2ba9"
+    },
+    {
+      "path": "src/renderer/assets/logos/ai-major/mistral.svg",
+      "sha256": "7eb3fe4bc22d2a72c29b772278976475ab00bde3c11c7179093e878ff29b9b37",
+      "upstream_sha256": "7eb3fe4bc22d2a72c29b772278976475ab00bde3c11c7179093e878ff29b9b37"
+    },
+    {
+      "path": "src/renderer/assets/logos/brand/aion.svg",
+      "sha256": "2967ff54a19e411b7330d1563d20f58003feb3aa9de5235b31396790aeee4d2e",
+      "upstream_sha256": "2967ff54a19e411b7330d1563d20f58003feb3aa9de5235b31396790aeee4d2e"
+    },
+    {
+      "path": "src/renderer/assets/logos/brand/auggie.svg",
+      "sha256": "c276a1d8f5cf6aae8ffd955da6f85b7627bddbedacc1221429c3548022045169",
+      "upstream_sha256": "c276a1d8f5cf6aae8ffd955da6f85b7627bddbedacc1221429c3548022045169"
+    },
+    {
+      "path": "src/renderer/assets/logos/brand/droid.svg",
+      "sha256": "973c367579555a9b5fb3c3360a97c2aca810dedc22b459bc9c16e41d7d96e21e",
+      "upstream_sha256": "973c367579555a9b5fb3c3360a97c2aca810dedc22b459bc9c16e41d7d96e21e"
+    },
+    {
+      "path": "src/renderer/assets/logos/brand/hermes.svg",
+      "sha256": "998f7d446ca80c8c66efb31017fd1d130a848cb2a9a810b6c8bc093eccf5bb96",
+      "upstream_sha256": "998f7d446ca80c8c66efb31017fd1d130a848cb2a9a810b6c8bc093eccf5bb96"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/coding/codebuddy.svg",
+      "sha256": "149baa45b9f9370c15f20d599afe381aa138e4fc13acf503f435c571ac93ecf5",
+      "upstream_sha256": "149baa45b9f9370c15f20d599afe381aa138e4fc13acf503f435c571ac93ecf5"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/coding/codex.svg",
+      "sha256": "b2fcfe4860521d217ba61d07e9966519ab0f85dc71fa4efa829a3c328f256770",
+      "upstream_sha256": "b2fcfe4860521d217ba61d07e9966519ab0f85dc71fa4efa829a3c328f256770"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/coding/cursor.png",
+      "sha256": "5a372a6a7ad202279777c5ee2bd445e95bbc05659a5dfae160f9be91459a1600",
+      "upstream_sha256": "5a372a6a7ad202279777c5ee2bd445e95bbc05659a5dfae160f9be91459a1600"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/coding/opencode-dark.svg",
+      "sha256": "1acf935fb4ca2d7fa7d58055cf1f8c55bc057f63bd550ca63208a584613807b4",
+      "upstream_sha256": "1acf935fb4ca2d7fa7d58055cf1f8c55bc057f63bd550ca63208a584613807b4"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/coding/opencode-light.svg",
+      "sha256": "692a713d14b6512937d9b9a11a3d6f1f6310516e63b2c7f1315b76d463bd60e0",
+      "upstream_sha256": "692a713d14b6512937d9b9a11a3d6f1f6310516e63b2c7f1315b76d463bd60e0"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/coding/qoder.png",
+      "sha256": "eb85bef66ea8c7bc5e98c707c8a86ef803559f4196790f2f37183675f7cbdad3",
+      "upstream_sha256": "eb85bef66ea8c7bc5e98c707c8a86ef803559f4196790f2f37183675f7cbdad3"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/coding/snow.png",
+      "sha256": "19fa517f3e0d4df29a5fb00a54015a5579a76ab92b9cc014ff0c1d25af48a009",
+      "upstream_sha256": "19fa517f3e0d4df29a5fb00a54015a5579a76ab92b9cc014ff0c1d25af48a009"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/github.svg",
+      "sha256": "3317e8bf33422d1ea16f2ff88cdc8137ca02aab7603481f45bfb1bd3530431dc",
+      "upstream_sha256": "3317e8bf33422d1ea16f2ff88cdc8137ca02aab7603481f45bfb1bd3530431dc"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/goose.svg",
+      "sha256": "87084181167960d707028789b5f4a9e46c99a483b5d76c52c24e0a5ebe5b93e8",
+      "upstream_sha256": "87084181167960d707028789b5f4a9e46c99a483b5d76c52c24e0a5ebe5b93e8"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/nanobot.svg",
+      "sha256": "7844bbcc04c50e5d4c87a8f8aa4fcb0d274d52092c37859a14193f190888a6f5",
+      "upstream_sha256": "7844bbcc04c50e5d4c87a8f8aa4fcb0d274d52092c37859a14193f190888a6f5"
+    },
+    {
+      "path": "src/renderer/assets/logos/tools/openclaw.svg",
+      "sha256": "fa7e2ec07ebfa696bcc8c27d7e36425cbb7b1772f6f7f04ce390cf5f1c35cf0e",
+      "upstream_sha256": "fa7e2ec07ebfa696bcc8c27d7e36425cbb7b1772f6f7f04ce390cf5f1c35cf0e"
+    },
+    {
+      "path": "src/renderer/components/Markdown/CodeBlock.tsx",
+      "sha256": "6cbbe94afc29aa8373e88072eecdcfe8c6fde5711bc91ecc47513bca4506ed85",
+      "upstream_sha256": "6cbbe94afc29aa8373e88072eecdcfe8c6fde5711bc91ecc47513bca4506ed85"
+    },
+    {
+      "path": "src/renderer/components/Markdown/MermaidBlock.tsx",
+      "sha256": "4b6e934a8f1c34425d2d076beca2729b5d72d62acc04610b6388e051e5a3215b",
+      "upstream_sha256": "4b6e934a8f1c34425d2d076beca2729b5d72d62acc04610b6388e051e5a3215b"
+    },
+    {
+      "path": "src/renderer/components/Markdown/ShadowView.tsx",
+      "sha256": "aa84cb1f93812118e4ba29d7d2627fb3451d65e34e16e2ac3e9c0beb7574becd",
+      "upstream_sha256": "aa84cb1f93812118e4ba29d7d2627fb3451d65e34e16e2ac3e9c0beb7574becd"
+    },
+    {
+      "path": "src/renderer/components/Markdown/index.tsx",
+      "sha256": "aa682d2914be646ddb21a1bf8862d739d7f7bad62cc5d56a321e3ae6d8b10bc5",
+      "upstream_sha256": "aa682d2914be646ddb21a1bf8862d739d7f7bad62cc5d56a321e3ae6d8b10bc5"
+    },
+    {
+      "path": "src/renderer/components/Markdown/markdownUtils.ts",
+      "sha256": "5dd2d743c2e7e28314515f12c26cfe98bc94b082e40bf2ff668e2681b855128a",
+      "upstream_sha256": "5dd2d743c2e7e28314515f12c26cfe98bc94b082e40bf2ff668e2681b855128a"
+    },
+    {
+      "path": "src/renderer/components/agent/AcpConfigSelector.tsx",
+      "sha256": "b2d569424c67aafec5a4454094a480c2717e853edd67937de9989a5ba648d93a",
+      "upstream_sha256": "b2d569424c67aafec5a4454094a480c2717e853edd67937de9989a5ba648d93a"
+    },
+    {
+      "path": "src/renderer/components/agent/MarqueePillLabel.tsx",
+      "sha256": "a4beb1c032d2a88455ad91b650ae59ef12b4082fbb3dbd56d42da80a7d07ccc7",
+      "upstream_sha256": "a4beb1c032d2a88455ad91b650ae59ef12b4082fbb3dbd56d42da80a7d07ccc7"
+    },
+    {
+      "path": "src/renderer/components/base/FileChangesPanel.tsx",
+      "sha256": "82c63f19ae7fd844d591e9ff894e6f606654f4a772cfc4a1fa1ab3992fa8b740",
+      "upstream_sha256": "82c63f19ae7fd844d591e9ff894e6f606654f4a772cfc4a1fa1ab3992fa8b740"
+    },
+    {
+      "path": "src/renderer/components/chat/AtFileMenu/index.tsx",
+      "sha256": "f91b2c9ed829d21f5e045ed58c1b464f4cf8fd44f634cc190d1d8a289d512bec",
+      "upstream_sha256": "f91b2c9ed829d21f5e045ed58c1b464f4cf8fd44f634cc190d1d8a289d512bec"
+    },
+    {
+      "path": "src/renderer/components/chat/BtwOverlay/BtwOverlay.module.css",
+      "sha256": "2ad1466ef61161d66f7e3fda1dc91dcfe762bf6c8f4b5b13fb4aa55088e8bb3c",
+      "upstream_sha256": "2ad1466ef61161d66f7e3fda1dc91dcfe762bf6c8f4b5b13fb4aa55088e8bb3c"
+    },
+    {
+      "path": "src/renderer/components/chat/BtwOverlay/index.tsx",
+      "sha256": "a60b29a9a6dddb0726ebf4c19e8e7a14e94d05cb8fbbffa3661c60fa8e8453a4",
+      "upstream_sha256": "a60b29a9a6dddb0726ebf4c19e8e7a14e94d05cb8fbbffa3661c60fa8e8453a4"
+    },
+    {
+      "path": "src/renderer/components/chat/BtwOverlay/useBtwCommand.ts",
+      "sha256": "901499156036d35417b31834528fb58233200e87cc07c4c48e5a263a14b04585",
+      "upstream_sha256": "901499156036d35417b31834528fb58233200e87cc07c4c48e5a263a14b04585"
+    },
+    {
+      "path": "src/renderer/components/chat/CollapsibleContent.tsx",
+      "sha256": "38689ffdd60a059a9558bd0457899733540d781cc75272ec0aa262dedaa07397",
+      "upstream_sha256": "38689ffdd60a059a9558bd0457899733540d781cc75272ec0aa262dedaa07397"
+    },
+    {
+      "path": "src/renderer/components/chat/SlashCommandMenu.tsx",
+      "sha256": "4f3e77467e1440dfaf6383cb816116acecd5f462ffde130bfc37708d46cffd26",
+      "upstream_sha256": "4f3e77467e1440dfaf6383cb816116acecd5f462ffde130bfc37708d46cffd26"
+    },
+    {
+      "path": "src/renderer/components/chat/sendbox.css",
+      "sha256": "55ed80049380bdd3003824ee68bc6d6255d28c8f9a3b89b89711dc1279edec39",
+      "upstream_sha256": "55ed80049380bdd3003824ee68bc6d6255d28c8f9a3b89b89711dc1279edec39"
+    },
+    {
+      "path": "src/renderer/components/chat/sendbox.tsx",
+      "sha256": "a0758101776eea5d7b338b737259eb605a84bc373bc8134ce8a5355095e0df98",
+      "upstream_sha256": "1381f7d80741aaa6ce9e9e99fbd9dcae68dcd8b5fd1943c443b51087e1b25790",
+      "adaptation": "Optional DOM ids, sendDisabled, clearOnSend, enableBuiltinCommands and inlineReplyQuote props preserve exact JLPT input and direct sending; accessible send label."
+    },
+    {
+      "path": "src/renderer/components/media/FilePreview.tsx",
+      "sha256": "c7c76f78bc44a622aa0f6fde1abeb2d948388f7a58db80a00d2260394be9ade9",
+      "upstream_sha256": "c7c76f78bc44a622aa0f6fde1abeb2d948388f7a58db80a00d2260394be9ade9"
+    },
+    {
+      "path": "src/renderer/components/media/HorizontalFileList.tsx",
+      "sha256": "3ec80dd019f210ac436f4a06740233f34787430fcd067f41ac46f566827e576f",
+      "upstream_sha256": "3ec80dd019f210ac436f4a06740233f34787430fcd067f41ac46f566827e576f"
+    },
+    {
+      "path": "src/renderer/components/media/LocalImageView.tsx",
+      "sha256": "80785f18e07385a1b2c802f8d38d225aa3b47a7d6bc1cccd8d9eb0431de20d4b",
+      "upstream_sha256": "80785f18e07385a1b2c802f8d38d225aa3b47a7d6bc1cccd8d9eb0431de20d4b"
+    },
+    {
+      "path": "src/renderer/hooks/agent/usePresetAssistantInfo.ts",
+      "sha256": "dbd0b97c3eba5e5ca83afa4e497d87f5734c58b2b2e503d14134d67da3f1c844",
+      "upstream_sha256": "dbd0b97c3eba5e5ca83afa4e497d87f5734c58b2b2e503d14134d67da3f1c844"
+    },
+    {
+      "path": "src/renderer/hooks/chat/useCompositionInput.ts",
+      "sha256": "8cb35f2dc1f0b2eb36104b4f5ef098885c9e4deab3f9611b74920bdbf7a706f8",
+      "upstream_sha256": "8cb35f2dc1f0b2eb36104b4f5ef098885c9e4deab3f9611b74920bdbf7a706f8"
+    },
+    {
+      "path": "src/renderer/hooks/chat/useInputFocusRing.ts",
+      "sha256": "8f6bf99da933d07551c0faf56e9538ac07632a7f657fcd3cc7f0f6cc5031cb18",
+      "upstream_sha256": "8f6bf99da933d07551c0faf56e9538ac07632a7f657fcd3cc7f0f6cc5031cb18"
+    },
+    {
+      "path": "src/renderer/hooks/chat/useSlashCommandController.ts",
+      "sha256": "873b0d5a340bdbc2cdb0fdb9687d4aeeda394cceecf5a05ba5409f20e8488b04",
+      "upstream_sha256": "873b0d5a340bdbc2cdb0fdb9687d4aeeda394cceecf5a05ba5409f20e8488b04"
+    },
+    {
+      "path": "src/renderer/hooks/context/ConversationContext.tsx",
+      "sha256": "c659b906f36d18e12b22373b0364a8cb53a9d4a6ca8448dbbf25d12475b0e55c",
+      "upstream_sha256": "c659b906f36d18e12b22373b0364a8cb53a9d4a6ca8448dbbf25d12475b0e55c"
+    },
+    {
+      "path": "src/renderer/hooks/context/LayoutContext.tsx",
+      "sha256": "b2deef4b8d848d82f8389443863efe962ed3863dda975ac7a59f8459ccc14dac",
+      "upstream_sha256": "b2deef4b8d848d82f8389443863efe962ed3863dda975ac7a59f8459ccc14dac"
+    },
+    {
+      "path": "src/renderer/hooks/context/ThemeContext.tsx",
+      "sha256": "c4561ccc52308757181024a83d6df6f89682973bc67c36856da9127ddbd5b395",
+      "upstream_sha256": "c4561ccc52308757181024a83d6df6f89682973bc67c36856da9127ddbd5b395"
+    },
+    {
+      "path": "src/renderer/hooks/file/useDiffPreviewHandlers.ts",
+      "sha256": "f76a09b06bae4759f2041ed6d6764af3deeff40984c4c74f5ef3b18df8b02aec",
+      "upstream_sha256": "f76a09b06bae4759f2041ed6d6764af3deeff40984c4c74f5ef3b18df8b02aec"
+    },
+    {
+      "path": "src/renderer/hooks/system/useSpeechInput.ts",
+      "sha256": "06dc7a05ed526c6f32413c50c5f8db05cabf1a290b26426b0970fc03e7be096b",
+      "upstream_sha256": "06dc7a05ed526c6f32413c50c5f8db05cabf1a290b26426b0970fc03e7be096b"
+    },
+    {
+      "path": "src/renderer/hooks/system/useTheme.ts",
+      "sha256": "4dedc368068f9c038a3f54b5be1557e61df16cab73198a3d159ed9aaf4c0c498",
+      "upstream_sha256": "4dedc368068f9c038a3f54b5be1557e61df16cab73198a3d159ed9aaf4c0c498"
+    },
+    {
+      "path": "src/renderer/hooks/ui/useColorScheme.ts",
+      "sha256": "d98bbd6ae3a153dbd993899787ac4f41288d35b5cf57ef8bac3d4becfcfae9ba",
+      "upstream_sha256": "d98bbd6ae3a153dbd993899787ac4f41288d35b5cf57ef8bac3d4becfcfae9ba"
+    },
+    {
+      "path": "src/renderer/hooks/ui/useFontScale.ts",
+      "sha256": "87e5229e7e2c7b6625e082bcaac480d065ba25f78a2866dee528c2e1638884b9",
+      "upstream_sha256": "87e5229e7e2c7b6625e082bcaac480d065ba25f78a2866dee528c2e1638884b9"
+    },
+    {
+      "path": "src/renderer/hooks/ui/useLatestRef.ts",
+      "sha256": "b761be26a8868292b08c6214719aa4a577a18df969b7b012d912485f4c8eecaa",
+      "upstream_sha256": "b761be26a8868292b08c6214719aa4a577a18df969b7b012d912485f4c8eecaa"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/MessageList.tsx",
+      "sha256": "ad81c74ae9bc1bb515324f2976cf00e8d615f24dec1ef5226c9ef0e7c079198d",
+      "upstream_sha256": "ad81c74ae9bc1bb515324f2976cf00e8d615f24dec1ef5226c9ef0e7c079198d"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/acp/MessageAcpPermission.tsx",
+      "sha256": "bea919982f5818a05f2a42fce9a25bf9ef88ebb43f40439a45d821723fcbf2ea",
+      "upstream_sha256": "bea919982f5818a05f2a42fce9a25bf9ef88ebb43f40439a45d821723fcbf2ea"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/acp/MessageAcpToolCall.tsx",
+      "sha256": "069f8617fdd9e05ebd1b9043fd4f8071e595c732b15446e949f3c735c1e59ae0",
+      "upstream_sha256": "069f8617fdd9e05ebd1b9043fd4f8071e595c732b15446e949f3c735c1e59ae0"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/MessageCodexToolCall.tsx",
+      "sha256": "cd35833003aba9426c1cda9c0b8777ba3bd5c2f623532c7851514c70011aa4d4",
+      "upstream_sha256": "cd35833003aba9426c1cda9c0b8777ba3bd5c2f623532c7851514c70011aa4d4"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/MessageFileChanges.tsx",
+      "sha256": "4739735098e04c3cf1ca3ed4db9dcd1fb7df7e88bfcce58e72d22e1d47386783",
+      "upstream_sha256": "4739735098e04c3cf1ca3ed4db9dcd1fb7df7e88bfcce58e72d22e1d47386783"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/ToolCallComponent/BaseToolCallDisplay.tsx",
+      "sha256": "9b34c8780e52b2500b7b6c35afd949edf0520b209064b6c5a3be812172ba8b2c",
+      "upstream_sha256": "9b34c8780e52b2500b7b6c35afd949edf0520b209064b6c5a3be812172ba8b2c"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/ToolCallComponent/ExecCommandDisplay.tsx",
+      "sha256": "1a82cb9af3edda0368d6ee988313f5da38b5f1ff16eb5cf00ea73e0d5f63deb8",
+      "upstream_sha256": "1a82cb9af3edda0368d6ee988313f5da38b5f1ff16eb5cf00ea73e0d5f63deb8"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/ToolCallComponent/GenericDisplay.tsx",
+      "sha256": "ac5de04f0857757a616dfa1d0ddaa227c7708710bf7d032eb14df82f40b56a51",
+      "upstream_sha256": "ac5de04f0857757a616dfa1d0ddaa227c7708710bf7d032eb14df82f40b56a51"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/ToolCallComponent/McpToolDisplay.tsx",
+      "sha256": "80a1d6bea8f0d585b2bb5e66cd75a28809e97a69b3610a39fe0b1dc789a48c88",
+      "upstream_sha256": "80a1d6bea8f0d585b2bb5e66cd75a28809e97a69b3610a39fe0b1dc789a48c88"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/ToolCallComponent/PatchDisplay.tsx",
+      "sha256": "32a64401d36c204da563f5523df41d4ad5ca3d84058d62e44b1408aaa36a3ef1",
+      "upstream_sha256": "32a64401d36c204da563f5523df41d4ad5ca3d84058d62e44b1408aaa36a3ef1"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/ToolCallComponent/TurnDiffDisplay.tsx",
+      "sha256": "2efbec070a22a26c22916ef63c5f6dd5073321b74e010131a2306c0846e3ad39",
+      "upstream_sha256": "2efbec070a22a26c22916ef63c5f6dd5073321b74e010131a2306c0846e3ad39"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/codex/ToolCallComponent/WebSearchDisplay.tsx",
+      "sha256": "758ac3e70ea687736bb18f1613e804c6db762db3a418354c38548c063a3a84f1",
+      "upstream_sha256": "758ac3e70ea687736bb18f1613e804c6db762db3a418354c38548c063a3a84f1"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageAgentStatus.tsx",
+      "sha256": "28f029be9eaa0af1983c7856b6780bd7a76abd9348f7ccf2e21d4fa3d77139f8",
+      "upstream_sha256": "28f029be9eaa0af1983c7856b6780bd7a76abd9348f7ccf2e21d4fa3d77139f8"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageCronBadge.tsx",
+      "sha256": "ac58719251b2485dd578bdc4e6be0e4de89957a7817fdae6231fdfbd269ecbb9",
+      "upstream_sha256": "ac58719251b2485dd578bdc4e6be0e4de89957a7817fdae6231fdfbd269ecbb9"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageCronTrigger.tsx",
+      "sha256": "fe51034dcc4938da6a6a622001475a1fdb9a4c6df4304839d01de4b9835ba928",
+      "upstream_sha256": "fe51034dcc4938da6a6a622001475a1fdb9a4c6df4304839d01de4b9835ba928"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessagePlan.tsx",
+      "sha256": "7eaba598a73c291a69e7e696edb4ad5a6059af9d82f638dd581bb232613f335c",
+      "upstream_sha256": "7eaba598a73c291a69e7e696edb4ad5a6059af9d82f638dd581bb232613f335c"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageSkillSuggest.tsx",
+      "sha256": "760deb43c550915ccbdc9be2cd24368e630101446654ebd274f8040e5cefd4d2",
+      "upstream_sha256": "760deb43c550915ccbdc9be2cd24368e630101446654ebd274f8040e5cefd4d2"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageText.tsx",
+      "sha256": "9c367766ec0f4fa322db01984be10dc407859b63e4b49448e2762d3ed7776629",
+      "upstream_sha256": "a46105c66d8d3af478a990f63c83d07687df081b3349b984d513cdafe70a2364",
+      "adaptation": "Optional application workTime metadata is shown in the assistant footer; user and assistant message timestamps remain visible without hover."
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageThinking.module.css",
+      "sha256": "49ae3ad66050b64d65c496292ae315ec93568b0f7d87ad90d3f04291ec9e7084",
+      "upstream_sha256": "49ae3ad66050b64d65c496292ae315ec93568b0f7d87ad90d3f04291ec9e7084"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageThinking.tsx",
+      "sha256": "b9875c4c2f5b9f3c6f6fe6bd4b5f63ba6fdc25af3a542c0eb8b47fed5e07e950",
+      "upstream_sha256": "b9875c4c2f5b9f3c6f6fe6bd4b5f63ba6fdc25af3a542c0eb8b47fed5e07e950"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageTips.tsx",
+      "sha256": "57b635360dced1b6e7b918a5bf724cdbccb86719df2a17d67b833c12f3835a07",
+      "upstream_sha256": "57b635360dced1b6e7b918a5bf724cdbccb86719df2a17d67b833c12f3835a07"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageToolCall.tsx",
+      "sha256": "9823d1f061c2c645c246f8e931e2904b64a310cd1358582c15cf8f1afd05fff6",
+      "upstream_sha256": "9823d1f061c2c645c246f8e931e2904b64a310cd1358582c15cf8f1afd05fff6"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageToolGroup.tsx",
+      "sha256": "eadb30ff78e1bbfe148c81d8f6a8e2315b06d7c104a1bf56cf57df18168b26ef",
+      "upstream_sha256": "eadb30ff78e1bbfe148c81d8f6a8e2315b06d7c104a1bf56cf57df18168b26ef"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageToolGroupSummary.css",
+      "sha256": "109e08b3274b0811c410e6619cce36be7900e8cb270171b66b4c87324a9529cd",
+      "upstream_sha256": "109e08b3274b0811c410e6619cce36be7900e8cb270171b66b4c87324a9529cd"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/MessageToolGroupSummary.tsx",
+      "sha256": "1e0be308e301866b3f7e5c9d62a059de2ddc97e9c489fde6692d80f2b8e70f61",
+      "upstream_sha256": "1e0be308e301866b3f7e5c9d62a059de2ddc97e9c489fde6692d80f2b8e70f61"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/SelectionReplyButton.tsx",
+      "sha256": "7feeea4a7d31f6250c1efa38294a4f35083cd7bfca5bfd455f64c9056734f826",
+      "upstream_sha256": "7feeea4a7d31f6250c1efa38294a4f35083cd7bfca5bfd455f64c9056734f826"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/SkillSuggestCard.tsx",
+      "sha256": "a6818ef8275323861baba4fcd8ba10336475617885ccc88246efe603b63135b0",
+      "upstream_sha256": "a6818ef8275323861baba4fcd8ba10336475617885ccc88246efe603b63135b0"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/components/TeammateMessageAvatar.tsx",
+      "sha256": "cb8cdef8620c53c3ce7b64752c56c3a57c1752d5c8319b43cbefbc7f9be9105b",
+      "upstream_sha256": "cb8cdef8620c53c3ce7b64752c56c3a57c1752d5c8319b43cbefbc7f9be9105b"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/constants.ts",
+      "sha256": "7067ad6afe2834645faa44e3ea8b1c839df5defc6e99294915e45284b519960b",
+      "upstream_sha256": "7067ad6afe2834645faa44e3ea8b1c839df5defc6e99294915e45284b519960b"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/hooks.ts",
+      "sha256": "10aa7c70767b69fdc141ab4d7a4b1d82dd79665cbaf747206a5529588806e0ed",
+      "upstream_sha256": "10aa7c70767b69fdc141ab4d7a4b1d82dd79665cbaf747206a5529588806e0ed"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/messages.css",
+      "sha256": "0f2e402144fda46c3b9fd455f693691fd5598add923031ca4e91b5a14d72a381",
+      "upstream_sha256": "0f2e402144fda46c3b9fd455f693691fd5598add923031ca4e91b5a14d72a381"
+    },
+    {
+      "path": "src/renderer/pages/conversation/Messages/useAutoScroll.ts",
+      "sha256": "f45b581b34b76e5aafcf77d6f264af7f42c9114122632d7a1f591c5e9cdf8203",
+      "upstream_sha256": "f45b581b34b76e5aafcf77d6f264af7f42c9114122632d7a1f591c5e9cdf8203"
+    },
+    {
+      "path": "src/renderer/services/SpeechToTextService.ts",
+      "sha256": "c8d4b9a6f5b8b1c3b20709e4cd7eb6fd00047bd535d15aa98382ea5f54543b2a",
+      "upstream_sha256": "c8d4b9a6f5b8b1c3b20709e4cd7eb6fd00047bd535d15aa98382ea5f54543b2a"
+    },
+    {
+      "path": "src/renderer/services/i18n/locales/zh-CN/common.json",
+      "sha256": "cdce18ddf1b6ebe1ec25ede6aaa56fdfdbf7694ae767299a6db43c255afb175f",
+      "upstream_sha256": "cdce18ddf1b6ebe1ec25ede6aaa56fdfdbf7694ae767299a6db43c255afb175f"
+    },
+    {
+      "path": "src/renderer/services/i18n/locales/zh-CN/conversation.json",
+      "sha256": "63ccf397d9b4d6c49ea659bf60f9e4d0d3ab5f207e555f903cbf3bf13320c4a1",
+      "upstream_sha256": "63ccf397d9b4d6c49ea659bf60f9e4d0d3ab5f207e555f903cbf3bf13320c4a1"
+    },
+    {
+      "path": "src/renderer/services/i18n/locales/zh-CN/messages.json",
+      "sha256": "f8c76f6d330bea9c6ef68de60f96d979017c525edab8de91157320bf65b73b4a",
+      "upstream_sha256": "f8c76f6d330bea9c6ef68de60f96d979017c525edab8de91157320bf65b73b4a"
+    },
+    {
+      "path": "src/renderer/styles/colors.ts",
+      "sha256": "e886e3d851565eba9a4c50f900df6e975ecfdf6e0b519fe6754895af09894075",
+      "upstream_sha256": "e886e3d851565eba9a4c50f900df6e975ecfdf6e0b519fe6754895af09894075"
+    },
+    {
+      "path": "src/renderer/utils/chat/atFileQuery.ts",
+      "sha256": "a1e3d6c0f2e6742da36c7a076b004d0622bd49b1600d738611d6b78fc7ac19ac",
+      "upstream_sha256": "a1e3d6c0f2e6742da36c7a076b004d0622bd49b1600d738611d6b78fc7ac19ac"
+    },
+    {
+      "path": "src/renderer/utils/chat/chatMinimapEvents.ts",
+      "sha256": "e71029c32ff67511e28b175f631e62072811c85a9aa665444a54af4bcc124493",
+      "upstream_sha256": "e71029c32ff67511e28b175f631e62072811c85a9aa665444a54af4bcc124493"
+    },
+    {
+      "path": "src/renderer/utils/chat/getLastAssistantText.ts",
+      "sha256": "c0eebf9e9f45ef0d7e9ab56e6d476ef173aafbff5a92a5cae62d27d52dda9954",
+      "upstream_sha256": "c0eebf9e9f45ef0d7e9ab56e6d476ef173aafbff5a92a5cae62d27d52dda9954"
+    },
+    {
+      "path": "src/renderer/utils/chat/latexDelimiters.ts",
+      "sha256": "a6e06444c462366d95604724b15c439c7efb8d1f196ac6bb3a0899a46dc48cc1",
+      "upstream_sha256": "a6e06444c462366d95604724b15c439c7efb8d1f196ac6bb3a0899a46dc48cc1"
+    },
+    {
+      "path": "src/renderer/utils/chat/messageHistory.ts",
+      "sha256": "0bfb9c81aa037bd0a7d3ca1d16bd4550a544dee62c0a6a8aafbe5d1426f810c0",
+      "upstream_sha256": "0bfb9c81aa037bd0a7d3ca1d16bd4550a544dee62c0a6a8aafbe5d1426f810c0"
+    },
+    {
+      "path": "src/renderer/utils/chat/skillSuggestParser.ts",
+      "sha256": "c8d69d31710c82bdf58da42aa09df927d7188804c20fe4c2807148dc4588d411",
+      "upstream_sha256": "c8d69d31710c82bdf58da42aa09df927d7188804c20fe4c2807148dc4588d411"
+    },
+    {
+      "path": "src/renderer/utils/chat/thinkTagFilter.ts",
+      "sha256": "140a61b444e5996ea7ec78302fb19147604810c8117f91601389fa04856c115d",
+      "upstream_sha256": "140a61b444e5996ea7ec78302fb19147604810c8117f91601389fa04856c115d"
+    },
+    {
+      "path": "src/renderer/utils/common.ts",
+      "sha256": "c102a5fe8423187e1c888ddd2e0fdaf9835703b2d9a610d9e1dde0d9d6dc15ae",
+      "upstream_sha256": "c102a5fe8423187e1c888ddd2e0fdaf9835703b2d9a610d9e1dde0d9d6dc15ae"
+    },
+    {
+      "path": "src/renderer/utils/emitter.ts",
+      "sha256": "8950b796eae1e471212906ba50945331cf3b9cb0dd6099b8cc9c66d40d2062dc",
+      "upstream_sha256": "8950b796eae1e471212906ba50945331cf3b9cb0dd6099b8cc9c66d40d2062dc"
+    },
+    {
+      "path": "src/renderer/utils/file/diffUtils.ts",
+      "sha256": "61bc1827a8fcf9483f862a6ea6d9aeefe4e4620663116fd45139958b61d2a5b9",
+      "upstream_sha256": "61bc1827a8fcf9483f862a6ea6d9aeefe4e4620663116fd45139958b61d2a5b9"
+    },
+    {
+      "path": "src/renderer/utils/file/fileSelection.ts",
+      "sha256": "78eb00ce5c6304352c5909b91d0a0b0ab0314228676ea08accb4b670c1719a3f",
+      "upstream_sha256": "78eb00ce5c6304352c5909b91d0a0b0ab0314228676ea08accb4b670c1719a3f"
+    },
+    {
+      "path": "src/renderer/utils/file/fileType.ts",
+      "sha256": "722846d9837601e7a79182500a2af0b37f2e909cf68caa713fbb7b1e5d4fe1fd",
+      "upstream_sha256": "722846d9837601e7a79182500a2af0b37f2e909cf68caa713fbb7b1e5d4fe1fd"
+    },
+    {
+      "path": "src/renderer/utils/file/workspaceMentions.ts",
+      "sha256": "8d2d142ee52fc61d25c72d34cf8e7fd982cea9ca5ee823d7001a38350dd11fd6",
+      "upstream_sha256": "8d2d142ee52fc61d25c72d34cf8e7fd982cea9ca5ee823d7001a38350dd11fd6"
+    },
+    {
+      "path": "src/renderer/utils/model/agentLogo.ts",
+      "sha256": "6b9aaed5131a297ef3ae613bb7cc4d299d45a1346311e006bc34cc4f85c452cd",
+      "upstream_sha256": "6b9aaed5131a297ef3ae613bb7cc4d299d45a1346311e006bc34cc4f85c452cd"
+    },
+    {
+      "path": "src/renderer/utils/platform.ts",
+      "sha256": "fb779fd7fb86a1e8f5d5c94bcc082ffa18992ce3d73439835c5d71d1dafa9c2f",
+      "upstream_sha256": "fb779fd7fb86a1e8f5d5c94bcc082ffa18992ce3d73439835c5d71d1dafa9c2f"
+    },
+    {
+      "path": "src/renderer/utils/theme/customCssProcessor.ts",
+      "sha256": "6055dcbeeb0546eff08b4d4e545c2d69372b47874c77e89ab07d90c30a31c7e0",
+      "upstream_sha256": "6055dcbeeb0546eff08b4d4e545c2d69372b47874c77e89ab07d90c30a31c7e0"
+    },
+    {
+      "path": "src/renderer/utils/ui/HOC.tsx",
+      "sha256": "0a819258cd38e2b753ae38ba7598123048d5b8649994ba3e2993ccb7bee67e40",
+      "upstream_sha256": "0a819258cd38e2b753ae38ba7598123048d5b8649994ba3e2993ccb7bee67e40"
+    },
+    {
+      "path": "src/renderer/utils/ui/clipboard.ts",
+      "sha256": "2b95bd94f56ec87fda02af48f49a1fcf04a5cc8e8a2ac67bbf18b0f933bc55b3",
+      "upstream_sha256": "2b95bd94f56ec87fda02af48f49a1fcf04a5cc8e8a2ac67bbf18b0f933bc55b3"
+    },
+    {
+      "path": "src/renderer/utils/ui/createContext.tsx",
+      "sha256": "9647c2bc9a7d32d169a791bb934607f9ca2651ec83a127e51ac1ef505096e4d5",
+      "upstream_sha256": "9647c2bc9a7d32d169a791bb934607f9ca2651ec83a127e51ac1ef505096e4d5"
+    },
+    {
+      "path": "src/renderer/utils/ui/focus.ts",
+      "sha256": "15ba44af98203d04e47bfa2555be3997b9256046023eb44f53a2115dbfdc2fcc",
+      "upstream_sha256": "15ba44af98203d04e47bfa2555be3997b9256046023eb44f53a2115dbfdc2fcc"
+    },
+    {
+      "path": "uno.config.ts",
+      "sha256": "2ee5107f49b7601ed682e9e82b02597eece36ea99b0ccb1105cb5155fdcfd220",
+      "upstream_sha256": "2ee5107f49b7601ed682e9e82b02597eece36ea99b0ccb1105cb5155fdcfd220"
+    }
+  ]
+}

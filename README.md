@@ -2,6 +2,8 @@
 
 现已加入个人服务器版本：密码登录、语法记忆及智能体练习。部署入口、使用流程、CLI 状态和维护方法见 [服务器部署说明](docs/server-deployment.md)。原 Cloudflare 构建继续保留。
 
+智能体练习直接复用 AionUi v1.9.25 的输入框、消息列表、Markdown、工具过程视图与 ACP 连接代码。源码、许可证与逐文件校验记录见 [复用说明](vendor/aionui/README.md)。构建服务器版本使用 Node 22–24：`npm ci && npm run build`。Codex 新对话使用 ACP，同一会话可继续；升级前的 Codex 对话继续使用原 exec 通道。
+
 适用于 iPhone Safari 的独立在线页面。当前网站：https://jlpt-image-cards.pages.dev/
 
 支持 N5–N1 等级和编号区间选择、双击切换接续／例句图片、固定图片框与两行标题、阅读位置恢复，以及两个长期保存的相邻快捷区间。当天图片缓存上限 100 MiB，次日打开或回到前台时清理过期图片。

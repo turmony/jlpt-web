@@ -23,6 +23,7 @@ def main():
     server = create_server(app, (args.host, args.port))
     def stop(*_):
         app.worker.close()
+        app.health.close()
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
     try:
@@ -31,6 +32,7 @@ def main():
         pass
     finally:
         app.worker.close()
+        app.health.close()
         server.server_close()
         lock.close()
 

@@ -3,6 +3,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import contextmanager
+from .history import summarize_first_message
 
 
 class Conflict(ValueError):
@@ -19,6 +20,9 @@ class Store:
                 CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, task TEXT, type TEXT, text TEXT, time REAL);
                 CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, expires REAL);
             ''')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(events)')}
+            if 'data' not in columns:
+                db.execute('ALTER TABLE events ADD COLUMN data TEXT')
 
     @contextmanager
     def connect(self):
@@ -53,6 +57,49 @@ class Store:
         with self.connect() as db:
             return [json.loads(r[0]) for r in db.execute('SELECT data FROM records WHERE kind=? ORDER BY rowid DESC', (kind,))]
 
+    def history_tasks(self):
+        with self.connect() as db:
+            originals = {}
+            for raw in db.execute("SELECT data FROM records WHERE kind='previews' ORDER BY rowid"):
+                preview = json.loads(raw[0])
+                if not preview.get('used') or not preview.get('text'):
+                    continue
+                key = preview.get('task_id')
+                generation = preview.get('generation', 0)
+                if key not in originals or generation < originals[key][0]:
+                    originals[key] = (generation, preview['text'])
+            rows = db.execute('''
+                SELECT records.data, first_user.text, first_user.data,
+                       activity.first_time, activity.last_time
+                FROM records
+                LEFT JOIN (
+                    SELECT task, MIN(time) AS first_time, MAX(time) AS last_time,
+                           MIN(CASE WHEN type='user' THEN id END) AS first_user_id
+                    FROM events GROUP BY task
+                ) AS activity ON activity.task=records.id
+                LEFT JOIN events AS first_user ON first_user.id=activity.first_user_id
+                WHERE records.kind='tasks'
+            ''')
+            result = []
+            for raw, first_text, first_data, first_time, last_time in rows:
+                task = json.loads(raw)
+                preview_generation, preview_text = originals.get(task['id'], (0, None))
+                event_generation = json.loads(first_data or '{}').get('generation')
+                # Preview generations precede their user event by one. Older
+                # conversations may only start recording user events on a later turn.
+                earlier_preview = preview_text and (
+                    not first_text or
+                    (isinstance(event_generation, (int, float)) and
+                     preview_generation + 1 < event_generation) or
+                    (event_generation is None and preview_generation == 0)
+                )
+                original_text = preview_text if earlier_preview else first_text
+                task['title'] = task.get('title') or summarize_first_message(original_text)
+                task['created_at'] = task.get('created_at') or first_time or task.get('updated') or 0
+                task['last_activity'] = max(last_time or 0, task.get('updated') or 0, task['created_at'])
+                result.append(task)
+            return sorted(result, key=lambda task: task['last_activity'], reverse=True)
+
     def change(self, kind, key, fn):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -60,6 +107,18 @@ class Store:
             fn(value)
             self._put(db, kind, key, value)
             return value
+
+    def set_archived(self, task_id, archived):
+        if not isinstance(archived, bool):
+            raise ValueError('归档状态必须为布尔值')
+        def update(task):
+            if archived:
+                if task.get('status') in ('queued', 'running', 'checking', 'committing'):
+                    raise Conflict('对话正在处理中，请完成或停止后再归档')
+                task.setdefault('archived_at', time.time())
+            else:
+                task.pop('archived_at', None)
+        return self.change('tasks', task_id, update)
 
     def enqueue(self, preview_id):
         with self.connect() as db:
@@ -70,17 +129,24 @@ class Store:
             try:
                 task = self._get(db, 'tasks', p['task_id'])
             except KeyError:
-                task = {'id': p['task_id'], 'cli': p['cli'], 'generation': 0, 'session': None}
+                task = {'id': p['task_id'], 'cli': p['cli'], 'generation': 0, 'session': None,
+                        'title': summarize_first_message(p.get('text', p['prompt'])), 'created_at': time.time()}
+            if task.get('archived_at'):
+                raise Conflict('请先恢复已归档对话，再继续发送')
             if task['generation'] != p['generation'] or task.get('status') in ('queued', 'running', 'checking', 'committing', 'complete', 'commit_failed'):
-                raise Conflict('任务已改变，请重新预览；已判卷任务仅可重试提交')
+                raise Conflict('任务已改变，请刷新对话后重试；已判卷任务仅可重试提交')
             if task['cli'] != p['cli']:
                 raise Conflict('继续对话必须使用原 CLI')
-            task.update(status='queued', prompt=p['prompt'], operation=p.get('operation', 'generate'), preview_id=preview_id,
+            task.setdefault('transport', 'exec' if task.get('session') and task['cli'] == 'codex'
+                            else 'acp' if task['cli'] == 'codex' else 'cli')
+            task.update(status='queued', prompt=p['prompt'], operation=p.get('operation', 'auto'), preview_id=preview_id,
                         model=p.get('model', ''), effort=p.get('effort', ''),
-                        generation=task['generation'] + 1, updated=time.time(), error=None)
+                        generation=task['generation'] + 1, updated=time.time(), error=None, started_at=None, finished_at=None)
             p['used'] = True
             self._put(db, 'tasks', task['id'], task)
             self._put(db, 'previews', preview_id, p)
+            self._event(db, task['id'], 'user', p.get('text', p['prompt']),
+                        {'message_id': preview_id, 'generation': task['generation']})
             return task
 
     def save_draft(self, paper_id, answers, version):
@@ -153,14 +219,25 @@ class Store:
             self._put(db, 'tasks', task_id, task)
             self._put(db, 'papers', paper_id, paper)
 
-    def event(self, task, kind, text):
+    @staticmethod
+    def _event(db, task, kind, text, data=None):
+        db.execute('INSERT INTO events(task,type,text,time,data) VALUES (?,?,?,?,?)',
+                   (task, kind, str(text)[:64000], time.time(),
+                    json.dumps(data, ensure_ascii=False) if data is not None else None))
+
+    def event(self, task, kind, text, data=None):
         with self.connect() as db:
-            db.execute('INSERT INTO events(task,type,text,time) VALUES (?,?,?,?)', (task, kind, str(text)[:64000], time.time()))
+            self._event(db, task, kind, text, data)
 
     def events(self, task, after=0):
         with self.connect() as db:
-            return [dict(zip(('id', 'type', 'text', 'time'), r)) for r in db.execute(
-                'SELECT id,type,text,time FROM events WHERE task=? AND id>? ORDER BY id LIMIT 500', (task, after))]
+            result = []
+            for row in db.execute('SELECT id,type,text,time,data FROM events WHERE task=? AND id>? ORDER BY id LIMIT 500', (task, after)):
+                event = dict(zip(('id', 'type', 'text', 'time'), row[:4]))
+                if row[4] is not None:
+                    event['data'] = json.loads(row[4])
+                result.append(event)
+            return result
 
     def recover(self):
         for task in self.list('tasks'):

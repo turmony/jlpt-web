@@ -24,7 +24,7 @@ class ModelTests(unittest.TestCase):
 
     def test_cli_model_list_and_failure_do_not_invent_models(self):
         models.discover.cache_clear()
-        with patch('server.models.shutil.which', return_value='/bin/agy'), patch('server.models.subprocess.run') as run:
+        with patch('server.executables.shutil.which', return_value='/bin/agy'), patch('server.models.subprocess.run') as run:
             run.return_value.stdout = 'Fetching available models...\ngemini-example-high\tGemini Example (High)\nclaude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n'
             run.return_value.returncode = 0
             catalog = models.catalog('agy')
@@ -34,7 +34,7 @@ class ModelTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 models.validate_selection(catalog, 'gemini-example-high', 'medium')
         models.discover.cache_clear()
-        with patch('server.models.shutil.which', return_value=None):
+        with patch('server.executables.shutil.which', return_value=None):
             catalog = models.catalog('qoder')
             self.assertEqual(catalog['models'], [])
             self.assertEqual(models.validate_selection(catalog, '', ''), ('', ''))

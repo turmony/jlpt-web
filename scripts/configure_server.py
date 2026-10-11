@@ -8,11 +8,13 @@ from pathlib import Path
 from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server.auth import Auth
+from scripts.setup_study import study_paths
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--base', default='/srv/jlpt')
+    parser.add_argument('--projects', default=str(Path.home() / 'projects'))
     parser.add_argument('--origin', required=True)
     args = parser.parse_args()
     origin = urlsplit(args.origin)
@@ -28,7 +30,8 @@ if __name__ == '__main__':
         password = secrets.token_urlsafe(24)
         (state / 'website-password').write_text(password + '\n')
         config = {'password_hash': Auth.hash_password(password)}
-    config.update(state=str(state), study=str(base / 'worktrees/study'), static=str(base / 'static'),
+    _, study = study_paths(args.projects)
+    config.update(state=str(state), study=str(study), static=str(base / 'static'),
                   origin=args.origin.rstrip('/'), secure_cookie=True)
     config_path.write_text(json.dumps(config, indent=2) + '\n')
     config_path.chmod(0o600)

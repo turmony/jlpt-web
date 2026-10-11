@@ -61,6 +61,8 @@ class Worker:
 
     def retry_commit(self, task_id):
         def retry(task):
+            if task.get('archived_at'):
+                raise Conflict('请先恢复已归档对话，再重试提交')
             if task.get('status') != 'commit_failed' or not task.get('grade'):
                 raise Conflict('此任务没有待重试的本地提交')
             task.update(status='queued', commit_only=True, error=None)
@@ -100,7 +102,7 @@ class Worker:
 
     def prepare_context(self, task):
         context = {'task_id': task['id'], 'turn': task['generation'],
-                   'operation': task.get('operation', 'generate'),
+                   'operation': task.get('operation', 'auto'),
                    'handoff': f"{QUIZZES}/web/{task['id']}/turn-{task['generation']}.json",
                    'papers': [{key: paper.get(key) for key in ('id', 'title', 'task_id', 'submission')}
                               for paper in self.store.list('papers')]}
@@ -119,6 +121,11 @@ class Worker:
         workflow = Path(__file__).with_name('workflow.md').read_text()
         atomic_write(rules, (before + start + '\n' + workflow + end + after).encode())
 
+    def quiz_snapshot(self):
+        root = self.study / QUIZZES
+        return {str(path.relative_to(self.study)): hashlib.sha256(safe_file(self.study, str(path.relative_to(self.study))).read_bytes()).hexdigest()
+                for path in root.rglob('*') if path.is_file() and path.relative_to(root).parts[0] != 'web'}
+
     def run_once(self):
         if not self.mutex.acquire(blocking=False):
             return False
@@ -128,6 +135,9 @@ class Worker:
                 return False
             self.active = task['id']
             self.cancelled.clear()
+            emitted_errors = set()
+            started_at, started_clock = time.time(), time.monotonic()
+            self.set_task(task['id'], started_at=started_at, finished_at=None)
             try:
                 if task.get('commit_only'):
                     self.commit(task)
@@ -138,21 +148,42 @@ class Worker:
                 attempts_path = self.destination(f'{QUIZZES}/attempts.jsonl')
                 attempts_before = attempts_path.read_bytes() if attempts_path.exists() else b''
                 head = self.git_head()
+                artifacts_before = self.quiz_snapshot()
+                replies = []
                 def event(data):
                     if data.get('session'):
-                        self.set_task(task['id'], session=data['session'])
+                        self.set_task(task['id'], session=data['session'],
+                                      transport=data.get('transport', task.get('transport', 'exec')))
+                    if data.get('type'):
+                        if data['type'] == 'error':
+                            if data.get('text', '') in emitted_errors:
+                                return
+                            emitted_errors.add(data.get('text', ''))
+                        if data['type'] in ('assistant', 'message') and data.get('text'):
+                            replies.append(data['text'])
+                        payload = {key: value for key, value in data.items() if key not in ('type', 'text')}
+                        payload['generation'] = task['generation']
+                        self.store.event(task['id'], data['type'], data.get('text', ''), payload)
+                        return
                     for key in ('text', 'diagnostic', 'error'):
                         if data.get(key):
-                            self.store.event(task['id'], 'message' if key == 'text' else key, data[key])
+                            if key == 'error':
+                                if data[key] in emitted_errors:
+                                    continue
+                                emitted_errors.add(data[key])
+                            if key == 'text':
+                                replies.append(data[key])
+                            self.store.event(task['id'], 'message' if key == 'text' else key, data[key], {'generation': task['generation']})
                 run_cli(task['cli'], task['prompt'], task.get('session'), self.study, event, self.cancelled,
-                        model=task.get('model', ''), effort=task.get('effort', ''))
+                        model=task.get('model', ''), effort=task.get('effort', ''),
+                        transport=task.get('transport', 'exec' if task.get('session') else None))
                 self.check_cancelled()
                 if self.git_head() != head:
                     raise ValueError('CLI 修改了 Git 历史；网页流程禁止模型提前提交')
                 if (attempts_path.read_bytes() if attempts_path.exists() else b'') != attempts_before:
                     raise ValueError('CLI 修改了历史作答；请恢复后继续，后台才可追加')
                 self.set_task(task['id'], status='checking')
-                self.process_handoff(task)
+                self.process_handoff(task, replies, artifacts_before != self.quiz_snapshot())
             except Exception as error:
                 state = 'cancelled' if isinstance(error, InterruptedError) else 'failed'
                 current = self.store.get('tasks', task['id'])
@@ -161,8 +192,14 @@ class Worker:
                 if current.get('grade'):
                     state = 'commit_failed'
                 self.set_task(task['id'], status=state, error=str(error), commit_only=False)
-                self.store.event(task['id'], 'error', str(error))
+                if str(error) not in emitted_errors:
+                    self.store.event(task['id'], 'error', str(error), {'generation': task['generation']})
             finally:
+                finished_at = time.time()
+                elapsed = max(0, time.monotonic() - started_clock)
+                self.store.event(task['id'], 'finish', '', {'generation': task['generation'], 'started_at': started_at,
+                                                          'finished_at': finished_at, 'elapsed_seconds': elapsed})
+                self.set_task(task['id'], finished_at=finished_at)
                 self.active = None
             return True
         finally:
@@ -173,13 +210,24 @@ class Worker:
             return None
         return subprocess.check_output(['git', '-C', str(self.study), 'rev-parse', 'HEAD'], text=True).strip()
 
-    def process_handoff(self, task):
+    def process_handoff(self, task, replies=(), artifacts_changed=False):
         name = f"{QUIZZES}/web/{task['id']}/turn-{task['generation']}.json"
+        if not self.destination(name).exists():
+            if task.get('operation', 'auto') in ('generate', 'grade') or artifacts_changed:
+                raise ValueError('智能体生成或修改了练习产物，但缺少本轮交接文件：' + name)
+            if not ''.join(replies).strip():
+                raise ValueError('智能体未返回可显示的回复')
+            def finish_chat(current):
+                if current.get('cancellation_requested') or self.cancelled.is_set() or current['status'] != 'checking':
+                    raise InterruptedError('任务已取消，资料和会话已保留')
+                current.update(status='answered', error=None, updated=time.time())
+            self.store.change('tasks', task['id'], finish_chat)
+            return
         handoff = json.loads(safe_file(self.study, name).read_text())
         if handoff.get('task_id') != task['id'] or handoff.get('turn') != task['generation']:
             raise ValueError('交接文件不属于当前任务轮次')
-        if handoff.get('message'):
-            self.store.event(task['id'], 'message', handoff['message'])
+        if handoff.get('message') and handoff['message'].strip() not in [text.strip() for text in (*replies, ''.join(replies))]:
+            self.store.event(task['id'], 'message', handoff['message'], {'generation': task['generation']})
         if handoff.get('operation') == 'clarify':
             self.set_task(task['id'], status='waiting')
             return

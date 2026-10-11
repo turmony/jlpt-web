@@ -2,20 +2,17 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 import time
 from functools import lru_cache
 from pathlib import Path
+from .executables import resolve_cli
 
 EFFORTS = ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
 
 
 @lru_cache(maxsize=8)
-def discover(cli, period):
-    binary = shutil.which(cli)
-    if not binary:
-        return {'models': [], 'error': '执行器未安装'}
+def discover(cli, period, binary):
     try:
         args = ['models'] if cli == 'agy' else ['--list-models']
         result = subprocess.run([binary, *args], capture_output=True, text=True, timeout=12)
@@ -25,7 +22,7 @@ def discover(cli, period):
         models = []
         for line in result.stdout.splitlines():
             parts = re.split(r'\t+|\s{2,}', line.strip(), maxsplit=1)
-            if not re.fullmatch(r'[a-z0-9][a-z0-9._:/-]*', parts[0]):
+            if parts[0] == 'MODEL' or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:/-]*', parts[0]):
                 continue
             pinned = parts[0].rsplit('-', 1)[-1]
             supported = [pinned] if cli == 'agy' and pinned in ('low', 'medium', 'high') else efforts
@@ -39,7 +36,10 @@ def catalog(cli):
     if cli not in ('codex', 'agy', 'qoder'):
         raise ValueError('不支持的 CLI')
     if cli != 'codex':
-        return discover(cli, int(time.time() // 300))
+        binary = resolve_cli(cli)
+        if not binary:
+            return {'models': [], 'error': '执行器未安装'}
+        return discover(cli, int(time.time() // 300), binary)
     try:
         home = Path(os.environ.get('CODEX_HOME') or Path.home() / '.codex')
         data = json.loads((home / 'models_cache.json').read_text())

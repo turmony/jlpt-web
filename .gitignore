@@ -11,3 +11,5 @@ server-public/
 __pycache__/
 *.pyc
 .superpowers/
+agent/dist/
+chat/dist/
