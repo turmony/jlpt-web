@@ -240,7 +240,7 @@ function renderUnit(view) {
     ? [recallList(view.recall.items, {revealed: view.recall.items.map((_, index) => index), missed: view.recall.missed || []}, null),
        h('p', {className: 'muted', textContent: `已锁定 · ${session.locked_at.slice(0, 16).replace('T', ' ')}`})]
     : [h('p', {className: 'muted', textContent: '先在心里回想，再逐行点开核对；默认算想到了，没想到的点「没想到」。'}),
-       recallList(view.recall.items, readRecallDraft(prefix + 'recall'), prefix + 'recall'),
+       recallList(view.recall.items, readRecallDraft(prefix + 'recall', view.recall.items.length), prefix + 'recall'),
        h('div', {className: 'flow-actions'}, h('span'),
          h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => lockRecall(unit.id, event.currentTarget).catch(notice)}))];
   root.replaceChildren(
@@ -331,10 +331,11 @@ function recallList(items, state, draftKey) {
   return list;
 }
 
-function readRecallDraft(key) {
+// Only rows that still exist count: the unit's rows may have been rewritten since the draft was saved.
+function readRecallDraft(key, count) {
   try {
     const value = JSON.parse(localStorage.getItem(key) || 'null');
-    const rows = list => Array.isArray(list) ? list.filter(Number.isInteger) : [];
+    const rows = list => Array.isArray(list) ? [...new Set(list.filter(row => Number.isInteger(row) && row >= 0 && row < count))] : [];
     if (value && typeof value === 'object') return {revealed: rows(value.revealed), missed: rows(value.missed)};
   } catch {}
   return {revealed: [], missed: []};

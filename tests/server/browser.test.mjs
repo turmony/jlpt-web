@@ -108,6 +108,20 @@ test('damaged study data shows the server error instead of a blank page',()=>wit
   await page.locator('#notice',{hasText:'groups/submissions/r1/B-01-1.json'}).waitFor();
 }));
 
+test('a stale recall draft is trimmed to the current rows and the miss button is a full touch target',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.evaluate(()=>localStorage.setItem('review:B-01-1:recall',JSON.stringify({revealed:[0,5],missed:[5,1,1]})));
+  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#recall-list').waitFor();
+  const miss=page.locator('#recall-list .recall-row').nth(0).getByRole('button',{name:'没想到'});
+  assert.ok((await miss.boundingBox()).height>=44);
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page').waitFor();
+  const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
+  assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,false]);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('review:B-01-1:recall')),null);
+}));
+
 for(const [name,engine] of Object.entries({chromium,webkit})) {
   test(`${name}: a unit is learned end to end on a phone`,()=>withSite(engine,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
     await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
