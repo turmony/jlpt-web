@@ -318,3 +318,13 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - 语法记忆页（服务器构建）导航增加「今日安排」；三个链接在手机上单独占一行，避免遮挡标题。Cloudflare 构建（`public/`、`mobile/`、`scripts/build.mjs`）未改。
 
 验证：52 项后端测试（1 项按环境条件跳过）与 9 项 Chromium/WebKit 浏览器测试通过，含 iPhone 13 视口下完整学习一个单元并交卷、无横向溢出。上线后本机 `/review/` 未登录返回 303、`/api/review/today` 返回 401，日志无异常；以真实学习仓库读取状态为 `not_prepared`（117 个单元，尚未准备单元）。学习者手机登录确认默认进入今日安排、语法记忆页链接与“做题”页正常。回滚：按发布目录内 `previous-release.txt`（app=`/srv/jlpt/releases/20261014-remove-agent-practice/app`，static=`/srv/jlpt/releases/20261015-dark-papers/static`）切回链接并重启 `jlpt.service`。
+
+### 今日安排阶段进度与主屏幕图标（2026-10-17）
+
+发布目录为 `/srv/jlpt/releases/20261017-review-progress/static`，仅切换 `/srv/jlpt/static`，后台代码不变、服务未重启（app 仍为 `20261017-review-plan`）。按学习者手机试用后的意见修改：
+
+- 进度区改为阶段进度条：基础体系表与 6 个最上位类按单元数比例分段，▼ 标出当前单元；条下列出各阶段“已学/总数”（当前阶段高亮、学完打 ✓）与“下一个节点：学完…（还差 n 个单元）”。全程目录按阶段折叠，显示小进度条与阶段状态（已完成／当前阶段／进行中／未开始／待整理），当前阶段默认展开、当前单元高亮。数据全部来自 `/api/review/today`。
+- 主屏幕图标：iOS 主屏幕图标固定打开添加时的地址，原图标从语法记忆添加，启动时停在 `/grammar/`。新增 `launch-home.js`（服务器构建注入语法记忆页，并由 `/review/` 引用）：以主屏幕应用启动且是本次启动的第一个页面时跳到 `/review/`，之后点「语法记忆」照常打开；普通浏览器不受影响。`/review/` 也加了主屏幕应用的 meta，从今日安排重新添加的图标直接从这里启动。
+- 修复状态卡片没有按钮时（如“尚未准备”）末尾显示 “null”。
+
+验证：52 项后端测试（1 项按环境条件跳过）与 11 项浏览器测试通过，新增模拟主屏幕启动、阶段进度条与目录在学一个单元前后的检查，以及状态卡片完整文字断言；本机以真实学习仓库只读预览 117 个单元的进度条与目录，iPhone 13 视口无横向溢出。上线后 `/review/` 未登录 303、日志无异常。回滚：把 `/srv/jlpt/static` 切回 `/srv/jlpt/releases/20261017-review-plan/static`（见 `previous-release.txt`）。
