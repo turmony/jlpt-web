@@ -68,7 +68,7 @@ test('stage progress shows the current stage, the next milestone and the plan di
     const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');
     await mkdir(folder,{recursive:true});
     await writeFile(join(folder,`${unit}.json`),JSON.stringify({schema_version:1,unit_id:unit,round:1,paper:`2026-10-17-${unit.toLowerCase()}`,
-      recall:{text:'回忆',locked_at:'2026-10-17T20:00:00+08:00'},sentence:{card:'N5-G-0013',text:'文。'},note:'',submitted_at:`2026-10-17T20:${minute}:00+08:00`}));
+      recall:{marks:[{card:'N5-G-0013',item:0,recalled:true},{card:'N5-G-0032',item:1,recalled:true}],locked_at:'2026-10-17T20:00:00+08:00'},sentence:{card:'N5-G-0013',text:'文。'},note:'',submitted_at:`2026-10-17T20:${minute}:00+08:00`}));
   };
   const stage=title=>page.locator('.stage',{has:page.locator('summary',{hasText:title})});
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
@@ -112,11 +112,26 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
   test(`${name}: a unit is learned end to end on a phone`,()=>withSite(engine,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
     await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
     await page.getByRole('button',{name:'开始'}).click();
-    await page.locator('#recall').waitFor();
+    await page.locator('#recall-list').waitFor();
+    assert.equal(await page.locator('#recall-list .recall-row').count(),2);
     assert.equal(await page.locator('#unit-page').count(),0);
-    await page.locator('#recall').fill('に：时间');
-    await page.getByRole('button',{name:'锁定回忆'}).click();
+    assert.doesNotMatch(await page.locator('#recall-list').innerText(),/时间点|动作的对方/);
+    const row=page.locator('#recall-list .recall-row').nth(1);
+    await row.getByRole('button',{name:'点击显示'}).click();
+    await row.getByText('に ― 动作的对方').waitFor();
+    await row.getByRole('button',{name:'没想到'}).click();
+    assert.equal(await row.getByRole('button',{name:'没想到'}).getAttribute('aria-pressed'),'true');
+    await page.reload();
+    await page.getByRole('button',{name:'开始'}).click();
+    await page.locator('#recall-list').waitFor();
+    const again=page.locator('#recall-list .recall-row').nth(1);
+    await again.getByText('に ― 动作的对方').waitFor();
+    assert.equal(await again.getByRole('button',{name:'没想到'}).getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('#recall-list .recall-row').nth(0).getByRole('button',{name:'点击显示'}).count(),1);
+    await page.getByRole('button',{name:'进入对比页'}).click();
     await page.locator('#unit-page img').first().waitFor();
+    assert.equal(await page.locator('#recall-list .recall-row.missed').count(),1);
+    assert.equal(await page.locator('#recall-list button').count(),0);
     assert.equal(await page.locator('#unit-page img').first().evaluate(image=>image.complete&&image.naturalWidth>0),true);
     await page.locator('#unit-page a[href="#card-N5-G-0032"]').click();
     assert.equal(await page.locator('#card-N5-G-0032').evaluate(details=>details.open),true);
@@ -128,7 +143,7 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('#status').innerText(),'今日安排\n\n下一项（B-01-2 で・を）尚未准备\n\n已交卷，待判分：B-01-1');
     await page.locator('#progress-summary',{hasText:'已学 1 / 2'}).waitFor();
     const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
-    assert.equal(sub.recall.text,'に：时间');
+    assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,false]);
     assert.equal(sub.sentence.text,'三時に会いましょう。');
     const paper=await readFile(join(tmp,'study/jlpt-notes/quizzes/papers/2026-10-17-b-01-1.md'),'utf8');
     assert.match(paper,/```text\n1-2, 2-__, 3-__, 4-__, 5-__\n```/);

@@ -237,16 +237,18 @@ function renderUnit(view) {
   const root = $('unit-view');
   const scope = unit.position.slice(1).join(' › ');
   const recall = session.started
-    ? [h('p', {className: 'locked-text', id: 'recall-text', textContent: view.recall}), h('p', {className: 'muted', textContent: `已锁定 · ${session.locked_at.slice(0, 16).replace('T', ' ')}`})]
-    : [h('label', {htmlFor: 'recall', textContent: '凭记忆写出成员语法、意思与接续'}),
-       drafted(h('textarea', {id: 'recall', rows: 6}), prefix + 'recall'),
-       h('p', {className: 'muted', textContent: '锁定后不能修改，随后显示对比页与题目。'}),
-       h('button', {className: 'primary', type: 'button', textContent: '锁定回忆', onclick: event => lockRecall(unit.id, event.currentTarget).catch(notice)})];
+    ? [recallList(view.recall.items, {revealed: view.recall.items.map((_, index) => index), missed: view.recall.missed || []}, null),
+       h('p', {className: 'muted', textContent: `已锁定 · ${session.locked_at.slice(0, 16).replace('T', ' ')}`})]
+    : [h('p', {className: 'muted', textContent: '先在心里回想，再逐行点开核对；默认算想到了，没想到的点「没想到」。'}),
+       recallList(view.recall.items, readRecallDraft(prefix + 'recall'), prefix + 'recall'),
+       h('div', {className: 'flow-actions'}, h('span'),
+         h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => lockRecall(unit.id, event.currentTarget).catch(notice)}))];
   root.replaceChildren(
     h('div', {className: 'paper-actions'}, backButton()),
     h('h1', {id: 'unit-title', className: 'paper-title', textContent: `${unit.id} ${unit.title}`}),
     h('p', {className: 'muted', textContent: unit.position.join(' › ')}),
-    h('section', {className: 'step'}, h('h2', {textContent: '一、回忆'}), h('p', {textContent: `范围：${scope}`}), ...recall));
+    h('section', {className: 'step'}, h('h2', {textContent: '一、回忆核对'}),
+      h('p', {textContent: `范围：${scope}（共 ${view.recall.items.length} 项）`}), ...recall));
   if (!session.started) return;
 
   const page = markdown(view.page, {id: 'unit-page'});
@@ -295,10 +297,53 @@ function renderUnit(view) {
   });
 }
 
+// Recall rows: hidden until tapped; every row counts as recalled unless marked 没想到.
+// `state` is {revealed: [row], missed: [row]}; `draftKey` null means locked and read-only.
+function recallList(items, state, draftKey) {
+  const save = () => { if (draftKey) try { localStorage.setItem(draftKey, JSON.stringify(state)); } catch {} };
+  const list = h('ol', {id: 'recall-list', className: 'recall-list'});
+  const row = index => {
+    const item = items[index];
+    const missed = state.missed.includes(index);
+    const li = h('li', {className: 'recall-row' + (missed ? ' missed' : '')});
+    if (!state.revealed.includes(index)) {
+      li.append(h('button', {type: 'button', className: 'recall-cover', textContent: '点击显示', onclick: () => {
+        state.revealed.push(index);
+        save();
+        li.replaceWith(row(index));
+      }}));
+      return li;
+    }
+    li.append(h('span', {className: 'recall-text', textContent: `${item.form} ― ${item.usage}`}));
+    if (!draftKey) {
+      if (missed) li.append(h('span', {className: 'recall-mark', textContent: '没想到'}));
+      return li;
+    }
+    li.append(h('button', {type: 'button', className: 'recall-miss', textContent: '没想到', ariaPressed: String(missed), onclick: () => {
+      state.missed = missed ? state.missed.filter(other => other !== index) : [...state.missed, index];
+      save();
+      li.replaceWith(row(index));
+    }}));
+    return li;
+  };
+  list.append(...items.map((_, index) => row(index)));
+  list.missedRows = () => [...state.missed].sort((a, b) => a - b);
+  return list;
+}
+
+function readRecallDraft(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || 'null');
+    const rows = list => Array.isArray(list) ? list.filter(Number.isInteger) : [];
+    if (value && typeof value === 'object') return {revealed: rows(value.revealed), missed: rows(value.missed)};
+  } catch {}
+  return {revealed: [], missed: []};
+}
+
 async function lockRecall(id, button) {
   button.disabled = true;
   try {
-    const view = await api(`/units/${encodeURIComponent(id)}/recall`, {text: $('recall').value});
+    const view = await api(`/units/${encodeURIComponent(id)}/recall`, {missed: $('recall-list').missedRows()});
     dropDrafts(`review:${id}:recall`);
     renderUnit(view);
   } catch (error) {
