@@ -7,9 +7,9 @@ from collections import defaultdict
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import papers
+from . import papers, review
 from .auth import Auth, YEAR
 from .papers import safe_file
 from .store import Store, Conflict
@@ -44,7 +44,8 @@ def create_server(app, address):
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Connection', 'close')
             self.close_connection = True
-            self.send_header('Cache-Control', 'no-store')
+            if 'Cache-Control' not in (headers or {}):
+                self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Referrer-Policy', 'same-origin')
             self.send_header('Content-Security-Policy', "default-src 'self'; img-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
@@ -91,6 +92,10 @@ def create_server(app, address):
                 self.reply(404, {'error': '记录不存在'})
             except (ValueError, TypeError) as error:
                 self.reply(400, {'error': str(error)})
+            except review.Forbidden as error:
+                self.reply(403, {'error': str(error)})
+            except review.StudyDataError as error:
+                self.reply(500, {'error': str(error)})
             except Exception as error:
                 self.reply(500, {'error': '服务器处理失败：' + str(error)[:1000]})
 
@@ -128,6 +133,8 @@ def create_server(app, address):
                 return self.reply(200, {'ok': True}, headers={'Set-Cookie': self.cookie('', 0)})
             if path == '/api/session':
                 return self.reply(200, {'ok': True})
+            if path.startswith('/api/review/'):
+                return self.review(path[len('/api/review'):], parsed.query, post)
             if path == '/api/quiz/papers' and not post:
                 return self.reply(200, papers.list_papers(app.config['study']))
             match = re.fullmatch(r'/api/quiz/papers/([^/]+)(/answers)?', path)
@@ -139,6 +146,35 @@ def create_server(app, address):
                     return self.reply(200, papers.read_paper(app.config['study'], slug))
             if not path.startswith(('/api/', '/auth/')) and not post:
                 return self.static('/index.html' if path == '/' else path)
+            self.reply(404, {'error': '页面不存在'})
+
+        def review(self, path, query, post):
+            study = app.config['study']
+            if path == '/today' and not post:
+                return self.reply(200, review.today(study))
+            if path == '/asset' and not post:
+                values = parse_qs(query).get('path', [])
+                if len(values) != 1:
+                    raise ValueError('图片路径无效')
+                data, mime = review.asset(study, values[0])
+                return self.reply(200, data, mime, headers={'Cache-Control': 'private, max-age=3600'})
+            match = re.fullmatch(r'/units/(B-\d{2}-\d+|G-\d{3})(/recall|/submit)?', path)
+            if match:
+                unit_id, action = match.groups()
+                if action is None and not post:
+                    return self.reply(200, review.unit_view(study, unit_id))
+                if action == '/recall' and post:
+                    return self.reply(200, review.recall(study, unit_id, self.json_body().get('text')))
+                if action == '/submit' and post:
+                    body = self.json_body()
+                    return self.reply(200, review.submit_unit(study, unit_id, body.get('answers'), body.get('sentence'), body.get('note')))
+            match = re.fullmatch(r'/reviews/(review-\d{2})(/submit)?', path)
+            if match:
+                review_id, action = match.groups()
+                if action is None and not post:
+                    return self.reply(200, review.review_view(study, review_id))
+                if action and post:
+                    return self.reply(200, review.submit_review(study, review_id, self.json_body().get('answers')))
             self.reply(404, {'error': '页面不存在'})
 
         def static(self, path):
