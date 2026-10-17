@@ -337,3 +337,12 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - 内容来自单元材料新增的 `recall_items`（`card`、`form`、`usage`）。`GET /api/review/units/<id>` 的 `recall` 改为 `{"items":[{form,usage}],"missed":null|[行号]}`；`POST …/recall` 请求体改为 `{"missed":[行号]}`，行号非整数、重复或越界返回 400；交卷文件写入服务器生成的 `recall.marks`。
 
 验证：55 项后端测试（1 项按环境条件跳过）与 12 项 Chromium/WebKit 浏览器测试通过（含中途刷新恢复、过期草稿截断、按钮触控高度 ≥44px）；学习仓库 534 项测试通过，`validate-groups`、`validate-links` 通过。上线后 `/review/` 未登录 303、`/api/review/today` 401、日志无异常；以线上代码只读读取 B-01-1，锁定前只返回 6 行与状态。回滚：按 `previous-release.txt`（app=`/srv/jlpt/releases/20261017-review-plan/app`，static=`/srv/jlpt/releases/20261017-review-progress/static`）切回并重启，同时 `git -C /root/projects/jlpt-study checkout be6f037 -- src/jlpt_notes/groups.py` 恢复旧规则模块。
+
+### 回忆核对分组与对比页精简（2026-10-17）
+
+发布目录为 `/srv/jlpt/releases/20261017-recall-groups`，app 与 static 均已切换并重启 `jlpt.service`；学习仓库规则模块未改（学习仓库提交 `407fb05` 只改校验、出题技能与设计文档）。
+
+- 回忆核对按 `recall_items` 的 `form` 分组：组标题（日语形式）直接显示，组下用法行默认遮住、跨组连续编号，点开只显示中文用法；同一形式的行必须相邻（`validate-groups` 检查）。
+- 对比页：单元页正文只留“成员接续图”；网页把每个成员的原卡核心（默认折叠）插到其 `### [卡号 …]` 小节的接续图下，取消页面底部集中的“成员原卡核心”。功能说明、对照表、反义组、最小对立句与易错点不再写入单元页。
+
+验证：55 项后端测试（1 项按环境条件跳过）与 12 项 Chromium/WebKit 浏览器测试通过；学习仓库 535 项测试、`validate-groups`、`validate-links` 通过。上线后 `/review/` 未登录 303、`/api/review/today` 401、日志无异常。回滚：按 `previous-release.txt`（app、static 均为 `/srv/jlpt/releases/20261017-recall-check`）切回并重启。
