@@ -307,3 +307,14 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 运行中补充指令：适配器实现了与 Codex 相同的 `_session/steering`，并在初始化时声明支持。适配器在空闲时默认会另开一轮，因此请求附带 `_meta.steering.idleBehavior: "promptRequired"`，空闲时返回 `promptRequired`，网页显示为未送达。Claude 收到补充指令会立即打断当前步骤，进行中的命令可能转入后台。vendored `AcpConnection` 同时改为向自定义启动的智能体发送绝对路径 cwd（Claude 拒绝相对路径）。
 
 验证：23 项智能体测试、98 项后端测试（2 项按环境条件跳过）、31 项浏览器测试通过。真实 Claude（Haiku）在命令执行中第 7 秒收到补充指令，返回 injected 并在最终回复中遵循；同一会话续聊正确记得该指令。上线后后台真实对话验证 Claude 通过，公网 Chromium 确认选择器出现 Claude Code 与模型列表，无脚本错误。Codex 此次验证未通过：`~/.codex/config.toml` 的默认模型 `gpt-6.1-sol` 已被账号端停用，与本次改动无关（新旧 runner 结果一致）。SQLite 备份位于发布目录私有 `backup/state.sqlite`，回滚路径见 `previous-release.txt`。
+
+## 语法联想网复习入口（2026-10-17）
+
+发布目录为 `/srv/jlpt/releases/20261017-review-plan`，app 与 static 均已切换并重启 `jlpt.service`（由 `scripts/prepare_release.py --name 20261017-review-plan` 准备，`node scripts/build-server.mjs` 构建 static）。上线前先把线上运行的工作区原样提交为基线（`9595e18`；`docs/password-sync-2026-10-13.md` 含账号复用说明，按学习者决定加入 `.gitignore`，不进公开仓库）。
+
+- 新页面 `/review/`（今日安排）：登录后与打开首页默认进入。显示轮次与总进度、体系表／功能小组分段进度、当前位置、距下次复习的学习日与全程目录；状态卡片按 `GET /api/review/today` 的状态显示。单元在同一页依次进行回忆（锁定后才返回对比页、成员原卡核心、5 题与造句题）、选择题、造句与备注，交卷后全部锁定；复习卷 12 题作答后交卷。页面不调用智能体，也不显示判分或准备指令。
+- 后台 `server/review.py` 按文件路径加载学习仓库的 `src/jlpt_notes/groups.py`（规则唯一实现，按修改时间缓存），接口为 `/api/review/today`、`/api/review/units/<id>`（`/recall`、`/submit`）、`/api/review/reviews/<id>`（`/submit`）与 `/api/review/asset?path=assets/...`（仅 `jlpt-notes/assets/` 下的图片，拒绝 `..`、`.git`、绝对路径与符号链接）。规则拒绝映射为 403／409／400，学习数据损坏返回 500 与含文件路径的中文错误，页面直接显示。
+- 登记在 `groups/units/*.json`、`groups/reviews/*.json` 的试卷不再出现在“做题”页，`/api/quiz/papers/<slug>` 读写均为 404。
+- 语法记忆页（服务器构建）导航增加「今日安排」；三个链接在手机上单独占一行，避免遮挡标题。Cloudflare 构建（`public/`、`mobile/`、`scripts/build.mjs`）未改。
+
+验证：52 项后端测试（1 项按环境条件跳过）与 9 项 Chromium/WebKit 浏览器测试通过，含 iPhone 13 视口下完整学习一个单元并交卷、无横向溢出。上线后本机 `/review/` 未登录返回 303、`/api/review/today` 返回 401，日志无异常；以真实学习仓库读取状态为 `not_prepared`（117 个单元，尚未准备单元）。学习者手机登录确认默认进入今日安排、语法记忆页链接与“做题”页正常。回滚：按发布目录内 `previous-release.txt`（app=`/srv/jlpt/releases/20261014-remove-agent-practice/app`，static=`/srv/jlpt/releases/20261015-dark-papers/static`）切回链接并重启 `jlpt.service`。
