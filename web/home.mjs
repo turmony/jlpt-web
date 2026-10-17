@@ -1,1 +1,1 @@
-location.replace('/grammar/');
+location.replace('/review/');

@@ -1,0 +1,42 @@
+.review-page{padding-bottom:max(48px,env(safe-area-inset-bottom))}
+.review-page .topbar{row-gap:10px}
+.topbar a[aria-current="page"]{border-color:var(--accent);color:var(--accent-text)}
+
+/* Progress, always above the status card */
+.plan-progress{margin:20px 0 22px}
+.plan-progress p{margin:6px 0}
+.progress-summary{font-size:18px;font-weight:600}
+.progress-bar{height:8px;margin:10px 0;border-radius:999px;background:var(--raised);overflow:hidden}
+.progress-bar span{display:block;width:0;height:100%;background:var(--accent);transition:width .3s}
+.directory{margin-top:12px}
+.directory-section h3{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin:18px 0 4px;font-size:16px}
+.directory-group h4{margin:12px 0 2px;font-size:14px;font-weight:500;color:var(--muted)}
+.directory-list{list-style:none;margin:0;padding:0}
+.directory-list li{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.directory-list .unit-name{flex:1;min-width:0;overflow-wrap:anywhere}
+.directory-list button{min-height:32px;padding:2px 14px;border-radius:999px;font-size:13px}
+.status-chip[data-status="learned"]{color:var(--ink)}
+.status-chip[data-status="in_progress"],.status-chip[data-status="current"]{color:var(--accent-text);border-color:var(--accent)}
+.status-chip[data-status="prepared"]{color:var(--ink);border-color:var(--control-line)}
+
+/* Status card */
+.status .status-title{margin:0 0 10px;font-size:20px}
+.status .status-line{margin:0 0 6px;font-size:17px;font-weight:500;overflow-wrap:anywhere}
+.status .status-note{margin:6px 0;color:var(--muted);font-size:14px;overflow-wrap:anywhere}
+.status .primary{min-height:44px;margin-top:12px;padding:8px 26px}
+
+/* Learning and review flow */
+.flow .paper-title{margin:16px 0 4px}
+.step{margin-top:28px;padding-top:18px;border-top:1px solid var(--line)}
+.step h2{margin-bottom:10px}
+.step label{margin-top:12px;font-size:14px;color:var(--muted)}
+.step textarea{min-height:88px}
+.locked-text{margin:8px 0;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-small);background:var(--surface);white-space:pre-wrap;overflow-wrap:anywhere}
+.sentence-prompt{font-weight:500}
+.cards-title{margin:28px 0 8px;font-size:17px}
+.member-card{margin:10px 0;padding:10px 14px;border:1px solid var(--line);border-radius:var(--radius-small);background:var(--surface);scroll-margin-top:16px}
+.member-card summary{min-height:32px;font-weight:500;overflow-wrap:anywhere}
+.member-card .markdown h2:first-child{margin-top:12px;padding-top:0;border-top:0}
+.review-page .markdown img{display:block;max-width:100%;height:auto;margin:10px 0;border-radius:var(--radius-small)}
+.flow-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin:20px 0}
+.flow-actions .primary{min-height:44px;padding:8px 26px}

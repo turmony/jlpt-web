@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from server.app import Application, create_server
 from server.auth import Auth
+from tests.server.review_fixture import make_study
 
 PAPER = '''# 测试试卷
 
@@ -29,8 +30,9 @@ PAPER = '''# 测试试卷
 '''
 
 base = Path(sys.argv[1])
+# A study repository with the plan's first unit prepared, plus one regular paper.
+make_study(base)
 papers = base / 'study/jlpt-notes/quizzes/papers'
-papers.mkdir(parents=True)
 (papers / '2026-10-14-test.md').write_text(PAPER)
 app = Application({'state': str(base), 'study': str(base / 'study'), 'static': str(Path('server-public').resolve()),
                    'origin': 'http://127.0.0.1', 'secure_cookie': False,
