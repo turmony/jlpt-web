@@ -164,7 +164,7 @@ def create_server(app, address):
                 if action is None and not post:
                     return self.reply(200, review.unit_view(study, unit_id))
                 if action == '/recall' and post:
-                    return self.reply(200, review.recall(study, unit_id, self.json_body().get('text')))
+                    return self.reply(200, review.recall(study, unit_id, self.json_body().get('missed')))
                 if action == '/submit' and post:
                     body = self.json_body()
                     return self.reply(200, review.submit_unit(study, unit_id, body.get('answers'), body.get('sentence'), body.get('note')))

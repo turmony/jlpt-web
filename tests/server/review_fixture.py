@@ -19,6 +19,8 @@ TOPS = ('ものごとの様子', 'ものごとの関係', 'もの・こと', '�
 CARDS = {'N5-G-0013': '助词：动作进行时点「に」', 'N5-G-0032': '助词：动作对象「に」'}
 CORES = {'N5-G-0013': '时间词＋に，表示动作发生的时间点。', 'N5-G-0032': '「に」标出动作指向的对象。'}
 SENTENCE_PROMPT = '用本单元的语法翻译：三点见面吧。'
+RECALL_ITEMS = [{'card': 'N5-G-0013', 'form': 'に', 'usage': '时间点'},
+                {'card': 'N5-G-0032', 'form': 'に', 'usage': '动作的对方'}]
 
 UNIT_PAGE = '''# B-01-1 に
 
@@ -115,6 +117,7 @@ def prepare_unit(notes, unit_id='B-01-1'):
                    UNIT_PAGE)
     write_json(notes / 'groups/units' / f'{unit_id}.json',
                {'schema_version': 1, 'unit_id': unit_id, 'paper': paper_slug(unit_id),
+                'recall_items': RECALL_ITEMS,
                 'sentence': {'card': 'N5-G-0013', 'prompt': SENTENCE_PROMPT}})
     write_paper(notes, paper_slug(unit_id), 5)
 
@@ -123,7 +126,9 @@ def finish_unit(notes, unit_id, minute):
     """A unit submission as the server leaves it after 交卷."""
     write_json(notes / 'groups/submissions/r1' / f'{unit_id}.json',
                {'schema_version': 1, 'unit_id': unit_id, 'round': 1, 'paper': paper_slug(unit_id),
-                'recall': {'text': '回忆', 'locked_at': '2026-10-17T20:00:00+08:00'},
+                'recall': {'marks': [{'card': item['card'], 'item': index, 'recalled': True}
+                                     for index, item in enumerate(RECALL_ITEMS)],
+                           'locked_at': '2026-10-17T20:00:00+08:00'},
                 'sentence': {'card': 'N5-G-0013', 'text': '三時に会いましょう。'}, 'note': '',
                 'submitted_at': f'2026-10-17T20:{minute:02d}:00+08:00'})
 
