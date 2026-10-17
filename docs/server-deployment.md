@@ -328,3 +328,12 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - 修复状态卡片没有按钮时（如“尚未准备”）末尾显示 “null”。
 
 验证：52 项后端测试（1 项按环境条件跳过）与 11 项浏览器测试通过，新增模拟主屏幕启动、阶段进度条与目录在学一个单元前后的检查，以及状态卡片完整文字断言；本机以真实学习仓库只读预览 117 个单元的进度条与目录，iPhone 13 视口无横向溢出。上线后 `/review/` 未登录 303、日志无异常。回滚：把 `/srv/jlpt/static` 切回 `/srv/jlpt/releases/20261017-review-plan/static`（见 `previous-release.txt`）。
+
+### 回忆环节改为遮挡核对（2026-10-17）
+
+发布目录为 `/srv/jlpt/releases/20261017-recall-check`，app 与 static 均已切换并重启 `jlpt.service`。学习仓库同时把 `recall-check` 分支快进合并到 main（合并前 `be6f037`），线上随即加载新的 `groups.py`。设计见学习仓库 `docs/superpowers/specs/2026-10-16-grammar-network-review-design.md` 的 2026-10-17 修订。
+
+- 单元第 1 步由打字回忆改为“回忆核对”：只显示范围与“共 n 项”，各行默认遮住，点「点击显示」后显示“日语形式 ― 中文用法关键词”；每行默认算想到，没想到的点「没想到」（`aria-pressed`，再点撤回）。点开与标记暂存在浏览器（`review:<单元>:recall`，行号按当前行数截断），「进入对比页」随时可点，锁定后各行只读展开。
+- 内容来自单元材料新增的 `recall_items`（`card`、`form`、`usage`）。`GET /api/review/units/<id>` 的 `recall` 改为 `{"items":[{form,usage}],"missed":null|[行号]}`；`POST …/recall` 请求体改为 `{"missed":[行号]}`，行号非整数、重复或越界返回 400；交卷文件写入服务器生成的 `recall.marks`。
+
+验证：55 项后端测试（1 项按环境条件跳过）与 12 项 Chromium/WebKit 浏览器测试通过（含中途刷新恢复、过期草稿截断、按钮触控高度 ≥44px）；学习仓库 534 项测试通过，`validate-groups`、`validate-links` 通过。上线后 `/review/` 未登录 303、`/api/review/today` 401、日志无异常；以线上代码只读读取 B-01-1，锁定前只返回 6 行与状态。回滚：按 `previous-release.txt`（app=`/srv/jlpt/releases/20261017-review-plan/app`，static=`/srv/jlpt/releases/20261017-review-progress/static`）切回并重启，同时 `git -C /root/projects/jlpt-study checkout be6f037 -- src/jlpt_notes/groups.py` 恢复旧规则模块。
