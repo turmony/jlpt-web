@@ -37,7 +37,7 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual(view['unit'], {'id': 'B-01-1', 'title': 'に', 'kind': 'system',
                                         'position': ['基础体系表', 'B-01 助词用法地图', 'B-01-1 に']})
         self.assertEqual(view['session'], {'started': False, 'submitted': False, 'locked_at': None, 'submitted_at': None})
-        self.assertEqual(view['recall'], {'items': [{'form': 'に', 'usage': '时间点'}, {'form': 'に', 'usage': '动作的对方'}],
+        self.assertEqual(view['recall'], {'items': [{'form': 'に', 'usage': '时间点'}, {'form': 'へ', 'usage': '动作的方向'}],
                                           'missed': None})
         for key in ('page', 'cards', 'paper', 'sentence', 'note'):
             self.assertNotIn(key, view)
@@ -51,9 +51,8 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual(view['recall']['missed'], [])
         page = view['page']
         self.assertIn('![时点に接续图](/api/review/asset?path=assets/grammar/n5/N5-G-0013-connection.png)', page)
-        self.assertIn('[时点に](#card-N5-G-0013)', page)
-        self.assertIn('[对象に](#card-N5-G-0032)', page)
-        self.assertIn('见体系表 B-01。', page)
+        self.assertIn('### [N5-G-0013 助词：动作进行时点「に」](#card-N5-G-0013)', page)
+        self.assertIn('### [N5-G-0032 助词：动作对象「に」](#card-N5-G-0032)', page)
         self.assertNotIn('grammar_system_unit', page)
         self.assertTrue(page.startswith('# B-01-1 に'))
         self.assertEqual(view['cards'], [

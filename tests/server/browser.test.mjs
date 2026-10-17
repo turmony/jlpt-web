@@ -129,17 +129,19 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     await page.locator('#recall-list').waitFor();
     assert.equal(await page.locator('#recall-list .recall-row').count(),2);
     assert.equal(await page.locator('#unit-page').count(),0);
-    assert.doesNotMatch(await page.locator('#recall-list').innerText(),/时间点|动作的对方/);
+    assert.doesNotMatch(await page.locator('#recall-list').innerText(),/时间点|动作的方向/);
+    assert.deepEqual(await page.locator('#recall-list .recall-form').allInnerTexts(),['に','へ']);
+    assert.equal(await page.locator('#recall-list .recall-group').nth(1).locator('.recall-row').count(),1);
     const row=page.locator('#recall-list .recall-row').nth(1);
     await row.getByRole('button',{name:'点击显示'}).click();
-    await row.getByText('に ― 动作的对方').waitFor();
+    assert.equal(await row.locator('.recall-text').innerText(),'动作的方向');
     await row.getByRole('button',{name:'没想到'}).click();
     assert.equal(await row.getByRole('button',{name:'没想到'}).getAttribute('aria-pressed'),'true');
     await page.reload();
     await page.getByRole('button',{name:'开始'}).click();
     await page.locator('#recall-list').waitFor();
     const again=page.locator('#recall-list .recall-row').nth(1);
-    await again.getByText('に ― 动作的对方').waitFor();
+    await again.getByText('动作的方向').waitFor();
     assert.equal(await again.getByRole('button',{name:'没想到'}).getAttribute('aria-pressed'),'true');
     assert.equal(await page.locator('#recall-list .recall-row').nth(0).getByRole('button',{name:'点击显示'}).count(),1);
     await page.getByRole('button',{name:'进入对比页'}).click();
@@ -147,6 +149,13 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('#recall-list .recall-row.missed').count(),1);
     assert.equal(await page.locator('#recall-list button').count(),0);
     assert.equal(await page.locator('#unit-page img').first().evaluate(image=>image.complete&&image.naturalWidth>0),true);
+    assert.equal(await page.locator('.cards-title').count(),0);
+    assert.equal(await page.locator('#unit-page details.member-card').count(),2);
+    assert.equal(await page.locator('#card-N5-G-0013').evaluate(details=>!details.open
+      && details.previousElementSibling.querySelector('img')?.alt==='时点に接续图'
+      && details.nextElementSibling.tagName==='H3'),true);
+    await page.locator('#card-N5-G-0013 summary').click();
+    await page.locator('#card-N5-G-0013',{hasText:'时间词＋に，表示动作发生的时间点。'}).waitFor();
     await page.locator('#unit-page a[href="#card-N5-G-0032"]').click();
     assert.equal(await page.locator('#card-N5-G-0032').evaluate(details=>details.open),true);
     await page.locator('.option-list').first().locator('.option-block').nth(1).click();

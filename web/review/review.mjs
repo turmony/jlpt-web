@@ -260,10 +260,16 @@ function renderUnit(view) {
     card.open = true;
     card.scrollIntoView({behavior: 'smooth', block: 'start'});
   });
-  const cards = view.cards.map(card => h('details', {className: 'member-card', id: `card-${card.id}`},
-    h('summary', {textContent: `${card.id} ${card.title}`}), markdown(card.core || '（原卡没有核心一节）')));
-  root.append(h('section', {className: 'step'}, h('h2', {textContent: '二、对比页'}), page,
-    h('h3', {className: 'cards-title', textContent: '成员原卡核心'}), ...cards));
+  // Each member's core goes, folded, right under its own connection image (the end of its ### section).
+  for (const card of view.cards) {
+    const details = h('details', {className: 'member-card', id: `card-${card.id}`},
+      h('summary', {textContent: `原卡核心 · ${card.id} ${card.title}`}), markdown(card.core || '（原卡没有核心一节）'));
+    const heading = [...page.querySelectorAll('h3')].find(node => node.querySelector(`a[href="#card-${card.id}"]`));
+    let next = heading && heading.nextElementSibling;
+    while (next && !/^H[1-3]$/.test(next.tagName)) next = next.nextElementSibling;
+    if (heading) heading.parentNode.insertBefore(details, next); else page.append(details);
+  }
+  root.append(h('section', {className: 'step'}, h('h2', {textContent: '二、对比页'}), page));
 
   if (session.submitted) {
     root.append(h('section', {className: 'step'}, h('h2', {textContent: '已交卷，待判分'}),
@@ -297,13 +303,13 @@ function renderUnit(view) {
   });
 }
 
-// Recall rows: hidden until tapped; every row counts as recalled unless marked 没想到.
-// `state` is {revealed: [row], missed: [row]}; `draftKey` null means locked and read-only.
+// Recall rows, grouped under their grammar form (shown); each row's usage stays hidden until tapped.
+// Every row counts as recalled unless marked 没想到. `state` is {revealed: [row], missed: [row]};
+// `draftKey` null means locked and read-only.
 function recallList(items, state, draftKey) {
   const save = () => { if (draftKey) try { localStorage.setItem(draftKey, JSON.stringify(state)); } catch {} };
-  const list = h('ol', {id: 'recall-list', className: 'recall-list'});
+  const list = h('div', {id: 'recall-list', className: 'recall-list'});
   const row = index => {
-    const item = items[index];
     const missed = state.missed.includes(index);
     const li = h('li', {className: 'recall-row' + (missed ? ' missed' : '')});
     if (!state.revealed.includes(index)) {
@@ -314,7 +320,7 @@ function recallList(items, state, draftKey) {
       }}));
       return li;
     }
-    li.append(h('span', {className: 'recall-text', textContent: `${item.form} ― ${item.usage}`}));
+    li.append(h('span', {className: 'recall-text', textContent: items[index].usage}));
     if (!draftKey) {
       if (missed) li.append(h('span', {className: 'recall-mark', textContent: '没想到'}));
       return li;
@@ -326,7 +332,12 @@ function recallList(items, state, draftKey) {
     }}));
     return li;
   };
-  list.append(...items.map((_, index) => row(index)));
+  items.forEach((item, index) => {
+    if (index > 0 && items[index - 1].form === item.form) return;
+    const rows = h('ol', {className: 'recall-rows', start: index + 1});
+    for (let next = index; next < items.length && items[next].form === item.form; next++) rows.append(row(next));
+    list.append(h('section', {className: 'recall-group'}, h('h3', {className: 'recall-form', textContent: item.form}), rows));
+  });
   list.missedRows = () => [...state.missed].sort((a, b) => a - b);
   return list;
 }
