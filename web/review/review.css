@@ -6,11 +6,30 @@
 .plan-progress{margin:20px 0 22px}
 .plan-progress p{margin:6px 0}
 .progress-summary{font-size:18px;font-weight:600}
-.progress-bar{height:8px;margin:10px 0;border-radius:999px;background:var(--raised);overflow:hidden}
-.progress-bar span{display:block;width:0;height:100%;background:var(--accent);transition:width .3s}
+/* One segment per stage, sized by its unit count; the marker is the unit the learner is on. */
+.stage-bar{display:flex;gap:3px;height:12px;margin:22px 0 8px}
+.stage-segment{position:relative;flex:1 1 0;min-width:6px;border-radius:3px;background:var(--raised)}
+.stage-fill{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--accent)}
+.stage-marker{position:absolute;top:-11px;transform:translateX(-50%);border:6px solid transparent;border-bottom:0;border-top:8px solid var(--ink)}
+.stage-marker::after{content:'';position:absolute;left:-1px;top:3px;width:2px;height:12px;background:var(--ink)}
+.stage-legend{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:13px;color:var(--muted)}
+.stage-legend [data-status="current"]{color:var(--accent-text);font-weight:600}
+.stage-legend [data-status="done"]{color:var(--ink)}
+.next-milestone{font-size:15px;color:var(--accent-text)}
 .directory{margin-top:12px}
-.directory-section h3{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin:18px 0 4px;font-size:16px}
+.stage{margin:10px 0 0;border:1px solid var(--line);border-radius:var(--radius-small);background:var(--surface)}
+.stage>summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:10px 14px;color:var(--ink)}
+.stage-name{font-weight:600;overflow-wrap:anywhere}
+.stage-count{font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.stage-mini{flex:1;min-width:48px;height:6px;border-radius:999px;background:var(--raised);overflow:hidden}
+.stage-mini-fill{display:block;height:100%;background:var(--accent)}
+.stage-status{font-size:13px;color:var(--muted);white-space:nowrap}
+.stage[data-status="current"]{border-color:var(--accent)}
+.stage[data-status="current"] .stage-status,.stage[data-status="done"] .stage-status{color:var(--accent-text)}
+.stage>.directory-group{padding:0 14px 8px}
 .directory-group h4{margin:12px 0 2px;font-size:14px;font-weight:500;color:var(--muted)}
+.directory-list li.is-current{padding-left:10px;border-left:3px solid var(--accent)}
+.directory-list li.is-current .unit-name{color:var(--accent-text);font-weight:600}
 .directory-list{list-style:none;margin:0;padding:0}
 .directory-list li{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
 .directory-list .unit-name{flex:1;min-width:0;overflow-wrap:anywhere}

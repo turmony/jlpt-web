@@ -58,12 +58,71 @@ function canStartAhead() {
   return !['review', 'review_not_ready'].includes(today.state) && !busy;
 }
 
+const STAGE = {pending: '待整理（不计入总数）', done: '已完成 ✓', current: '当前阶段', partial: '进行中', todo: '未开始', empty: '暂无单元'};
+
+// Stages in learning order (基础体系表, then the top categories), with the unit the learner is on now:
+// the unit in today's status, or else the first unit not yet learned.
+function stages() {
+  const list = today.directory.map(section => {
+    const units = section.children.flatMap(child => child.units);
+    return {section, units, learned: units.filter(unit => unit.status === 'learned').length};
+  });
+  const currentId = today.unit?.id ?? list.flatMap(stage => stage.units).find(unit => unit.status !== 'learned')?.id;
+  for (const stage of list) {
+    stage.currentIndex = stage.units.findIndex(unit => unit.id === currentId);
+    stage.status = stage.section.pending ? 'pending' : !stage.units.length ? 'empty'
+      : stage.learned === stage.units.length ? 'done' : stage.currentIndex >= 0 ? 'current' : stage.learned ? 'partial' : 'todo';
+  }
+  return {list, currentId};
+}
+
+function fill(share, className) {
+  const bar = h('span', {className});
+  bar.style.width = `${share * 100}%`;
+  if (className === 'stage-mini-fill') {
+    const track = h('span', {className: 'stage-mini'}, bar);
+    track.setAttribute('aria-hidden', 'true');
+    return track;
+  }
+  return bar;
+}
+
+function renderStageBar(list) {
+  const progress = today.progress;
+  const current = list.find(stage => stage.status === 'current');
+  const bar = $('progress-bar');
+  bar.setAttribute('aria-valuemax', String(progress.total));
+  bar.setAttribute('aria-valuenow', String(progress.learned));
+  bar.setAttribute('aria-valuetext', `已学 ${progress.learned} / ${progress.total}` + (current ? `，当前阶段：${current.section.title}` : ''));
+  const counted = list.filter(stage => stage.units.length && !stage.section.pending);
+  bar.replaceChildren(...counted.map(stage => {
+    const segment = h('div', {className: 'stage-segment', title: `${stage.section.title} ${stage.learned}/${stage.units.length}`},
+      fill(stage.learned / stage.units.length, 'stage-fill'));
+    segment.style.flexGrow = String(stage.units.length);
+    segment.dataset.status = stage.status;
+    if (stage.currentIndex >= 0) {
+      const marker = h('span', {className: 'stage-marker'});
+      marker.style.left = `${(stage.currentIndex + 0.5) / stage.units.length * 100}%`;
+      segment.append(marker);
+    }
+    return segment;
+  }));
+  // The legend names the segments in order, so the milestones are readable without opening the directory.
+  $('stage-legend').replaceChildren(...counted.map(stage => {
+    const item = h('span', {textContent: `${stage.status === 'done' ? '✓ ' : ''}${stage.section.title} ${stage.learned}/${stage.units.length}`});
+    item.dataset.status = stage.status;
+    return item;
+  }));
+  const next = list.find(stage => !stage.section.pending && stage.learned < stage.units.length);
+  $('next-milestone').textContent = next ? `下一个节点：学完${next.section.title}（还差 ${next.units.length - next.learned} 个单元）`
+    : progress.total ? '已提交的阶段已全部学完' : '';
+}
+
 function renderProgress() {
   const progress = today.progress;
+  const {list, currentId} = stages();
   $('progress-summary').textContent = `第 ${today.round} 轮 · 已学 ${progress.learned} / ${progress.total}`;
-  $('progress-bar').setAttribute('aria-valuemax', String(progress.total));
-  $('progress-bar').setAttribute('aria-valuenow', String(progress.learned));
-  $('progress-fill').style.width = progress.total ? `${progress.learned / progress.total * 100}%` : '0';
+  renderStageBar(list);
   $('progress-segments').textContent = `体系表单元 ${progress.system.learned}/${progress.system.total} · 功能小组 ${progress.group.learned}/${progress.group.total}`;
   const position = today.unit ? today.unit.position.join(' › ') : today.review ? `复习 ${today.review.id}` : '';
   $('progress-position').textContent = '当前位置：' + position;
@@ -72,14 +131,24 @@ function renderProgress() {
   $('progress-cycle').textContent = `${cycle} · 已完成复习 ${progress.reviews_done} 次`;
 
   const ahead = canStartAhead();
-  $('directory-body').replaceChildren(...today.directory.map(section => h('section', {className: 'directory-section'},
-    h('h3', {}, section.title, section.pending ? h('span', {className: 'muted pending'}, '待整理（不计入总数）') : null),
-    ...section.children.map(child => h('div', {className: 'directory-group'},
-      h('h4', {}, child.mid ?? `${child.id} ${child.title}`),
-      h('ul', {className: 'directory-list'}, ...child.units.map(unit => h('li', {},
-        h('span', {className: 'unit-name', textContent: `${unit.id} ${unit.title}`}),
-        chip(unit.status),
-        unit.status === 'prepared' && ahead ? h('button', {type: 'button', textContent: '提前学', onclick: () => openUnit(unit.id).catch(notice)}) : null))))))));
+  $('directory-body').replaceChildren(...list.map(stage => {
+    const {section} = stage;
+    const counted = !section.pending && stage.units.length > 0;
+    const details = h('details', {className: 'stage', open: stage.status === 'current'},
+      h('summary', {},
+        h('span', {className: 'stage-name', textContent: section.title}),
+        counted ? h('span', {className: 'stage-count', textContent: `${stage.learned}/${stage.units.length}`}) : null,
+        counted ? fill(stage.learned / stage.units.length, 'stage-mini-fill') : null,
+        h('span', {className: 'stage-status', textContent: STAGE[stage.status]})),
+      ...section.children.map(child => h('div', {className: 'directory-group'},
+        h('h4', {}, child.mid ?? `${child.id} ${child.title}`),
+        h('ul', {className: 'directory-list'}, ...child.units.map(unit => h('li', {className: unit.id === currentId ? 'is-current' : ''},
+          h('span', {className: 'unit-name', textContent: `${unit.id} ${unit.title}`}),
+          chip(unit.status),
+          unit.status === 'prepared' && ahead ? h('button', {type: 'button', textContent: '提前学', onclick: () => openUnit(unit.id).catch(notice)}) : null))))));
+    details.dataset.status = stage.status;
+    return details;
+  }));
 }
 
 function chip(status) {
@@ -109,10 +178,11 @@ function renderStatus() {
     lines.push(today.reason === 'empty' ? '分组总表尚未提交' : '已提交的单元已全部学完，下一批分组待整理');
   }
   if (today.pending_grading.length) lines.push(`已交卷，待判分：${today.pending_grading.map(item => item.id).join('、')}`);
-  $('status').replaceChildren(
+  $('status').replaceChildren(...[
     h('h1', {className: 'status-title', textContent: '今日安排'}),
     ...lines.map((line, index) => h('p', {className: index ? 'status-note' : 'status-line', textContent: line})),
-    action ? h('button', {className: 'primary', type: 'button', textContent: action[0], onclick: () => action[1]().catch(notice)}) : null);
+    action ? h('button', {className: 'primary', type: 'button', textContent: action[0], onclick: () => action[1]().catch(notice)}) : null,
+  ].filter(Boolean));
 }
 
 function showOverview() {

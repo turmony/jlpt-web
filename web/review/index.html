@@ -1,13 +1,15 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>今日安排 · JLPT 学习册</title><link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/papers.css"><link rel="stylesheet" href="/review/review.css"><script type="module" src="/review/review.mjs"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="theme-color" content="#181818"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="JLPT 学习册"><title>今日安排 · JLPT 学习册</title><link rel="icon" href="/grammar/icon.svg" type="image/svg+xml"><script src="/launch-home.js"></script><link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/papers.css"><link rel="stylesheet" href="/review/review.css"><script type="module" src="/review/review.mjs"></script></head>
 <body><main class="page papers-page review-page">
   <nav class="topbar" aria-label="学习导航"><strong><svg class="brand-mark" viewBox="0 0 28 32" fill="none" aria-hidden="true"><path d="M5 3h18v25H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2 0v21m-4 0h20M12 9h6m-6 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>JLPT 学习册</strong><a href="/review/" aria-current="page">今日安排</a><a href="/grammar/">语法记忆</a><a href="/papers.html">做题</a><a href="/code/">云开发</a></nav>
   <p id="notice" class="paper-notice" role="alert" hidden></p>
 
   <section id="plan-progress" class="plan-progress" aria-labelledby="progress-summary">
     <p id="progress-summary" class="progress-summary">正在读取学习计划…</p>
-    <div id="progress-bar" class="progress-bar" role="progressbar" aria-labelledby="progress-summary" aria-valuemin="0"><span id="progress-fill"></span></div>
+    <div id="progress-bar" class="stage-bar" role="progressbar" aria-labelledby="progress-summary" aria-valuemin="0"></div>
+    <p id="stage-legend" class="stage-legend"></p>
+    <p id="next-milestone" class="next-milestone"></p>
     <p id="progress-segments" class="muted"></p>
     <p id="progress-position" hidden></p>
     <p id="progress-cycle" class="muted"></p>

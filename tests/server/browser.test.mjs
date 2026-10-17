@@ -49,6 +49,57 @@ for(const device of ['iPhone SE','iPhone 13','Desktop Chrome']) {
   }));
 }
 
+test('a home-screen launch at grammar memory opens the review plan first',()=>withSite(webkit,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
+  const context=page.context();
+  const tab=await context.newPage();
+  await tab.goto(url+'/grammar/');await tab.locator('#start-reading:not([disabled])').waitFor();
+  assert.equal(tab.url(),url+'/grammar/');
+  await tab.close();
+  await context.addInitScript(()=>Object.defineProperty(Navigator.prototype,'standalone',{configurable:true,get:()=>true}));
+  const app=await context.newPage();
+  await app.goto(url+'/grammar/');await app.waitForURL(url+'/review/');
+  await app.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'语法记忆'}).click();
+  await app.waitForURL(url+'/grammar/');await app.locator('#start-reading:not([disabled])').waitFor();
+  assert.equal(app.url(),url+'/grammar/');
+}));
+
+test('stage progress shows the current stage, the next milestone and the plan directory',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  const finish=async(unit,minute)=>{
+    const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');
+    await mkdir(folder,{recursive:true});
+    await writeFile(join(folder,`${unit}.json`),JSON.stringify({schema_version:1,unit_id:unit,round:1,paper:`2026-10-17-${unit.toLowerCase()}`,
+      recall:{text:'回忆',locked_at:'2026-10-17T20:00:00+08:00'},sentence:{card:'N5-G-0013',text:'文。'},note:'',submitted_at:`2026-10-17T20:${minute}:00+08:00`}));
+  };
+  const stage=title=>page.locator('.stage',{has:page.locator('summary',{hasText:title})});
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  assert.equal(await page.locator('#progress-bar .stage-segment').count(),1);
+  assert.equal(await page.locator('#progress-bar .stage-segment .stage-marker').count(),1);
+  assert.equal(await page.locator('#next-milestone').innerText(),'下一个节点：学完基础体系表（还差 2 个单元）');
+  assert.equal(await page.locator('#stage-legend').innerText(),'基础体系表 0/2');
+  assert.equal(await page.locator('#stage-legend [data-status=current]').count(),1);
+  await page.locator('#directory > summary').click();
+  assert.equal(await stage('基础体系表').evaluate(details=>details.open),true);
+  assert.match(await stage('基础体系表').locator('summary').innerText(),/基础体系表[\s\S]*0\/2[\s\S]*当前阶段/);
+  assert.equal(await stage('ものごとの様子').evaluate(details=>details.open),false);
+  assert.match(await stage('ものごとの様子').locator('summary').innerText(),/待整理（不计入总数）/);
+  assert.match(await page.locator('.directory-list li.is-current').innerText(),/B-01-1/);
+
+  await finish('B-01-1','10');await page.reload();
+  await page.locator('#progress-summary',{hasText:'已学 1 / 2'}).waitFor();
+  assert.equal(await page.locator('#progress-bar .stage-fill').evaluate(fill=>fill.style.width),'50%');
+  assert.equal(await page.locator('#next-milestone').innerText(),'下一个节点：学完基础体系表（还差 1 个单元）');
+  assert.match(await page.locator('.directory-list li.is-current').textContent(),/B-01-2/);
+
+  await finish('B-01-2','20');await page.reload();
+  await page.locator('#progress-summary',{hasText:'已学 2 / 2'}).waitFor();
+  assert.equal(await page.locator('#progress-bar .stage-marker').count(),0);
+  assert.equal(await page.locator('#next-milestone').innerText(),'已提交的阶段已全部学完');
+  assert.equal(await page.locator('#stage-legend').innerText(),'✓ 基础体系表 2/2');
+  await page.locator('#directory > summary').click();
+  assert.match(await stage('基础体系表').locator('summary').innerText(),/2\/2[\s\S]*已完成/);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+}));
+
 test('damaged study data shows the server error instead of a blank page',()=>withSite(chromium,{},async(page,url,tmp)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
   const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');
@@ -74,6 +125,7 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     page.on('dialog',dialog=>dialog.accept());
     await page.getByRole('button',{name:'交卷'}).click();
     await page.locator('#status',{hasText:'已交卷，待判分'}).waitFor();
+    assert.equal(await page.locator('#status').innerText(),'今日安排\n\n下一项（B-01-2 で・を）尚未准备\n\n已交卷，待判分：B-01-1');
     await page.locator('#progress-summary',{hasText:'已学 1 / 2'}).waitFor();
     const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
     assert.equal(sub.recall.text,'に：时间');
