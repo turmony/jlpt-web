@@ -119,6 +119,46 @@ class PaperFileTests(unittest.TestCase):
         self.assertEqual(paper['text'], PAPER)
         self.assertEqual(paper['numbers'], [1, 2, 3])
 
+    def register_plan_paper(self, folder, item_id, slug, raw=None):
+        (self.quizzes / f'papers/{slug}.md').write_text(PAPER)
+        material = self.root / f'jlpt-notes/groups/{folder}/{item_id}.json'
+        material.parent.mkdir(parents=True, exist_ok=True)
+        material.write_text(raw if raw is not None else json.dumps({'paper': slug}))
+
+    def test_plan_papers_are_hidden_from_regular_api(self):
+        self.register_plan_paper('units', 'B-01-1', '2026-10-17-b-01-1')
+        self.register_plan_paper('reviews', 'review-01', '2026-10-18-review-01')
+        # A damaged material file still hides its paper instead of exposing it.
+        self.register_plan_paper('units', 'B-01-2', '2026-10-17-b-01-2', raw='{"paper": "2026-10-17-b-01-2",')
+        self.assertEqual(papers.plan_slugs(self.root), {'2026-10-17-b-01-1', '2026-10-18-review-01', '2026-10-17-b-01-2'})
+        self.assertEqual([p['slug'] for p in papers.list_papers(self.root)], ['2026-10-14-n1-111-120-test-1'])
+        for slug in ('2026-10-17-b-01-1', '2026-10-18-review-01', '2026-10-17-b-01-2'):
+            with self.assertRaises(KeyError):
+                papers.read_paper(self.root, slug)
+            with self.assertRaises(KeyError):
+                papers.write_answers(self.root, slug, {'1': {'answer': '2'}})
+            self.assertEqual((self.quizzes / f'papers/{slug}.md').read_text(), PAPER)
+
+    def test_plan_paper_helpers_only_accept_plan_papers(self):
+        self.register_plan_paper('units', 'B-01-1', '2026-10-17-b-01-1')
+        paper = papers.read_plan_paper(self.root, '2026-10-17-b-01-1')
+        self.assertEqual(paper['text'], PAPER.split('\n## 答案填写区')[0])
+        self.assertEqual(paper['numbers'], [1, 2, 3])
+        with self.assertRaises(KeyError):
+            papers.read_plan_paper(self.root, self.path.stem)
+        with self.assertRaises(KeyError):
+            papers.write_plan_answers(self.root, self.path.stem, {'1': {'answer': '2'}})
+        self.assertEqual(self.path.read_text(), PAPER)
+        saved = papers.write_plan_answers(self.root, '2026-10-17-b-01-1', {'1': {'answer': '2', 'uncertain': True}})
+        self.assertEqual(saved['answers']['1'], {'answer': '2', 'uncertain': True})
+        self.assertNotIn('## 答案填写区', saved['text'])
+        self.assertIn('\n*1-2\n', (self.quizzes / 'papers/2026-10-17-b-01-1.md').read_text())
+        with self.assertRaises(ValueError):
+            papers.write_plan_answers(self.root, '2026-10-17-b-01-1', {'9': {'answer': '1'}})
+        (self.quizzes / 'results/2026-10-17-b-01-1-result.md').write_text('# 成绩')
+        with self.assertRaises(Conflict):
+            papers.write_plan_answers(self.root, '2026-10-17-b-01-1', {'1': {'answer': '3'}})
+
 
 class PaperHTTPTests(unittest.TestCase):
     def setUp(self):

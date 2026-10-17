@@ -2,7 +2,12 @@
 
 The web page only fills the paper's own `## 答案填写区` block, which quiz-grade
 reads (`N-答案`, `*N-答案` when uncertain). Grading and commits stay with the agent.
+
+Papers registered by the grammar-network plan (`groups/units/*.json`,
+`groups/reviews/*.json`) are answered only through `/review/`, so the regular
+paper API neither lists nor opens them.
 """
+import json
 import os
 import re
 import uuid
@@ -11,6 +16,7 @@ from pathlib import Path, PurePosixPath
 from .store import Conflict
 
 QUIZZES = 'jlpt-notes/quizzes'
+GROUPS = 'jlpt-notes/groups'
 
 
 def safe_file(root, name):
@@ -61,6 +67,38 @@ def _paper_path(root, slug):
     return safe_file(root, name)
 
 
+def plan_slugs(root):
+    """Paper slugs named by the plan's unit and review materials."""
+    slugs = set()
+    for folder in ('units', 'reviews'):
+        for entry in sorted((Path(root) / GROUPS / folder).glob('*.json')):
+            try:
+                text = entry.read_text()
+            except (OSError, UnicodeDecodeError):
+                continue
+            try:
+                found = [json.loads(text).get('paper')]
+            except (ValueError, AttributeError):
+                # A damaged material file still hides its paper rather than exposing it.
+                found = re.findall(r'"paper"\s*:\s*"([^"\\]+)"', text)
+            slugs.update(slug for slug in found if isinstance(slug, str))
+    return slugs
+
+
+def _regular_path(root, slug):
+    path = _paper_path(root, slug)
+    if slug in plan_slugs(root):
+        raise KeyError(slug)
+    return path
+
+
+def _plan_path(root, slug):
+    path = _paper_path(root, slug)
+    if slug not in plan_slugs(root):
+        raise KeyError(slug)
+    return path
+
+
 def _result_text(root, slug):
     try:
         return safe_file(root, f'{QUIZZES}/results/{slug}-result.md').read_text()
@@ -108,9 +146,12 @@ RECENT = 20
 
 def list_papers(root, limit=RECENT):
     folder = Path(root) / QUIZZES / 'papers'
+    hidden = plan_slugs(root)
     result = []
     natural = lambda path: [int(part) if part.isdigit() else part for part in re.split(r'(\d+)', path.stem)]
     for entry in sorted(folder.glob('*.md'), key=natural, reverse=True) if folder.is_dir() else []:
+        if entry.stem in hidden:
+            continue
         try:
             result.append(_summary(root, _paper_path(root, entry.stem))[2])
         except ValueError:
@@ -120,11 +161,21 @@ def list_papers(root, limit=RECENT):
     return result
 
 
-def read_paper(root, slug):
-    path = _paper_path(root, slug)
+def _read(root, path):
     text, answers, summary = _summary(root, path)
     return {**summary, 'text': text, 'answers': answers,
-            'numbers': sorted(int(number) for number in answers), 'result': _result_text(root, slug)}
+            'numbers': sorted(int(number) for number in answers), 'result': _result_text(root, path.stem)}
+
+
+def read_paper(root, slug):
+    return _read(root, _regular_path(root, slug))
+
+
+def read_plan_paper(root, slug):
+    """A plan paper without its answer area; answers come back in `answers`."""
+    paper = _read(root, _plan_path(root, slug))
+    heading = paper['text'].rfind('\n' + ANSWER_HEADING)
+    return {**paper, 'text': paper['text'][:heading] if heading >= 0 else paper['text']}
 
 
 def fill_sheet(text, answers):
@@ -142,8 +193,17 @@ def fill_sheet(text, answers):
 
 def write_answers(root, slug, answers):
     """Replace the whole answer sheet; numbers left out become blank again."""
-    path = _paper_path(root, slug)
-    if _result_text(root, slug) is not None:
+    _write(root, _regular_path(root, slug), answers)
+    return read_paper(root, slug)
+
+
+def write_plan_answers(root, slug, answers):
+    _write(root, _plan_path(root, slug), answers)
+    return read_plan_paper(root, slug)
+
+
+def _write(root, path, answers):
+    if _result_text(root, path.stem) is not None:
         raise Conflict('这份试卷已判分，不能再修改作答')
     text = path.read_text()
     known = _parse(text)
@@ -160,4 +220,3 @@ def write_answers(root, slug, answers):
             raise ValueError('不确定标记无效')
 
     atomic_write(path, fill_sheet(text, answers).encode())
-    return read_paper(root, slug)
