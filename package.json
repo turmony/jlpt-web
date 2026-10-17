@@ -1,48 +1,23 @@
 {
-  "name": "jlpt-aionui-chat",
+  "name": "jlpt-web",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22 <25"
   },
   "scripts": {
-    "build": "node scripts/build-chat.mjs && node scripts/build-server.mjs",
-    "build:chat": "node scripts/build-chat.mjs",
-    "test:agent": "node --test tests/agent/*.test.mjs",
+    "build": "node scripts/build-server.mjs",
     "test:server": "python3 -m unittest discover -s tests/server -q",
     "test:browser": "node --test tests/server/browser.test.mjs"
   },
   "dependencies": {
-    "@agentclientprotocol/codex-acp": "2.2.2",
-    "@arco-design/web-react": "2.66.1",
-    "@icon-park/react": "1.4.2",
-    "@iconify/react": "6.0.2",
-    "classnames": "2.5.1",
-    "dayjs": "1.11.18",
-    "diff": "8.0.3",
-    "diff2html": "3.4.55",
-    "eventemitter3": "5.0.1",
-    "i18next": "23.7.16",
-    "katex": "0.16.22",
-    "mermaid": "11.13.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "react-i18next": "14.0.5",
     "react-markdown": "10.1.0",
-    "react-router-dom": "7.8.0",
-    "react-syntax-highlighter": "16.1.0",
-    "react-virtuoso": "4.18.1",
-    "rehype-katex": "7.0.1",
-    "rehype-raw": "7.0.0",
     "remark-breaks": "4.0.0",
-    "remark-gfm": "4.0.1",
-    "remark-math": "6.0.0",
-    "swr": "2.3.6"
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
-    "esbuild": "0.25.11",
-    "typescript": "5.8.3",
-    "unocss": "66.3.3",
-    "unocss-preset-extra": "1.0.0"
+    "esbuild": "0.25.11"
   }
 }

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>JLPT 试卷</title><link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/papers.css"><script type="module" src="/papers.mjs"></script></head>
+<body><main class="page papers-page">
+  <nav class="topbar" aria-label="学习导航"><strong><svg class="brand-mark" viewBox="0 0 28 32" fill="none" aria-hidden="true"><path d="M5 3h18v25H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2 0v21m-4 0h20M12 9h6m-6 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>JLPT 学习册</strong><a href="/grammar/">语法记忆</a></nav>
+  <p id="notice" class="paper-notice" role="alert" hidden></p>
+
+  <section id="list-view" aria-labelledby="list-title">
+    <div class="list-heading"><h1 id="list-title">试卷</h1><p class="muted">在这里作答并提交，再回到 Claude 判卷。</p></div>
+    <ul id="paper-list" class="paper-list"></ul>
+    <p id="list-empty" class="muted" hidden>没有试卷。</p>
+  </section>
+
+  <section id="paper-view" aria-labelledby="paper-title" hidden>
+    <div class="paper-actions"><a href="/papers.html" class="back-link">← 试卷列表</a></div>
+    <h1 id="paper-title" class="paper-title"></h1>
+    <article id="paper-text" class="markdown paper-markdown"></article>
+    <div id="submit-bar" class="submit-bar">
+      <span id="progress" class="muted" role="status"></span>
+      <button id="submit" class="primary" type="button">提交答案</button>
+    </div>
+    <section id="submitted" class="submitted panel" aria-labelledby="submitted-title" hidden>
+      <h2 id="submitted-title">已写入试卷</h2>
+      <p class="muted">答案已填入试卷的「答案填写区」。在云开发里发送下面这句话判卷；判分前仍可修改后重新提交。</p>
+      <div class="prompt-row"><code id="grade-prompt"></code><button id="copy-prompt" type="button">复制</button></div>
+      <a href="/code/" class="primary open-code">打开云开发</a>
+    </section>
+  </section>
+</main></body></html>

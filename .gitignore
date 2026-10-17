@@ -13,3 +13,5 @@ __pycache__/
 .superpowers/
 agent/dist/
 chat/dist/
+# Private operations record (mentions shared credentials); keep out of the public repository.
+docs/password-sync-2026-10-13.md

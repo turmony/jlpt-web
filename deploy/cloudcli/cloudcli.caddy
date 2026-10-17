@@ -1,0 +1,22 @@
+# CloudCLI (Claude Code web UI) at /code/, behind the JLPT login and CloudCLI's own account.
+@cloudcliBare path /code
+redir @cloudcliBare /code/ 308
+# Root-absolute URLs the shim cannot rewrite (<img>, downloads) come from /code/ pages.
+@cloudcliReferred {
+    path /api/* /assets/* /icons/* /logo* /favicon*
+    header Referer */code/*
+}
+# Subscription quota for the page's pill (deploy/cloudcli/quota.py).
+@cloudcliQuota path /code/_quota
+handle @cloudcliQuota {
+    uri strip_prefix /code
+    import /etc/caddy/cloudcli-proxy.caddy 127.0.0.1:3003
+}
+@cloudcli path /code/*
+handle @cloudcli {
+    uri strip_prefix /code
+    import /etc/caddy/cloudcli-proxy.caddy 127.0.0.1:3001
+}
+handle @cloudcliReferred {
+    import /etc/caddy/cloudcli-proxy.caddy 127.0.0.1:3001
+}

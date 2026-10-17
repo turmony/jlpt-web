@@ -1,0 +1,8 @@
+forward_auth 127.0.0.1:8765 {
+    uri /auth/check
+    @unauthorized status 401
+    handle_response @unauthorized {
+        redir * /login.html 303
+    }
+}
+reverse_proxy {args.0}

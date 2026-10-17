@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from server.artifacts import safe_file
+from server.papers import safe_file
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,31 +63,22 @@ class DependencyStorageTests(unittest.TestCase):
 
 
 class StaticStorageTests(unittest.TestCase):
-    def test_local_build_aliases_chat_and_deployment_remains_independent(self):
+    def test_build_copies_pages_and_adds_navigation_without_linking_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for directory in ('scripts', 'chat/dist/assets', 'web', 'mobile', 'data', 'vendor/aionui'):
+            for directory in ('scripts', 'web', 'mobile', 'data'):
                 (root / directory).mkdir(parents=True)
-            (root / 'scripts/build-server.mjs').write_bytes((ROOT / 'scripts/build-server.mjs').read_bytes())
-            for name, content in {
-                'chat/dist/chat.mjs': 'old chat', 'chat/dist/chat.css': 'old css',
-                'chat/dist/assets/font.woff': 'font', 'chat/dist/chat.mjs.map': 'debug only',
-                'chat/dist/uno-config.mjs': 'build only', 'vendor/aionui/LICENSE': 'license',
-                'vendor/aionui/README.md': 'source', 'web/index.html': 'site',
-                'mobile/index.html': '<main class="shell">', 'data/catalog.json': '{}',
-            }.items():
+            for name in ('scripts/build-server.mjs', 'scripts/build-core.mjs', 'mobile/core-markdown.jsx'):
+                (root / name).write_bytes((ROOT / name).read_bytes())
+            (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
+            for name, content in {'web/papers.html': 'papers', 'mobile/index.html': '<main class="shell">',
+                                  'mobile/image-proxy.mjs': 'cloudflare only', 'data/catalog.json': '{}'}.items():
                 (root / name).write_text(content)
-            subprocess.run(['node', str(root / 'scripts/build-server.mjs')], check=True, capture_output=True)
-            local = root / 'server-public'
-            self.assertEqual(safe_file(local, 'chat.mjs').read_text(), 'old chat')
-            self.assertFalse((local / 'chat.mjs').is_symlink())
-            self.assertTrue(os.path.samefile(local / 'chat.mjs', root / 'chat/dist/chat.mjs'))
-            self.assertTrue(os.path.samefile(local / 'assets/font.woff', root / 'chat/dist/assets/font.woff'))
-            self.assertFalse((local / 'chat.mjs.map').exists())
-            self.assertFalse((local / 'uno-config.mjs').exists())
             deployed = root / 'deployment/static'
             subprocess.run(['node', str(root / 'scripts/build-server.mjs'), str(deployed)], check=True, capture_output=True)
-            self.assertFalse((deployed / 'chat.mjs').is_symlink())
-            (root / 'chat/dist/chat.mjs').write_text('new chat')
-            self.assertEqual((local / 'chat.mjs').read_text(), 'new chat')
-            self.assertEqual((deployed / 'chat.mjs').read_text(), 'old chat')
+            self.assertEqual(safe_file(deployed, 'papers.html').read_text(), 'papers')
+            self.assertFalse(os.path.samefile(deployed / 'papers.html', root / 'web/papers.html'))
+            self.assertFalse((deployed / 'grammar/image-proxy.mjs').exists())
+            self.assertTrue((deployed / 'grammar/core-markdown.mjs').is_file())
+            page = (deployed / 'grammar/index.html').read_text()
+            self.assertIn('<a href="/papers.html">做题</a><a href="/code/">云开发</a>', page)

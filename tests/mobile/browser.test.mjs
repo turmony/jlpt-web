@@ -146,16 +146,20 @@ test('quick ranges remain usable when local storage is unavailable', async () =>
   } finally { await ctx.close(); }
 });
 
-test('single-line and long titles keep jump controls at the same viewport position after scrolling', async () => {
+test('full core content scrolls in a fixed region and changes with the current card', async () => {
   for (const viewport of [{ width: 375, height: 667 }, { width: 320, height: 568 }]) {
     const ctx = await context({ viewport });
     try {
       const page = await ctx.newPage();
       const catalog = JSON.parse(await readFile(resolve(site, 'catalog.json'), 'utf8'));
-      catalog.cards.find(card => card.id === 'N1-G-0031').title = '短标题';
-      catalog.cards.find(card => card.id === 'N1-G-0032').title = '〜いかんにかかわらず、〜いかんを問わず。'.repeat(5);
+      const shortCore = '完整的短核心内容。';
+      const longCore = '核心例句与解释。\n'.repeat(100) + '<script>不得执行</script>\n核心最后一行。';
+      catalog.cards.find(card => card.id === 'N1-G-0031').core = shortCore;
+      catalog.cards.find(card => card.id === 'N1-G-0032').core = longCore;
       await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
       await start(page);
+      assert.equal(await page.locator('#card-title').count(), 0);
+      assert.equal(await page.locator('#card-core').textContent(), shortCore);
       await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
       const positions = () => page.evaluate(() => ['#jump-form label', '#jump', '#jump-form button'].map(selector => {
         const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
@@ -164,13 +168,119 @@ test('single-line and long titles keep jump controls at the same viewport positi
       const baseline = await positions();
       await page.locator('#next').click();
       await page.waitForFunction(() => !document.getElementById('thumbnail-image').hidden);
+      assert.equal((await page.locator('#card-core').textContent()).replace(/\s/g, ''), longCore.replace(/\s/g, ''));
+      const overflow = await page.locator('#card-core').evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+        return { height: element.clientHeight, scrollHeight: element.scrollHeight, scrollTop: element.scrollTop };
+      });
+      assert.ok(overflow.scrollHeight > overflow.height);
+      assert.ok(overflow.scrollTop > 0);
+      assert.equal(await page.locator('#card-core script').count(), 0);
       assert.deepEqual(await positions(), baseline);
       await page.locator('#previous').click();
       await page.waitForFunction(() => !document.getElementById('thumbnail-image').hidden);
-      assert.equal(await page.locator('#card-title').textContent(), '短标题');
+      assert.equal(await page.locator('#card-core').textContent(), shortCore);
+      assert.equal(await page.locator('#card-core').evaluate(element => element.scrollTop), 0);
       assert.deepEqual(await positions(), baseline);
     } finally { await ctx.close(); }
   }
+});
+
+test('function navigation jumps inside the formatted core only and updates per card', async () => {
+  const ctx = await context({ viewport: { width: 320, height: 568 } });
+  try {
+    const page = await ctx.newPage();
+    const catalog = JSON.parse(await readFile(resolve(site, 'catalog.json'), 'utf8'));
+    const core = ['## 功能一：完整解释一', '正文一。\n'.repeat(30).trim(), '## 功能二（接辞书形）：完整解释二', '正文二。\n'.repeat(30).trim(), '## 功能三：完整解释三', '正文三。\n'.repeat(30).trim()].join('\n\n\n');
+    catalog.cards.find(card => card.id === 'N1-G-0031').core = core;
+    catalog.cards.find(card => card.id === 'N1-G-0032').core = '## 功能一：新卡片\n\n全部内容。';
+    catalog.cards.find(card => card.id === 'N1-G-0033').core = '## 普通说明\n\n无功能分组的核心。';
+    await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
+    await start(page);
+    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一', '功能二', '功能三']);
+    const visibleText = await page.locator('#card-core').textContent();
+    assert.equal((visibleText.match(/正文[一二三]。/g) || []).length, 90);
+    assert.equal(visibleText.includes('##'), false);
+    assert.equal(await page.locator('#card-core').evaluate(element => getComputedStyle(element).lineHeight), '24px');
+    const placement = await page.evaluate(() => ({
+      previousBottom: document.querySelector('.card-navigation').getBoundingClientRect().bottom + scrollY,
+      navigationTop: document.getElementById('core-navigation').getBoundingClientRect().top + scrollY,
+      navigationBottom: document.getElementById('core-navigation').getBoundingClientRect().bottom + scrollY,
+      coreTop: document.getElementById('core-heading').getBoundingClientRect().top + scrollY,
+    }));
+    assert.ok(placement.navigationTop >= placement.previousBottom);
+    assert.ok(placement.navigationBottom <= placement.coreTop);
+    await page.locator('#core-navigation').scrollIntoViewIfNeeded();
+    const documentScroll = await page.evaluate(() => scrollY);
+    await page.locator('#core-navigation button').nth(1).click();
+    const position = await page.evaluate(() => {
+      const core = document.getElementById('card-core');
+      const target = core.querySelectorAll('[data-core-function]')[1];
+      return { scrollTop: core.scrollTop, documentScroll: scrollY, offset: target.getBoundingClientRect().top - core.getBoundingClientRect().top };
+    });
+    assert.ok(position.scrollTop > 0);
+    assert.equal(position.documentScroll, documentScroll);
+    assert.ok(Math.abs(position.offset - 15) < 2);
+    await page.locator('#core-navigation button').first().click();
+    assert.equal(await page.locator('#card-core').evaluate(element => element.scrollTop), 0);
+    await page.locator('#next').click();
+    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一']);
+    assert.equal(await page.locator('#card-core').evaluate(element => element.scrollTop), 0);
+    await page.locator('#next').click();
+    assert.equal(await page.locator('#core-navigation').isVisible(), false);
+    assert.equal(await page.locator('#core-navigation button').count(), 0);
+    assert.equal(await page.locator('#card-core [data-core-function]').count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  } finally { await ctx.close(); }
+});
+
+test('core uses readable headings, paragraph spacing and grouped examples without Markdown symbols', async () => {
+  const ctx = await context({ viewport: { width: 320, height: 568 } });
+  try {
+    const page = await ctx.newPage();
+    const catalog = JSON.parse(await readFile(resolve(site, 'catalog.json'), 'utf8'));
+    catalog.cards.find(card => card.id === 'N1-G-0031').core = '## 功能一：**含义一**\n\n\n解释第一段。\n\n\n解释第二段。\n\n### 例句\n\n1. 日本語の例文。\n\n   （例句中文翻译。）\n\n2. 第二の例文。\n\n   （第二句中文翻译。）\n\n## 功能二：含义二\n\n完整结尾。\n\n| 项目 | 内容 |\n| --- | --- |\n| 接续 | 名词＋で |\n\n```text\n## 功能三：代码内容\n\n保留代码空行\n```';
+    await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
+    await start(page);
+    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一', '功能二']);
+    assert.equal(await page.locator('#card-core h2').first().textContent(), '功能一：含义一');
+    assert.equal(await page.locator('#card-core h2 strong').textContent(), '含义一');
+    assert.deepEqual(await page.locator('#card-core > p').allTextContents(), ['解释第一段。', '解释第二段。', '完整结尾。']);
+    assert.deepEqual(await page.locator('#card-core li p').allTextContents(), ['日本語の例文。', '（例句中文翻译。）', '第二の例文。', '（第二句中文翻译。）']);
+    assert.equal(await page.locator('#card-core table').count(), 1);
+    assert.equal(await page.locator('#card-core pre code').textContent(), '## 功能三：代码内容\n\n保留代码空行\n');
+    const spacing = await page.evaluate(() => {
+      const core = document.getElementById('card-core');
+      const style = selector => getComputedStyle(core.querySelector(selector));
+      return { height: core.getBoundingClientRect().height, lineHeight: getComputedStyle(core).lineHeight,
+        headingSize: style('h2').fontSize, headingWeight: style('h2').fontWeight,
+        secondHeadingGap: getComputedStyle(core.querySelectorAll('h2')[1]).marginTop,
+        paragraphGap: style('p').marginBottom, translationGap: style('li p').marginBottom,
+        exampleGap: style('li + li').marginTop };
+    });
+    assert.deepEqual(spacing, { height: 240, lineHeight: '24px', headingSize: '16px', headingWeight: '600',
+      secondHeadingGap: '12px', paragraphGap: '8px', translationGap: '4px', exampleGap: '8px' });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  } finally { await ctx.close(); }
+});
+
+test('legacy core groups nested translations and renders only safe HTML line breaks', async () => {
+  const ctx = await context({ viewport: { width: 320, height: 568 } });
+  try {
+    const page = await ctx.newPage();
+    const catalog = JSON.parse(await readFile(resolve(site, 'catalog.json'), 'utf8'));
+    catalog.cards.find(card => card.id === 'N1-G-0031').core = '### 视频核心例句\n\n- 日语例句一。\n  - 中文：翻译一。\n- 日语例句二。\n  - 中文：翻译二。\n\n| 项目 | 内容 |\n| --- | --- |\n| 例句 | 日本語。<br>中文。<BR />结尾。 |\n\n<script>不得执行</script>\n\n<br onclick="alert(1)">';
+    await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
+    await start(page);
+    assert.equal(await page.locator('#card-core td br').count(), 2);
+    assert.equal(await page.locator('#card-core td').last().textContent(), '日本語。中文。结尾。');
+    assert.equal(await page.locator('#card-core script, #card-core [onclick]').count(), 0);
+    assert.ok((await page.locator('#card-core').textContent()).includes('<br onclick="alert(1)">'));
+    const nested = await page.locator('#card-core li > ul').first().evaluate(element => ({
+      pairGap: getComputedStyle(element).marginTop, bottomGap: getComputedStyle(element).marginBottom,
+    }));
+    assert.deepEqual(nested, { pairGap: '4px', bottomGap: '0px' });
+  } finally { await ctx.close(); }
 });
 
 test('selected range fetches twenty actual images and fits small iPhone', async () => {
@@ -191,7 +301,7 @@ test('selected range fetches twenty actual images and fits small iPhone', async 
   await ctx.close();
 });
 
-test('image shape, wrapped titles and failures keep the frame and navigation in place', async () => {
+test('image shape, long core content and failures keep the frame and navigation in place', async () => {
   for (const viewport of [{ width: 375, height: 812 }, { width: 812, height: 375 }]) {
     const ctx = await context({ viewport });
     try {
@@ -206,8 +316,9 @@ test('image shape, wrapped titles and failures keep the frame and navigation in 
         return { wide: picture(900, 90), tall: picture(90, 900) };
       });
       const catalog = JSON.parse(await readFile(resolve(site, 'catalog.json'), 'utf8'));
-      catalog.cards.find(card => card.id === 'N1-G-0031').title = '短标题';
-      catalog.cards.find(card => card.id === 'N1-G-0032').title = 'いかんによって・いかんにかかわらず：接续、意义与课程例句。'.repeat(5);
+      catalog.cards.find(card => card.id === 'N1-G-0031').core = '短核心内容';
+      catalog.cards.find(card => card.id === 'N1-G-0032').core = '接续、意义与课程例句。\n'.repeat(100);
+      catalog.cards.find(card => card.id === 'N1-G-0033').core = '图片失败时仍显示完整核心内容。';
       await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
       let release;
       const pending = new Promise(resolve => { release = resolve; });
@@ -222,16 +333,15 @@ test('image shape, wrapped titles and failures keep the frame and navigation in 
       await page.locator('#end').fill('33');
       await page.locator('#start-reading').click();
       const positions = () => page.evaluate(() => Object.fromEntries(
-        ['thumbnail', 'previous', 'next', 'title-slot', 'jump', 'jump-button'].map(id => {
+        ['thumbnail', 'previous', 'next', 'card-core', 'jump', 'jump-button'].map(id => {
           const element = id === 'jump-button' ? document.querySelector('#jump-form button')
-            : id === 'title-slot' ? document.querySelector('.card-title-slot') : document.getElementById(id);
+            : document.getElementById(id);
           const { x, y, width, height } = element.getBoundingClientRect();
           return [id, { x, y: y + scrollY, width, height }];
         }),
       ));
       const baseline = await positions();
-      const titleLineHeight = await page.locator('#card-title').evaluate(element => parseFloat(getComputedStyle(element).lineHeight));
-      assert.ok(Math.abs(baseline['title-slot'].height - titleLineHeight * 2) < 1, 'independent title slot reserves exactly two lines even for short text');
+      assert.equal(baseline['card-core'].height, 240, 'core content reserves a fixed height');
       const unchanged = async state => {
         const current = await positions();
         for (const id of Object.keys(baseline)) {

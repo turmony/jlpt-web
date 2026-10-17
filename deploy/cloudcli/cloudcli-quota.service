@@ -1,0 +1,14 @@
+[Unit]
+Description=Claude subscription quota for CloudCLI (/code/_quota)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 -I /srv/cloudcli/quota.py
+MemoryMax=64M
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

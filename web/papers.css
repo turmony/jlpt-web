@@ -1,0 +1,52 @@
+.papers-page{max-width:760px;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 120px max(16px,env(safe-area-inset-left))}
+.papers-page h1{font-size:clamp(24px,6vw,30px);margin:24px 0 6px}
+.paper-notice{margin:16px 0 0;padding:10px 14px;border:1px solid var(--alert-line);border-radius:var(--radius-small);background:var(--alert-bg);color:var(--error);font-size:14px}
+.list-heading .muted{margin:0 0 16px}
+.paper-list{list-style:none;margin:0;padding:0}
+.paper-list a{display:flex;gap:12px;align-items:center;padding:14px 4px;border-bottom:1px solid var(--line);color:var(--ink);text-decoration:none}
+.paper-list a:active{background:var(--raised)}
+.paper-list .paper-name{flex:1;min-width:0}
+.paper-list strong{display:block;font-weight:500;line-height:1.5}
+.paper-list .muted{font-size:13px}
+.status-chip{flex-shrink:0;padding:2px 10px;border-radius:999px;font-size:12px;line-height:1.8;color:var(--muted);border:1px solid var(--line);white-space:nowrap}
+.status-chip[data-status="submitted"]{color:var(--accent-text);border-color:var(--accent)}
+.paper-actions{display:flex;justify-content:space-between;align-items:center;margin-top:16px}
+.back-link{color:var(--muted);text-decoration:none;font-size:14px;min-height:32px;display:inline-flex;align-items:center}
+.paper-title{line-height:1.45}
+
+/* Markdown from the study repository */
+.markdown{font-size:16px;line-height:1.8;overflow-wrap:anywhere}
+.markdown h1{display:none}
+.markdown h2{font-size:18px;margin:32px 0 10px;padding-top:16px;border-top:1px solid var(--line)}
+.markdown h3,.markdown h4{font-size:17px;font-weight:600;margin:28px 0 8px;line-height:1.7}
+.markdown h4{font-size:16px}
+.markdown p{margin:10px 0}
+.markdown ul,.markdown ol{padding-left:1.6em;margin:8px 0}
+.markdown li{margin:4px 0}
+.markdown table{display:block;max-width:100%;overflow-x:auto;border-collapse:collapse;font-size:14px}
+.markdown th,.markdown td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+.markdown blockquote{margin:12px 0;padding:4px 14px;border-left:3px solid var(--accent);color:var(--muted)}
+.markdown code{font-size:.92em;background:var(--raised);padding:1px 5px;border-radius:4px}
+.markdown pre{max-height:none}
+.markdown pre code{background:none;padding:0}
+.markdown hr{border:0;border-top:1px solid var(--line);margin:24px 0}
+
+/* Answer controls added to each question */
+.question-heading{display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.uncertain-switch{flex-shrink:0;min-height:30px;margin-top:2px;padding:2px 12px;border-radius:999px;font-size:13px;font-weight:400;color:var(--muted)}
+.markdown .uncertain-switch[aria-pressed="true"],.markdown .uncertain-switch[aria-pressed="true"]:hover{color:var(--on-accent);background:var(--accent);border-color:var(--accent)}
+.markdown ol.option-list{list-style:none;padding:0;counter-reset:none}
+.option-block{position:relative;display:flex;align-items:center;min-height:52px;margin:8px 0;padding:10px 44px 10px 14px;border:1px solid var(--control-line);border-radius:var(--radius-small);background:var(--surface);cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;transition:background-color .14s,border-color .14s}
+.option-block::before{content:attr(data-value) '.';flex-shrink:0;width:1.6em;color:var(--muted)}
+.option-block:active{background:var(--raised)}
+.option-block[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.order-badge{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:var(--accent-text);font-size:20px;line-height:1}
+.order-line{margin:4px 0 0;font-size:14px;color:var(--muted)}
+.submit-bar{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px max(16px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));background:var(--surface);border-top:1px solid var(--line)}
+.submit-bar .primary{min-height:44px;padding:8px 22px}
+@media(min-width:792px){.submit-bar{left:50%;right:auto;width:760px;transform:translateX(-50%);border:1px solid var(--line);border-bottom:0;border-radius:var(--radius) var(--radius) 0 0}}
+.submitted{margin-top:24px}
+.submitted h2{margin-bottom:8px}
+.prompt-row{display:flex;gap:10px;align-items:center;margin:14px 0}
+.prompt-row code{flex:1;min-width:0;padding:10px 12px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-small);font-size:14px;overflow-wrap:anywhere}
+.open-code{display:inline-flex;align-items:center;min-height:44px;padding:8px 20px;border-radius:var(--radius-small);text-decoration:none}

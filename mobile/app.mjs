@@ -1,5 +1,7 @@
 import { selectCards, createSession, createTapHandler, adjacentRanges } from './core.mjs?v=range-shortcuts-2';
 import { createImageLoader } from './image-loader.mjs';
+import { renderCoreContent } from './core-content.mjs?v=readable-core-1';
+import { renderCoreMarkdown } from './core-markdown.mjs?v=readable-core-1';
 
 const $ = id => document.getElementById(id);
 const storageKey = 'jlpt-image-cards:last';
@@ -191,7 +193,7 @@ function renderFull(retry = false) {
 function renderCard() {
   const card = session.current;
   $('card-id').textContent = card.id;
-  $('card-title').textContent = card.title;
+  renderCoreContent($('card-core'), $('core-navigation'), card.core || '这张卡片暂无“核心”内容。', renderCoreMarkdown);
   $('card-progress').textContent = `${session.index + 1} / ${session.cards.length}`;
   $('range-label').textContent = `${activeRange.level} · ${activeRange.start}–${activeRange.end}`;
   $('progress-fill').style.width = `${(session.index + 1) / session.cards.length * 100}%`;

@@ -10,7 +10,7 @@ Group=root
 WorkingDirectory=/srv/jlpt/app
 ExecStart=/usr/bin/python3 -m server --config /srv/jlpt/state/config.json
 Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
-Restart=on-failure
+Restart=always
 RestartSec=3
 UMask=0077
 KillMode=control-group

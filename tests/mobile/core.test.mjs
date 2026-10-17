@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectCards, createSession, createTapHandler, adjacentRanges } from '../../mobile/core.mjs';
+import { normalizeCoreMarkdown } from '../../mobile/core-content.mjs';
+
+test('core display collapses surplus blank lines while preserving paragraph and translation grouping', () => {
+  const source = '\n\n## 功能一：**含义一**\n\n\n解释一\n \n### 例句\n\n1. 日语例句\n\n   （中文翻译）\n\n## 功能二（接辞书形）：含义二\n\n完整结尾。\n';
+  assert.equal(normalizeCoreMarkdown(source), '## 功能一：**含义一**\n\n解释一\n\n### 例句\n\n1. 日语例句\n\n   （中文翻译）\n\n## 功能二（接辞书形）：含义二\n\n完整结尾。');
+});
+
+test('Markdown normalization preserves whitespace inside code examples', () => {
+  const source = '## 功能1：真实功能\n\n```text\n## 功能2：示例代码\n\n代码内容\n```\n\n结尾。';
+  assert.equal(normalizeCoreMarkdown(source), source);
+});
 
 const cards = Array.from({ length: 10 }, (_, i) => ({
   id: `N1-G-${String(31 + i).padStart(4, '0')}`, level: 'N1', number: 31 + i,

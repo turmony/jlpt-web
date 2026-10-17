@@ -1,0 +1,26 @@
+[Unit]
+Description=CloudCLI (Claude Code web UI) at /code/
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/projects
+ExecStartPre=/usr/bin/env node /srv/cloudcli/patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli
+ExecStart=/usr/bin/env node /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli/dist-server/server/modules/cli/cli.js
+Environment=PATH=/root/.local/bin:/opt/node-v22.23.3-linux-x64/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOST=127.0.0.1
+Environment=SERVER_PORT=3001
+# New projects and the folder picker stay inside the projects directory.
+Environment=WORKSPACES_ROOT=/root/projects
+Environment=NODE_ENV=production
+# Subscription login from `claude /login`; an API key would switch billing to pay-per-token.
+UnsetEnvironment=ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
+# Shares a 1.9 GB host with the JLPT site: reclaim above 1 GB, hard stop at 1.4 GB.
+MemoryHigh=1G
+MemoryMax=1400M
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

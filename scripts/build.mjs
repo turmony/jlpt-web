@@ -1,6 +1,7 @@
 import { readFile, writeFile, readdir, mkdir, copyFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildCoreMarkdown } from './build-core.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const output = resolve(root, 'public');
@@ -23,6 +24,7 @@ for (const name of await readdir(resolve(root, 'mobile'))) {
   }
 }
 const proxy = await readFile(resolve(root, 'mobile/image-proxy.mjs'), 'utf8');
+await buildCoreMarkdown(output);
 await writeFile(resolve(output, '_worker.js'), 'export const imageManifest = ' + JSON.stringify(manifest) + ';\n' + proxy + '\nexport default createImageProxy(imageManifest);\n');
 await writeFile(resolve(output, '_routes.json'), JSON.stringify({ version: 1, include: ['/images/*'], exclude: [] }) + '\n');
 await writeFile(resolve(output, 'catalog.json'), catalogText);
