@@ -346,3 +346,12 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - 对比页：单元页正文只留“成员接续图”；网页把每个成员的原卡核心（默认折叠）插到其 `### [卡号 …]` 小节的接续图下，取消页面底部集中的“成员原卡核心”。功能说明、对照表、反义组、最小对立句与易错点不再写入单元页。
 
 验证：55 项后端测试（1 项按环境条件跳过）与 12 项 Chromium/WebKit 浏览器测试通过；学习仓库 535 项测试、`validate-groups`、`validate-links` 通过。上线后 `/review/` 未登录 303、`/api/review/today` 401、日志无异常。回滚：按 `previous-release.txt`（app、static 均为 `/srv/jlpt/releases/20261017-recall-check`）切回并重启。
+
+### 已学单元可查看（2026-10-18）
+
+发布目录为 `/srv/jlpt/releases/20261018-review-learned-view/static`，仅切换 `/srv/jlpt/static`，后台代码不变、服务未重启（app 仍为 `20261018-review-node-style`）。
+
+- 今日安排的全程目录里，状态为“已学”的单元多一个「查看」按钮，打开原有的单元页（锁定的回忆核对、对比页、原卡核心、已交的造句与备注），与点“提前学”走同一接口，服务端无改动。单元页的交卷小节标题按是否在待判分列表显示“已交卷，待判分”或“已交卷”。
+- 只覆盖本轮已学的单元；新一轮开始后，上一轮学过的单元没有本轮交卷文件，只会显示回忆部分。
+
+验证：13 项 Chromium/WebKit 浏览器测试通过；以真实学习仓库只读读取 B-05-1，返回对比页、4 张原卡与已交造句。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `/srv/jlpt/releases/20261018-review-node-style/static`。

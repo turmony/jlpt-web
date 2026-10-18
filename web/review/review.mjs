@@ -145,7 +145,8 @@ function renderProgress() {
         h('ul', {className: 'directory-list'}, ...child.units.flatMap(unit => [h('li', {className: unit.id === currentId ? 'is-current' : ''},
           h('span', {className: 'unit-name', textContent: `${unit.id} ${unit.title}`}),
           chip(unit.status),
-          unit.status === 'prepared' && ahead ? h('button', {type: 'button', textContent: '提前学', onclick: () => openUnit(unit.id).catch(notice)}) : null),
+          unit.status === 'prepared' && ahead ? h('button', {type: 'button', textContent: '提前学', onclick: () => openUnit(unit.id).catch(notice)}) : null,
+          unit.status === 'learned' ? h('button', {type: 'button', textContent: '查看', onclick: () => openUnit(unit.id).catch(notice)}) : null),
           unit.review ? reviewNode(unit.review) : null].filter(Boolean))))));
     details.dataset.status = stage.status;
     return details;
@@ -284,7 +285,8 @@ function renderUnit(view) {
   root.append(h('section', {className: 'step'}, h('h2', {textContent: '二、对比页'}), page));
 
   if (session.submitted) {
-    root.append(h('section', {className: 'step'}, h('h2', {textContent: '已交卷，待判分'}),
+    const ungraded = today.pending_grading.some(item => item.id === unit.id);
+    root.append(h('section', {className: 'step'}, h('h2', {textContent: ungraded ? '已交卷，待判分' : '已交卷'}),
       h('p', {className: 'locked-text', textContent: view.sentence.text || ''}),
       view.note ? h('p', {className: 'locked-text', textContent: view.note}) : null));
     return;
