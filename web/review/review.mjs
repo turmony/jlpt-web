@@ -252,10 +252,9 @@ function renderUnit(view) {
   const root = $('unit-view');
   const scope = unit.position.slice(1).join(' › ');
   const recall = session.started
-    ? [recallList(view.recall.items, {revealed: view.recall.items.map((_, index) => index), missed: view.recall.missed || []}, null),
-       h('p', {className: 'muted', textContent: `已锁定 · ${session.locked_at.slice(0, 16).replace('T', ' ')}`})]
-    : [h('p', {className: 'muted', textContent: '先在心里回想，再逐行点开核对；默认算想到了，没想到的点「没想到」。'}),
-       recallList(view.recall.items, readRecallDraft(prefix + 'recall', view.recall.items.length), prefix + 'recall'),
+    ? [recallList(view.recall.items), h('p', {className: 'muted', textContent: `已锁定 · ${session.locked_at.slice(0, 16).replace('T', ' ')}`})]
+    : [h('p', {className: 'muted', textContent: '先看一遍各语法形式与用法，再进入对比页。'}),
+       recallList(view.recall.items),
        h('div', {className: 'flow-actions'}, h('span'),
          h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => lockRecall(unit.id, event.currentTarget).catch(notice)}))];
   root.replaceChildren(
@@ -327,60 +326,25 @@ function paperReview(view) {
   return container;
 }
 
-// Recall rows, grouped under their grammar form (shown); each row's usage stays hidden until tapped.
-// Every row counts as recalled unless marked 没想到. `state` is {revealed: [row], missed: [row]};
-// `draftKey` null means locked and read-only.
-function recallList(items, state, draftKey) {
-  const save = () => { if (draftKey) try { localStorage.setItem(draftKey, JSON.stringify(state)); } catch {} };
+// Recall rows, grouped under their grammar form, each with its usage shown.
+function recallList(items) {
   const list = h('div', {id: 'recall-list', className: 'recall-list'});
-  const row = index => {
-    const missed = state.missed.includes(index);
-    const li = h('li', {className: 'recall-row' + (missed ? ' missed' : '')});
-    if (!state.revealed.includes(index)) {
-      li.append(h('button', {type: 'button', className: 'recall-cover', textContent: '点击显示', onclick: () => {
-        state.revealed.push(index);
-        save();
-        li.replaceWith(row(index));
-      }}));
-      return li;
-    }
-    li.append(h('span', {className: 'recall-text', textContent: items[index].usage}));
-    if (!draftKey) {
-      if (missed) li.append(h('span', {className: 'recall-mark', textContent: '没想到'}));
-      return li;
-    }
-    li.append(h('button', {type: 'button', className: 'recall-miss', textContent: '没想到', ariaPressed: String(missed), onclick: () => {
-      state.missed = missed ? state.missed.filter(other => other !== index) : [...state.missed, index];
-      save();
-      li.replaceWith(row(index));
-    }}));
-    return li;
-  };
   items.forEach((item, index) => {
     if (index > 0 && items[index - 1].form === item.form) return;
     const rows = h('ol', {className: 'recall-rows', start: index + 1});
-    for (let next = index; next < items.length && items[next].form === item.form; next++) rows.append(row(next));
+    for (let next = index; next < items.length && items[next].form === item.form; next++) {
+      rows.append(h('li', {className: 'recall-row'}, h('span', {className: 'recall-text', textContent: items[next].usage})));
+    }
     list.append(h('section', {className: 'recall-group'}, h('h3', {className: 'recall-form', textContent: item.form}), rows));
   });
-  list.missedRows = () => [...state.missed].sort((a, b) => a - b);
   return list;
-}
-
-// Only rows that still exist count: the unit's rows may have been rewritten since the draft was saved.
-function readRecallDraft(key, count) {
-  try {
-    const value = JSON.parse(localStorage.getItem(key) || 'null');
-    const rows = list => Array.isArray(list) ? [...new Set(list.filter(row => Number.isInteger(row) && row >= 0 && row < count))] : [];
-    if (value && typeof value === 'object') return {revealed: rows(value.revealed), missed: rows(value.missed)};
-  } catch {}
-  return {revealed: [], missed: []};
 }
 
 async function lockRecall(id, button) {
   button.disabled = true;
   try {
-    const view = await api(`/units/${encodeURIComponent(id)}/recall`, {missed: $('recall-list').missedRows()});
-    dropDrafts(`review:${id}:recall`);
+    const view = await api(`/units/${encodeURIComponent(id)}/recall`, {missed: []});
+    dropDrafts(`review:${id}:recall`); // drafts from the retired 没想到 marks
     renderUnit(view);
   } catch (error) {
     button.disabled = false;

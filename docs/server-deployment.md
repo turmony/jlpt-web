@@ -366,3 +366,12 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - `GET /api/review/units/<id>` 与 `GET /api/review/reviews/<id>` 在已交卷后多返回 `key`（`[{number, correct, correct_text, explanation}]`），由 `jlpt-notes/quizzes/answers/<试卷>-answers.md` 解析；未交卷时不返回该字段，答案文件缺失时为空列表。解释里去掉题目、考点、来源、证据行。
 
 验证：后端测试与 13 项浏览器测试通过（含 `key` 交卷前不出现、交卷后 5 题、答案文件缺失不报错）；以真实学习仓库读取 B-05-1 的 5 题答案和作答，与成绩记录一致（第 4 题选 3、正确 1）。回滚：按 `previous-release.txt` 切回并重启。
+
+### 回忆核对改为直接显示用法（2026-10-18）
+
+发布目录为 `/srv/jlpt/releases/20261018-recall-plain`，仅切换 `/srv/jlpt/static`，后台代码不变、服务未重启。
+
+- 取消回忆核对的“想到／没想到”：单元第 1 步直接按语法形式分组显示各行用法，不再遮挡、不再有「没想到」按钮和浏览器草稿；「进入对比页」仍锁定这一步。前端固定提交 `missed: []`，交卷文件里的 `recall.marks` 因此恒为全部 `recalled: true`（仅为数据结构兼容保留，不含信息）。已学单元以前标过的「没想到」不再在页面显示，记录仍在学习仓库的学习记录里。
+- 以后分析薄弱语法点不参考“是否想到”，只看答题对错与错因。
+
+验证：13 项浏览器测试通过（新增“直接显示用法、无按钮、锁定后用法仍在”）。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `20261018-review-answer-view/static`。

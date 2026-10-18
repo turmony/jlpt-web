@@ -63,12 +63,7 @@
 .recall-rows{margin:0;padding-left:28px}
 .recall-row{min-height:44px;padding:6px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
 .recall-row::marker{color:var(--muted);font-variant-numeric:tabular-nums}
-.recall-cover{flex:1;min-height:36px;border:1px dashed var(--control-line);border-radius:var(--radius-small);background:var(--raised);color:var(--muted);font-size:14px}
 .recall-text{flex:1;min-width:0;overflow-wrap:anywhere}
-.recall-miss{min-height:44px;padding:2px 14px;border-radius:999px;font-size:14px}
-.recall-miss[aria-pressed="true"]{border-color:var(--accent);color:var(--accent-text);font-weight:600}
-.recall-row.missed .recall-text{color:var(--accent-text)}
-.recall-mark{font-size:13px;color:var(--accent-text)}
 .member-card{margin:10px 0;padding:10px 14px;border:1px solid var(--line);border-radius:var(--radius-small);background:var(--surface);scroll-margin-top:16px}
 .member-card summary{min-height:32px;font-weight:500;overflow-wrap:anywhere}
 .member-card .markdown h2:first-child{margin-top:12px;padding-top:0;border-top:0}

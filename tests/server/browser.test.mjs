@@ -139,18 +139,18 @@ test('damaged study data shows the server error instead of a blank page',()=>wit
   await page.locator('#notice',{hasText:'groups/submissions/r1/B-01-1.json'}).waitFor();
 }));
 
-test('a stale recall draft is trimmed to the current rows and the miss button is a full touch target',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+test('recall rows show their usage straight away, with no 想到/没想到 controls',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
-  await page.evaluate(()=>localStorage.setItem('review:B-01-1:recall',JSON.stringify({revealed:[0,5],missed:[5,1,1]})));
   await page.getByRole('button',{name:'开始'}).click();
   await page.locator('#recall-list').waitFor();
-  const miss=page.locator('#recall-list .recall-row').nth(0).getByRole('button',{name:'没想到'});
-  assert.ok((await miss.boundingBox()).height>=44);
+  assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['时间点','动作的方向']);
+  assert.equal(await page.locator('#recall-list button').count(),0);
+  assert.doesNotMatch(await page.locator('#unit-view').innerText(),/没想到|点击显示/);
   await page.getByRole('button',{name:'进入对比页'}).click();
   await page.locator('#unit-page').waitFor();
   const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
-  assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,false]);
-  assert.equal(await page.evaluate(()=>localStorage.getItem('review:B-01-1:recall')),null);
+  assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,true]);
+  assert.equal(await page.locator('#recall-list .recall-text').count(),2);
 }));
 
 for(const [name,engine] of Object.entries({chromium,webkit})) {
@@ -160,24 +160,11 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     await page.locator('#recall-list').waitFor();
     assert.equal(await page.locator('#recall-list .recall-row').count(),2);
     assert.equal(await page.locator('#unit-page').count(),0);
-    assert.doesNotMatch(await page.locator('#recall-list').innerText(),/时间点|动作的方向/);
+    assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['时间点','动作的方向']);
     assert.deepEqual(await page.locator('#recall-list .recall-form').allInnerTexts(),['に','へ']);
     assert.equal(await page.locator('#recall-list .recall-group').nth(1).locator('.recall-row').count(),1);
-    const row=page.locator('#recall-list .recall-row').nth(1);
-    await row.getByRole('button',{name:'点击显示'}).click();
-    assert.equal(await row.locator('.recall-text').innerText(),'动作的方向');
-    await row.getByRole('button',{name:'没想到'}).click();
-    assert.equal(await row.getByRole('button',{name:'没想到'}).getAttribute('aria-pressed'),'true');
-    await page.reload();
-    await page.getByRole('button',{name:'开始'}).click();
-    await page.locator('#recall-list').waitFor();
-    const again=page.locator('#recall-list .recall-row').nth(1);
-    await again.getByText('动作的方向').waitFor();
-    assert.equal(await again.getByRole('button',{name:'没想到'}).getAttribute('aria-pressed'),'true');
-    assert.equal(await page.locator('#recall-list .recall-row').nth(0).getByRole('button',{name:'点击显示'}).count(),1);
     await page.getByRole('button',{name:'进入对比页'}).click();
     await page.locator('#unit-page img').first().waitFor();
-    assert.equal(await page.locator('#recall-list .recall-row.missed').count(),1);
     assert.equal(await page.locator('#recall-list button').count(),0);
     assert.equal(await page.locator('#unit-page img').first().evaluate(image=>image.complete&&image.naturalWidth>0),true);
     assert.equal(await page.locator('.cards-title').count(),0);
@@ -197,7 +184,7 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('#status').innerText(),'今日安排\n\n下一项（B-01-2 で・を）尚未准备\n\n已交卷，待判分：B-01-1');
     await page.locator('#progress-summary',{hasText:'已学 1 / 2'}).waitFor();
     const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
-    assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,false]);
+    assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,true]);
     assert.equal(sub.sentence.text,'三時に会いましょう。');
     const paper=await readFile(join(tmp,'study/jlpt-notes/quizzes/papers/2026-10-17-b-01-1.md'),'utf8');
     assert.match(paper,/```text\n1-2, 2-__, 3-__, 4-__, 5-__\n```/);
