@@ -33,6 +33,9 @@
 .directory-list{list-style:none;margin:0;padding:0}
 .directory-list li{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
 .directory-list .unit-name{flex:1;min-width:0;overflow-wrap:anywhere}
+.directory-list li.review-node{padding:6px 0 6px 10px;border-bottom:1px dashed var(--control-line);font-size:13px;color:var(--muted)}
+.review-node[data-status="due"] .unit-name,.review-node[data-status="due"] .status-chip{color:var(--accent-text);font-weight:600}
+.review-node[data-status="due"] .status-chip{border-color:var(--accent)}
 .directory-list button{min-height:32px;padding:2px 14px;border-radius:999px;font-size:13px}
 .status-chip[data-status="learned"]{color:var(--ink)}
 .status-chip[data-status="in_progress"],.status-chip[data-status="current"]{color:var(--accent-text);border-color:var(--accent)}

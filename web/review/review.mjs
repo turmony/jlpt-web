@@ -142,13 +142,25 @@ function renderProgress() {
         h('span', {className: 'stage-status', textContent: STAGE[stage.status]})),
       ...section.children.map(child => h('div', {className: 'directory-group'},
         h('h4', {}, child.mid ?? `${child.id} ${child.title}`),
-        h('ul', {className: 'directory-list'}, ...child.units.map(unit => h('li', {className: unit.id === currentId ? 'is-current' : ''},
+        h('ul', {className: 'directory-list'}, ...child.units.flatMap(unit => [h('li', {className: unit.id === currentId ? 'is-current' : ''},
           h('span', {className: 'unit-name', textContent: `${unit.id} ${unit.title}`}),
           chip(unit.status),
-          unit.status === 'prepared' && ahead ? h('button', {type: 'button', textContent: '提前学', onclick: () => openUnit(unit.id).catch(notice)}) : null))))));
+          unit.status === 'prepared' && ahead ? h('button', {type: 'button', textContent: '提前学', onclick: () => openUnit(unit.id).catch(notice)}) : null),
+          unit.review ? reviewNode(unit.review) : null].filter(Boolean))))));
     details.dataset.status = stage.status;
     return details;
   }));
+}
+
+// A review closes each 7-study-day cycle: finished and due ones sit where they happened, and only the next one is projected.
+function reviewNode(review) {
+  const label = review.status === 'next' ? `下次复习 ${review.id}` : `复习 ${review.id}`;
+  const text = {done: '已完成 ✓', due: '已到期，待做', next: `还差 ${review.remaining} 个学习日`}[review.status];
+  const node = h('li', {className: 'review-node'},
+    h('span', {className: 'unit-name', textContent: label}),
+    h('span', {className: 'status-chip', textContent: text}));
+  node.dataset.status = review.status;
+  return node;
 }
 
 function chip(status) {

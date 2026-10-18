@@ -100,6 +100,24 @@ test('stage progress shows the current stage, the next milestone and the plan di
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
+test('the directory shows finished, due and next reviews next to the unit that closes the cycle',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
+  // The fixture plan has two units, so the review nodes are injected into the plan response.
+  const reviews={'B-01-1':{id:'review-01',status:'done'},'B-01-2':{id:'review-02',status:'next',remaining:3}};
+  await page.route('**/api/review/today',async route=>{
+    const response=await route.fetch();const body=await response.json();
+    for(const section of body.directory)for(const child of section.children)for(const unit of child.units)if(reviews[unit.id])unit.review=reviews[unit.id];
+    await route.fulfill({response,json:body});
+  });
+  await page.reload();
+  await page.locator('#directory > summary').click();
+  const nodes=page.locator('.directory-list li.review-node');
+  assert.equal(await nodes.count(),2);
+  assert.match(await nodes.nth(0).innerText(),/复习 review-01[\s\S]*已完成/);
+  assert.match(await nodes.nth(1).innerText(),/下次复习 review-02[\s\S]*还差 3 个学习日/);
+  assert.match(await page.locator('.directory-list li').nth(1).innerText(),/review-01/);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+}));
+
 test('damaged study data shows the server error instead of a blank page',()=>withSite(chromium,{},async(page,url,tmp)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
   const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');
