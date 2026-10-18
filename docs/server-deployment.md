@@ -375,3 +375,5 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - 以后分析薄弱语法点不参考“是否想到”，只看答题对错与错因。
 
 验证：13 项浏览器测试通过（新增“直接显示用法、无按钮、锁定后用法仍在”）。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `20261018-review-answer-view/static`。
+
+补充（同日，发布目录 `/srv/jlpt/releases/20261018-recall-server`，app 与 static 均已切换并重启 `jlpt.service`）：服务端同步清理。`POST /api/review/units/<id>/recall` 不再读取请求体里的 `missed`（手机缓存的旧页面仍发也会被忽略），交卷文件的 `recall.marks` 一律生成为全部 `recalled: true`；`GET /api/review/units/<id>` 的 `recall` 只含 `items`，不再返回 `missed`。验证：57 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过，新增“旧页面发来的 `missed` 被忽略”。回滚：按 `previous-release.txt` 切回并重启。

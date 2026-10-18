@@ -103,8 +103,7 @@ def unit_view(study_root, unit_id):
             'unit': {'id': unit.id, 'title': unit.title, 'kind': unit.kind, 'position': _position(groups, unit)},
             'session': {'started': bool(submission), 'submitted': _finished(submission),
                         'locked_at': recall.get('locked_at'), 'submitted_at': submission.get('submitted_at')},
-            'recall': {'items': [{'form': item['form'], 'usage': item['usage']} for item in material['recall_items']],
-                       'missed': _missed(recall.get('marks'))},
+            'recall': {'items': [{'form': item['form'], 'usage': item['usage']} for item in material['recall_items']]},
         }
         if not submission:
             return view
@@ -138,10 +137,10 @@ def review_view(study_root, review_id):
                 **({'key': _answer_key(study_root, material['paper'])} if finished else {})}
 
 
-def recall(study_root, unit_id, missed):
-    """Lock the recall check; ``missed`` lists the rows the learner did not recall."""
+def recall(study_root, unit_id):
+    """Lock the recall step. The 想到／没想到 marks are retired, so every row is recorded as recalled."""
     with _write_lock, _rules(study_root) as groups:
-        groups.start_unit(_notes(study_root), unit_id, missed)
+        groups.start_unit(_notes(study_root), unit_id, [])
     return unit_view(study_root, unit_id)
 
 
@@ -184,13 +183,6 @@ def _position(groups, unit):
     if unit.kind == 'system':
         return [groups.SYSTEM_SECTION_TITLE, f'{unit.system} {unit.system_title}', f'{unit.id} {unit.title}']
     return [unit.top, unit.mid, f'{unit.id} {unit.title}']
-
-
-def _missed(marks):
-    """Rows marked not recalled, or ``None`` before the recall is locked (or in a pre-check submission)."""
-    if not isinstance(marks, list) or not all(isinstance(mark, dict) for mark in marks):
-        return None
-    return [mark.get('item') for mark in marks if mark.get('recalled') is False]
 
 
 def _finished(submission):
