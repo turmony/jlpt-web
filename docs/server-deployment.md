@@ -377,3 +377,13 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 验证：13 项浏览器测试通过（新增“直接显示用法、无按钮、锁定后用法仍在”）。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `20261018-review-answer-view/static`。
 
 补充（同日，发布目录 `/srv/jlpt/releases/20261018-recall-server`，app 与 static 均已切换并重启 `jlpt.service`）：服务端同步清理。`POST /api/review/units/<id>/recall` 不再读取请求体里的 `missed`（手机缓存的旧页面仍发也会被忽略），交卷文件的 `recall.marks` 一律生成为全部 `recalled: true`；`GET /api/review/units/<id>` 的 `recall` 只含 `items`，不再返回 `missed`。验证：57 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过，新增“旧页面发来的 `missed` 被忽略”。回滚：按 `previous-release.txt` 切回并重启。
+
+### 回忆核对改名“用法总览”，不再记录此步（2026-10-18）
+
+发布目录为 `/srv/jlpt/releases/20261018-usage-overview`，app 与 static 均已切换并重启 `jlpt.service`；须与学习仓库 `groups.py` 的同日修改一起上线（`start_unit` 不再收 `missed` 参数）。
+
+- 单元第 1 步标题由「一、回忆核对」改为「一、用法总览」；进入对比页后不再显示「已锁定 · 时间」行。
+- 点「进入对比页」创建的交卷文件只含 `schema_version`、`unit_id`、`round`、`paper`，不再写 `recall`（无“想到”标记、无锁定时间）；文件存在即表示该单元已开始。旧交卷文件里的 `recall` 原样保留。
+- `GET /api/review/units/<id>` 的 `session` 去掉 `locked_at`；未进入对比页就交卷的提示改为「尚未进入对比页」。`POST .../recall` 接口名不变，仍忽略请求体。
+
+验证：57 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过（新增标题为「一、用法总览」、交卷文件无 `recall`、页面无「已锁定」）。回滚：按 `previous-release.txt` 切回并重启，同时须把学习仓库 `groups.py` 一并回退。

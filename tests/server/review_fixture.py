@@ -117,9 +117,6 @@ def finish_unit(notes, unit_id, minute):
     """A unit submission as the server leaves it after 交卷."""
     write_json(notes / 'groups/submissions/r1' / f'{unit_id}.json',
                {'schema_version': 1, 'unit_id': unit_id, 'round': 1, 'paper': paper_slug(unit_id),
-                'recall': {'marks': [{'card': item['card'], 'item': index, 'recalled': True}
-                                     for index, item in enumerate(RECALL_ITEMS)],
-                           'locked_at': '2026-10-17T20:00:00+08:00'},
                 'sentence': {'card': 'N5-G-0013', 'text': '三時に会いましょう。'}, 'note': '',
                 'submitted_at': f'2026-10-17T20:{minute:02d}:00+08:00'})
 

@@ -252,16 +252,16 @@ function renderUnit(view) {
   const root = $('unit-view');
   const scope = unit.position.slice(1).join(' › ');
   const recall = session.started
-    ? [recallList(view.recall.items), h('p', {className: 'muted', textContent: `已锁定 · ${session.locked_at.slice(0, 16).replace('T', ' ')}`})]
+    ? [recallList(view.recall.items)]
     : [h('p', {className: 'muted', textContent: '先看一遍各语法形式与用法，再进入对比页。'}),
        recallList(view.recall.items),
        h('div', {className: 'flow-actions'}, h('span'),
-         h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => lockRecall(unit.id, event.currentTarget).catch(notice)}))];
+         h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => startUnit(unit.id, event.currentTarget).catch(notice)}))];
   root.replaceChildren(
     h('div', {className: 'paper-actions'}, backButton()),
     h('h1', {id: 'unit-title', className: 'paper-title', textContent: `${unit.id} ${unit.title}`}),
     h('p', {className: 'muted', textContent: unit.position.join(' › ')}),
-    h('section', {className: 'step'}, h('h2', {textContent: '一、回忆核对'}),
+    h('section', {className: 'step'}, h('h2', {textContent: '一、用法总览'}),
       h('p', {textContent: `范围：${scope}（共 ${view.recall.items.length} 项）`}), ...recall));
   if (!session.started) return;
 
@@ -340,10 +340,10 @@ function recallList(items) {
   return list;
 }
 
-async function lockRecall(id, button) {
+async function startUnit(id, button) {
   button.disabled = true;
   try {
-    const view = await api(`/units/${encodeURIComponent(id)}/recall`, {missed: []});
+    const view = await api(`/units/${encodeURIComponent(id)}/recall`, {});
     dropDrafts(`review:${id}:recall`); // drafts from the retired 没想到 marks
     renderUnit(view);
   } catch (error) {

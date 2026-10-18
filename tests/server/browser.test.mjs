@@ -68,7 +68,7 @@ test('stage progress shows the current stage, the next milestone and the plan di
     const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');
     await mkdir(folder,{recursive:true});
     await writeFile(join(folder,`${unit}.json`),JSON.stringify({schema_version:1,unit_id:unit,round:1,paper:`2026-10-17-${unit.toLowerCase()}`,
-      recall:{marks:[{card:'N5-G-0013',item:0,recalled:true},{card:'N5-G-0032',item:1,recalled:true}],locked_at:'2026-10-17T20:00:00+08:00'},sentence:{card:'N5-G-0013',text:'文。'},note:'',submitted_at:`2026-10-17T20:${minute}:00+08:00`}));
+      sentence:{card:'N5-G-0013',text:'文。'},note:'',submitted_at:`2026-10-17T20:${minute}:00+08:00`}));
   };
   const stage=title=>page.locator('.stage',{has:page.locator('summary',{hasText:title})});
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
@@ -139,18 +139,20 @@ test('damaged study data shows the server error instead of a blank page',()=>wit
   await page.locator('#notice',{hasText:'groups/submissions/r1/B-01-1.json'}).waitFor();
 }));
 
-test('recall rows show their usage straight away, with no 想到/没想到 controls',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+test('the usage overview shows each usage straight away and records nothing about it',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
   await page.getByRole('button',{name:'开始'}).click();
   await page.locator('#recall-list').waitFor();
   assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['时间点','动作的方向']);
   assert.equal(await page.locator('#recall-list button').count(),0);
-  assert.doesNotMatch(await page.locator('#unit-view').innerText(),/没想到|点击显示/);
+  assert.equal(await page.locator('#unit-view .step h2').first().innerText(),'一、用法总览');
+  assert.doesNotMatch(await page.locator('#unit-view').innerText(),/没想到|点击显示|回忆/);
   await page.getByRole('button',{name:'进入对比页'}).click();
   await page.locator('#unit-page').waitFor();
   const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
-  assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,true]);
+  assert.equal('recall' in sub,false);
   assert.equal(await page.locator('#recall-list .recall-text').count(),2);
+  assert.doesNotMatch(await page.locator('#unit-view').innerText(),/已锁定/);
 }));
 
 for(const [name,engine] of Object.entries({chromium,webkit})) {
@@ -184,7 +186,7 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('#status').innerText(),'今日安排\n\n下一项（B-01-2 で・を）尚未准备\n\n已交卷，待判分：B-01-1');
     await page.locator('#progress-summary',{hasText:'已学 1 / 2'}).waitFor();
     const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
-    assert.deepEqual(sub.recall.marks.map(mark=>mark.recalled),[true,true]);
+    assert.equal('recall' in sub,false);
     assert.equal(sub.sentence.text,'三時に会いましょう。');
     const paper=await readFile(join(tmp,'study/jlpt-notes/quizzes/papers/2026-10-17-b-01-1.md'),'utf8');
     assert.match(paper,/```text\n1-2, 2-__, 3-__, 4-__, 5-__\n```/);

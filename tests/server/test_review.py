@@ -36,17 +36,17 @@ class ReviewModuleTests(unittest.TestCase):
         view = review.unit_view(self.study, 'B-01-1')
         self.assertEqual(view['unit'], {'id': 'B-01-1', 'title': 'に', 'kind': 'system',
                                         'position': ['基础体系表', 'B-01 助词用法地图', 'B-01-1 に']})
-        self.assertEqual(view['session'], {'started': False, 'submitted': False, 'locked_at': None, 'submitted_at': None})
+        self.assertEqual(view['session'], {'started': False, 'submitted': False, 'submitted_at': None})
         self.assertEqual(view['recall'], {'items': [{'form': 'に', 'usage': '时间点'}, {'form': 'へ', 'usage': '动作的方向'}]})
         for key in ('page', 'cards', 'paper', 'sentence', 'note'):
             self.assertNotIn(key, view)
 
     def test_unit_view_after_recall_rewrites_images_and_card_links(self):
-        review.load_groups(self.study).start_unit(self.notes, 'B-01-1', [])
+        review.load_groups(self.study).start_unit(self.notes, 'B-01-1')
         view = review.unit_view(self.study, 'B-01-1')
         self.assertTrue(view['session']['started'])
         self.assertFalse(view['session']['submitted'])
-        self.assertRegex(view['session']['locked_at'], r'\+08:00$')
+        self.assertNotIn('locked_at', view['session'])
         page = view['page']
         self.assertIn('![时点に接续图](/api/review/asset?path=assets/grammar/n5/N5-G-0013-connection.png)', page)
         self.assertIn('### [N5-G-0013 助词：动作进行时点「に」](#card-N5-G-0013)', page)
@@ -108,11 +108,10 @@ class ReviewModuleTests(unittest.TestCase):
         with self.assertRaises(Conflict):
             review.recall(self.study, 'B-01-1')
 
-    def test_recall_marks_every_row_as_recalled(self):
+    def test_entering_comparison_records_nothing_about_the_overview(self):
         review.recall(self.study, 'B-01-1')
-        marks = json.loads((self.notes / 'groups/submissions/r1/B-01-1.json').read_text())['recall']['marks']
-        self.assertEqual(marks, [{'card': 'N5-G-0013', 'item': 0, 'recalled': True},
-                                 {'card': 'N5-G-0032', 'item': 1, 'recalled': True}])
+        stored = json.loads((self.notes / 'groups/submissions/r1/B-01-1.json').read_text())
+        self.assertEqual(stored, {'schema_version': 1, 'unit_id': 'B-01-1', 'round': 1, 'paper': UNIT_PAPER})
 
     def test_legacy_recall_text_does_not_crash_view(self):
         path = self.notes / 'groups/submissions/r1/B-01-1.json'
@@ -265,7 +264,7 @@ class ReviewHTTPTests(unittest.TestCase):
         self.assertEqual(state['pending_grading'], [{'id': 'B-01-1', 'paper': UNIT_PAPER}])
         self.assertRegex(self.paper_text(), r'\*1-2')
         self.assertEqual(self.submission()['sentence']['text'], '日本に行きます。')
-        self.assertEqual(self.submission()['recall']['marks'][0]['recalled'], True)
+        self.assertNotIn('recall', self.submission())
 
     def test_second_submit_conflicts(self):
         self.login()
@@ -276,24 +275,24 @@ class ReviewHTTPTests(unittest.TestCase):
         self.assertRegex(self.paper_text(), r'\*1-2')
         self.assertEqual((self.submission()['sentence']['text'], self.submission()['note']), ('日本に行きます。', ''))
         self.assertEqual(self.request('/api/review/units/B-01-1/recall', {'missed': [0]}).status, 403)
-        self.assertEqual(self.submission()['recall']['marks'][0]['recalled'], True)
+        self.assertNotIn('recall', self.submission())
 
     def test_recall_ignores_marks_sent_by_an_old_cached_page(self):
         self.login()
         self.assertEqual(self.request('/api/review/units/B-01-1/recall', {'missed': [1]}).status, 200)
-        self.assertEqual([mark['recalled'] for mark in self.submission()['recall']['marks']], [True, True])
+        self.assertNotIn('recall', self.submission())
 
     def test_second_recall_conflicts(self):
         self.login()
         self.assertEqual(self.request('/api/review/units/B-01-1/recall', {'missed': []}).status, 200)
         self.assertEqual(self.request('/api/review/units/B-01-1/recall', {'missed': [0]}).status, 409)  # a cached old page may still send it
-        self.assertEqual(self.submission()['recall']['marks'][0]['recalled'], True)
+        self.assertNotIn('recall', self.submission())
 
     def test_submit_before_recall_is_forbidden(self):
         self.login()
         response = self.request('/api/review/units/B-01-1/submit', self.SUBMIT)
         self.assertEqual(response.status, 403)
-        self.assertIn('尚未提交回忆', json.load(response)['error'])
+        self.assertIn('尚未进入对比页', json.load(response)['error'])
         self.assertNotIn('*1-2', self.paper_text())
         self.assertFalse((self.notes / 'groups/submissions').exists())
 

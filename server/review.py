@@ -98,11 +98,10 @@ def unit_view(study_root, unit_id):
             raise KeyError(unit_id)
         material = groups.unit_material(notes, unit_id)
         submission = _submission(groups, notes, unit_id) or {}
-        recall = submission.get('recall') if isinstance(submission.get('recall'), dict) else {}
         view = {
             'unit': {'id': unit.id, 'title': unit.title, 'kind': unit.kind, 'position': _position(groups, unit)},
             'session': {'started': bool(submission), 'submitted': _finished(submission),
-                        'locked_at': recall.get('locked_at'), 'submitted_at': submission.get('submitted_at')},
+                        'submitted_at': submission.get('submitted_at')},
             'recall': {'items': [{'form': item['form'], 'usage': item['usage']} for item in material['recall_items']]},
         }
         if not submission:
@@ -138,16 +137,16 @@ def review_view(study_root, review_id):
 
 
 def recall(study_root, unit_id):
-    """Lock the recall step. The 想到／没想到 marks are retired, so every row is recorded as recalled."""
+    """Leave the usage overview (用法总览) and start the unit; nothing about the overview is recorded."""
     with _write_lock, _rules(study_root) as groups:
-        groups.start_unit(_notes(study_root), unit_id, [])
+        groups.start_unit(_notes(study_root), unit_id)
     return unit_view(study_root, unit_id)
 
 
 def submit_unit(study_root, unit_id, answers, sentence, note):
     notes = _notes(study_root)
     with _write_lock, _rules(study_root) as groups:
-        _ensure_answerable(groups, notes, unit_id, '尚未提交回忆')
+        _ensure_answerable(groups, notes, unit_id, '尚未进入对比页')
         papers.write_plan_answers(study_root, groups.unit_material(notes, unit_id)['paper'], answers)
         groups.submit_unit(notes, unit_id, sentence, note)
         return groups.plan_state(notes)
