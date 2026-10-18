@@ -89,6 +89,14 @@ test('stage progress shows the current stage, the next milestone and the plan di
   assert.equal(await page.locator('#progress-bar .stage-fill').evaluate(fill=>fill.style.width),'50%');
   assert.equal(await page.locator('#next-milestone').innerText(),'下一个节点：学完基础体系表（还差 1 个单元）');
   assert.match(await page.locator('.directory-list li.is-current').textContent(),/B-01-2/);
+  // A learned unit opens in place of the overview (not below the open directory) and the back button restores it.
+  await page.locator('#directory > summary').click();
+  await page.locator('.directory-list li',{hasText:'B-01-1'}).getByRole('button',{name:'查看'}).click();
+  await page.locator('#unit-title',{hasText:'B-01-1'}).waitFor();
+  assert.equal(await page.locator('#plan-progress').isHidden(),true);
+  assert.equal(await page.locator('#unit-view h2',{hasText:'已交卷'}).count(),1);
+  await page.getByRole('button',{name:'← 今日安排'}).click();
+  assert.equal(await page.locator('#plan-progress').isVisible(),true);
 
   await finish('B-01-2','20');await page.reload();
   await page.locator('#progress-summary',{hasText:'已学 2 / 2'}).waitFor();

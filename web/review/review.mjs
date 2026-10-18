@@ -201,12 +201,14 @@ function renderStatus() {
 function showOverview() {
   $('unit-view').hidden = true;
   $('review-view').hidden = true;
+  $('plan-progress').hidden = false;
   $('status').hidden = false;
   scrollTo({top: 0});
 }
 
 function showFlow(id) {
   notice(null);
+  $('plan-progress').hidden = true;
   $('status').hidden = true;
   $('unit-view').hidden = id !== 'unit-view';
   $('review-view').hidden = id !== 'review-view';

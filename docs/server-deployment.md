@@ -354,4 +354,6 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - 今日安排的全程目录里，状态为“已学”的单元多一个「查看」按钮，打开原有的单元页（锁定的回忆核对、对比页、原卡核心、已交的造句与备注），与点“提前学”走同一接口，服务端无改动。单元页的交卷小节标题按是否在待判分列表显示“已交卷，待判分”或“已交卷”。
 - 只覆盖本轮已学的单元；新一轮开始后，上一轮学过的单元没有本轮交卷文件，只会显示回忆部分。
 
-验证：13 项 Chromium/WebKit 浏览器测试通过；以真实学习仓库只读读取 B-05-1，返回对比页、4 张原卡与已交造句。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `/srv/jlpt/releases/20261018-review-node-style/static`。
+- 修正：进入单元页或复习卷时隐藏上方的进度区（含展开的全程目录），返回「今日安排」时恢复；此前单元页接在展开的目录下面，点「查看」只像回到页面顶部。发布目录为 `20261018-review-learned-view2`。
+
+验证：13 项 Chromium/WebKit 浏览器测试通过，新增“点「查看」→ 单元页取代概览 → 返回恢复”的检查；浏览器测试读取 `server-public`，跑测试前必须先 `node scripts/build-server.mjs` 重新构建，否则测的是旧页面。以真实学习仓库只读读取 B-05-1，返回对比页、4 张原卡与已交造句。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回上一个发布（`20261018-review-learned-view/static` 为第一版，`20261018-review-node-style/static` 为功能前）。
