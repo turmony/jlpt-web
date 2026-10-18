@@ -110,3 +110,69 @@ export function mountPaperSheet({container, paper, initialAnswers = {}, draftKey
     answeredCount,
   };
 }
+
+// Read-only look back at a submitted paper: the correct option, the learner's choice and the explanation.
+// `key` lists {number, correct, correct_text, explanation} from the answer file; `paper.answers` holds the learner's choices.
+export function mountPaperReview({container, paper, key}) {
+  const keys = new Map(key.map(item => [String(item.number), item]));
+  const numbers = new Set(paper.numbers.map(String));
+  renderCoreMarkdown(container, paper.text.split(/\n## 答案填写区/)[0]);
+  for (const heading of container.querySelectorAll('h3, h4')) {
+    const number = heading.textContent.match(/^\s*(\d+)\./)?.[1];
+    if (!number || !numbers.has(number)) continue;
+    const nodes = questionNodes(heading);
+    const list = [...nodes].reverse().find(node => node.tagName === 'OL');
+    if (!list) continue;
+    const info = keys.get(number);
+    const mine = paper.answers[number]?.answer || '';
+    const uncertain = Boolean(mine && paper.answers[number]?.uncertain);
+    const ordering = [heading, ...nodes].some(node => node.textContent.includes('★'));
+    const start = Number(list.getAttribute('start') || 1);
+    list.classList.add('option-list', 'review-options');
+    const tag = (item, text, kind) => {
+      const badge = document.createElement('span');
+      badge.className = `review-tag ${kind}`;
+      badge.textContent = text;
+      item.append(badge);
+    };
+    [...list.children].forEach((item, index) => {
+      const value = String(start + index);
+      item.classList.add('option-block');
+      item.dataset.value = value;
+      if (ordering) return;
+      if (info?.correct === value) { item.classList.add('is-correct'); tag(item, '正确答案', 'correct'); }
+      if (mine === value) { item.classList.add('is-mine'); tag(item, '我的选择', 'mine'); }
+    });
+
+    const verdict = document.createElement('span');
+    verdict.className = 'review-verdict';
+    if (!mine) { verdict.textContent = '未作答'; verdict.dataset.result = 'blank'; }
+    else if (!ordering && info?.correct) {
+      const right = mine === info.correct;
+      verdict.textContent = right ? '答对' : '答错';
+      verdict.dataset.result = right ? 'right' : 'wrong';
+    }
+    if (uncertain) verdict.textContent = [verdict.textContent, '不确定'].filter(Boolean).join(' · ');
+    if (verdict.textContent) heading.append(verdict);
+    heading.classList.add('question-heading');
+
+    let last = list;
+    if (ordering) {
+      const line = document.createElement('p');
+      line.className = 'order-line';
+      line.textContent = `我的语序：${mine ? mine.split('').join(' → ') : '未作答'}` + (info?.correct ? `　★处正确项：${info.correct}（${info.correct_text}）` : '');
+      list.after(line);
+      last = line;
+    }
+    if (info?.explanation) {
+      const details = document.createElement('details');
+      details.className = 'review-explain';
+      const summary = document.createElement('summary');
+      summary.textContent = '解析';
+      const body = document.createElement('div');
+      renderCoreMarkdown(body, info.explanation);
+      details.append(summary, body);
+      last.after(details);
+    }
+  }
+}

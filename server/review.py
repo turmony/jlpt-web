@@ -27,6 +27,10 @@ FRONTMATTER = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)', re.S)
 # `[text](target)` or `![alt](target "title")`; nested brackets are left alone.
 LINK = re.compile(r'(!?)\[([^\[\]]*)\]\(\s*<?([^()\s<>]*)>?(?:\s+"[^"]*")?\s*\)')
 CARD_PAGE = re.compile(r'grammar/n[1-5]/(N[1-5]-G-\d{4,})\.md')
+ANSWER_SECTION = re.compile(r'^### 第 (\d+) 题.*$', re.M)
+ANSWER_CORRECT = re.compile(r'^\*\*正确项\*\*：\s*(\d+)（(.*?)）\s*$', re.M)
+# Lines of an answer-file section that the review page does not repeat (the paper shows the stem; sources stay in the file).
+ANSWER_SKIP = re.compile(r'^\*\*(?:题目|考点|来源|证据|正确项)\*\*[：:]')
 
 
 class Forbidden(Exception):
@@ -105,7 +109,9 @@ def unit_view(study_root, unit_id):
         if not submission:
             return view
         sentence = submission.get('sentence') if isinstance(submission.get('sentence'), dict) else {}
+        key = _answer_key(study_root, material['paper']) if _finished(submission) else None
         return {**view,
+                **({'key': key} if key is not None else {}),
                 'page': _rewrite(_body(notes, f'groups/{unit_id}.md'), 'groups'),
                 'cards': [_card(notes, card) for card in unit.members],
                 'paper': _paper(study_root, material['paper']),
@@ -124,10 +130,12 @@ def review_view(study_root, review_id):
         submission = _submission(groups, notes, review_id)
         if not _finished(submission) and not groups.can_answer(notes, review_id):
             raise Forbidden(f'{review_id} 未到期或复习卷尚未准备')
+        finished = _finished(submission)
         return {'review': {'id': review_id, 'covers': material['covers']},
-                'session': {'submitted': _finished(submission),
+                'session': {'submitted': finished,
                             'submitted_at': submission.get('submitted_at') if submission else None},
-                'paper': _paper(study_root, material['paper'])}
+                'paper': _paper(study_root, material['paper']),
+                **({'key': _answer_key(study_root, material['paper'])} if finished else {})}
 
 
 def recall(study_root, unit_id, missed):
@@ -202,6 +210,25 @@ def _submission(groups, notes, item_id):
     if not isinstance(data, dict):
         raise StudyDataError(f'资料格式错误：{relative}：顶层必须是 JSON 对象')
     return data
+
+
+def _answer_key(study_root, slug):
+    """Correct option and explanation per question from the paper's answer file; only handed out after 交卷."""
+    relative = f'{papers.QUIZZES}/answers/{slug}-answers.md'
+    try:
+        text = safe_file(study_root, relative).read_text(encoding='utf-8')
+    except (ValueError, OSError):
+        return []
+    marks = list(ANSWER_SECTION.finditer(text))
+    key = []
+    for index, mark in enumerate(marks):
+        section = text[mark.end():marks[index + 1].start() if index + 1 < len(marks) else len(text)]
+        correct = ANSWER_CORRECT.search(section)
+        explanation = '\n'.join(line for line in section.splitlines() if not ANSWER_SKIP.match(line)).strip()
+        key.append({'number': int(mark[1]), 'correct': correct[1] if correct else None,
+                    'correct_text': correct[2] if correct else None,
+                    'explanation': _rewrite(explanation, 'quizzes/answers')})
+    return key
 
 
 def _paper(study_root, slug):

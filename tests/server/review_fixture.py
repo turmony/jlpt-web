@@ -90,6 +90,12 @@ def write_paper(notes, slug, count):
     sheet = ', '.join(f'{number}-__' for number in range(1, count + 1))
     path = notes / 'quizzes/papers' / f'{slug}.md'
     path.parent.mkdir(parents=True, exist_ok=True)
+    answers = notes / 'quizzes/answers' / f'{slug}-answers.md'
+    answers.parent.mkdir(parents=True, exist_ok=True)
+    answers.write_text(f'# {slug} · 答案解析\n\n[生成清单](../sources/{slug}/manifest.json)\n\n## 第一部分\n\n' + ''.join(
+        f'### 第 {number} 题（N5-Q-{number:04d}）\n\n**题目**：{stem}\n**翻译**：翻译{number}\n**考点**：N5-G-0013\n**来源**：来源{number}\n'
+        f'**正确项**：2（{options[1]}）\n\n**解析**：解析{number}\n- 选项 2（{options[1]}）：正确。\n\n**证据**：[证据 1](../sources/cache/x.md)\n\n'
+        for number, (stem, *options) in enumerate((QUESTIONS * 3)[:count], 1)), encoding='utf-8')
     path.write_text(f'# {slug} 练习（{count} 题）\n\n## 第一部分\n\n{questions}## 答案填写区\n\n```text\n{sheet}\n```\n',
                     encoding='utf-8')
 

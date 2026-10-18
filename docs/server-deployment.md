@@ -357,3 +357,12 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - 修正：进入单元页或复习卷时隐藏上方的进度区（含展开的全程目录），返回「今日安排」时恢复；此前单元页接在展开的目录下面，点「查看」只像回到页面顶部。发布目录为 `20261018-review-learned-view2`。
 
 验证：13 项 Chromium/WebKit 浏览器测试通过，新增“点「查看」→ 单元页取代概览 → 返回恢复”的检查；浏览器测试读取 `server-public`，跑测试前必须先 `node scripts/build-server.mjs` 重新构建，否则测的是旧页面。以真实学习仓库只读读取 B-05-1，返回对比页、4 张原卡与已交造句。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回上一个发布（`20261018-review-learned-view/static` 为第一版，`20261018-review-node-style/static` 为功能前）。
+
+### 已交卷试题回顾（2026-10-18）
+
+发布目录为 `/srv/jlpt/releases/20261018-review-answer-view`，app 与 static 均已切换并重启 `jlpt.service`（接口新增字段）。
+
+- 单元页（和已交卷的复习卷）新增“试题回顾”：用原试卷渲染题目，正确选项标「正确答案」，学习者选的标「我的选择」（答错时红框，不确定在题号旁注明），每题题号旁显示答对／答错／未作答，下方折叠「解析」（翻译、正确接续、四个选项逐项解释）。排序题只显示“我的语序”和 ★ 处正确项，不自动判对错。
+- `GET /api/review/units/<id>` 与 `GET /api/review/reviews/<id>` 在已交卷后多返回 `key`（`[{number, correct, correct_text, explanation}]`），由 `jlpt-notes/quizzes/answers/<试卷>-answers.md` 解析；未交卷时不返回该字段，答案文件缺失时为空列表。解释里去掉题目、考点、来源、证据行。
+
+验证：后端测试与 13 项浏览器测试通过（含 `key` 交卷前不出现、交卷后 5 题、答案文件缺失不报错）；以真实学习仓库读取 B-05-1 的 5 题答案和作答，与成绩记录一致（第 4 题选 3、正确 1）。回滚：按 `previous-release.txt` 切回并重启。

@@ -145,9 +145,24 @@ class ReviewModuleTests(unittest.TestCase):
         view = review.unit_view(self.study, 'B-01-1')
         self.assertTrue(view['session']['submitted'])
         self.assertEqual((view['sentence']['text'], view['note']), ('三時に会いましょう。', '对比页少了例句'))
+        self.assertEqual([item['number'] for item in view['key']], [1, 2, 3, 4, 5])
+        self.assertEqual((view['key'][0]['correct'], view['key'][0]['correct_text']), ('2', view['key'][0]['correct_text']))
+        self.assertIn('解析1', view['key'][0]['explanation'])
+        for hidden in ('来源1', '证据', '正确项', '**题目**'):
+            self.assertNotIn(hidden, view['key'][0]['explanation'])
+        self.assertEqual(view['paper']['answers']['1'], {'answer': '2', 'uncertain': True})
         with self.assertRaises(Conflict):
             review.submit_unit(self.study, 'B-01-1', {'1': {'answer': '3'}}, '別の文。', '')
         self.assertIn('*1-2, 2-__', self.paper_text())
+
+    def test_answer_key_stays_hidden_until_the_unit_is_submitted(self):
+        self.assertNotIn('key', review.unit_view(self.study, 'B-01-1'))
+        review.recall(self.study, 'B-01-1', [])
+        self.assertNotIn('key', review.unit_view(self.study, 'B-01-1'))
+        review.submit_unit(self.study, 'B-01-1', {}, '文。', '')
+        self.assertEqual(len(review.unit_view(self.study, 'B-01-1')['key']), 5)
+        (self.notes / f'quizzes/answers/{UNIT_PAPER}-answers.md').unlink()
+        self.assertEqual(review.unit_view(self.study, 'B-01-1')['key'], [])
 
     def test_submit_unit_rejects_bad_answers_without_submitting(self):
         review.recall(self.study, 'B-01-1', [])

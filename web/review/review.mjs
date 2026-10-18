@@ -1,5 +1,5 @@
 import {renderCoreMarkdown} from '/grammar/core-markdown.mjs';
-import {mountPaperSheet} from '/paper-sheet.mjs';
+import {mountPaperReview, mountPaperSheet} from '/paper-sheet.mjs';
 
 // Shows where the learner is in the grammar-network plan and runs one unit or review at a time.
 // Grading and preparation happen elsewhere; this page only shows status text for them.
@@ -287,6 +287,7 @@ function renderUnit(view) {
   root.append(h('section', {className: 'step'}, h('h2', {textContent: '二、对比页'}), page));
 
   if (session.submitted) {
+    root.append(h('section', {className: 'step'}, h('h2', {textContent: '三、试题回顾'}), paperReview(view)));
     const ungraded = today.pending_grading.some(item => item.id === unit.id);
     root.append(h('section', {className: 'step'}, h('h2', {textContent: ungraded ? '已交卷，待判分' : '已交卷'}),
       h('p', {className: 'locked-text', textContent: view.sentence.text || ''}),
@@ -317,6 +318,13 @@ function renderUnit(view) {
       notice(error);
     }
   });
+}
+
+// A submitted paper with the correct options, the learner's choices and the explanations.
+function paperReview(view) {
+  const container = h('div', {className: 'markdown paper-markdown'});
+  mountPaperReview({container, paper: view.paper, key: view.key || []});
+  return container;
 }
 
 // Recall rows, grouped under their grammar form (shown); each row's usage stays hidden until tapped.
@@ -392,7 +400,7 @@ async function openReview(id) {
     h('h1', {id: 'review-title', className: 'paper-title', textContent: `复习 ${id}`}),
     h('p', {className: 'muted', textContent: `覆盖：${view.review.covers.join('、')}`}));
   if (view.session.submitted) {
-    root.append(h('p', {className: 'status-line', textContent: '已交卷，待判分'}));
+    root.append(h('p', {className: 'status-line', textContent: '已交卷，待判分'}), h('section', {className: 'step'}, h('h2', {textContent: '试题回顾'}), paperReview(view)));
     return;
   }
   const container = h('div', {id: 'review-paper', className: 'markdown paper-markdown'});

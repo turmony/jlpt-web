@@ -75,3 +75,19 @@
 .review-page .markdown img{display:block;max-width:100%;height:auto;margin:10px 0;border-radius:var(--radius-small)}
 .flow-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin:20px 0}
 .flow-actions .primary{min-height:44px;padding:8px 26px}
+
+/* Submitted paper: correct option, learner's choice and explanation. Labels carry the meaning; colour only backs them up. */
+.review-options .option-block{cursor:default;padding-right:14px;gap:8px;flex-wrap:wrap}
+.review-options .option-block:active{background:var(--surface)}
+.review-options .option-block>:first-child{flex:1 1 auto}
+.review-options .option-block.is-correct{border-color:#7fd1a0;background:rgba(127,209,160,.12);box-shadow:inset 0 0 0 1px #7fd1a0}
+.review-options .option-block.is-mine:not(.is-correct){border-color:var(--error);background:var(--alert-bg);box-shadow:inset 0 0 0 1px var(--error)}
+.review-tag{flex-shrink:0;margin-left:auto;padding:1px 10px;border:1px solid var(--control-line);border-radius:999px;font-size:12px;font-weight:600;color:var(--muted)}
+.review-tag.correct{color:#7fd1a0;border-color:#7fd1a0}
+.review-tag.mine{color:var(--ink)}
+.review-options .is-mine:not(.is-correct) .review-tag.mine{color:var(--error);border-color:var(--error)}
+.review-verdict{flex-shrink:0;margin-top:2px;font-size:13px;font-weight:600;color:var(--muted)}
+.review-verdict[data-result="right"]{color:#7fd1a0}
+.review-verdict[data-result="wrong"]{color:var(--error)}
+.review-explain{margin:8px 0 16px}
+.review-explain>div{padding:4px 0}

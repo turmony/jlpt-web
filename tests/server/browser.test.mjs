@@ -95,6 +95,11 @@ test('stage progress shows the current stage, the next milestone and the plan di
   await page.locator('#unit-title',{hasText:'B-01-1'}).waitFor();
   assert.equal(await page.locator('#plan-progress').isHidden(),true);
   assert.equal(await page.locator('#unit-view h2',{hasText:'已交卷'}).count(),1);
+  assert.equal(await page.locator('#unit-view h2',{hasText:'试题回顾'}).count(),1);
+  assert.equal(await page.locator('#unit-view .review-tag.correct').count(),5);
+  assert.equal(await page.locator('#unit-view .review-verdict',{hasText:'未作答'}).count(),5);
+  await page.locator('#unit-view .review-explain > summary').first().click();
+  assert.match(await page.locator('#unit-view .review-explain').first().innerText(),/解析1/);
   await page.getByRole('button',{name:'← 今日安排'}).click();
   assert.equal(await page.locator('#plan-progress').isVisible(),true);
 
