@@ -394,3 +394,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261019-review-done-view`，app 与 static 均已切换并重启 `jlpt.service`；仅前端改动，后端源码未变。目录中状态为“已完成 ✓”的复习节点新增“查看”按钮，打开只读试题回顾；回顾页仅在该复习仍待判分时显示“已交卷，待判分”，判分后只显示“已交卷”。
 
 验证：57 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过。回滚：按 `previous-release.txt` 切回并重启。
+
+## 排序题显示完整正确语序（2026-10-19）
+
+发布目录为 `/srv/jlpt/releases/20261019-order-answer`，app 与 static 均已切换并重启 `jlpt.service`。试题回顾中的排序题除“★处正确项”外，新增“正确语序”与完整句；语序取自答案文件的“推荐语序”字段，缺字段时从解析句的“(编号)”推出，旧卷没有答案文件则不显示。
+
+验证：58 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过。回滚：按 `previous-release.txt` 切回并重启。
