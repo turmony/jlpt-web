@@ -388,3 +388,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 - `GET /api/review/units/<id>` 的 `session` 去掉 `locked_at`；未进入对比页就交卷的提示改为「尚未进入对比页」。`POST .../recall` 接口名不变，仍忽略请求体。
 
 验证：57 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过（新增标题为「一、用法总览」、交卷文件无 `recall`、页面无「已锁定」）。回滚：按 `previous-release.txt` 切回并重启，同时须把学习仓库 `groups.py` 一并回退。
+
+## 已完成复习可查看（2026-10-19）
+
+发布目录为 `/srv/jlpt/releases/20261019-review-done-view`，app 与 static 均已切换并重启 `jlpt.service`；仅前端改动，后端源码未变。目录中状态为“已完成 ✓”的复习节点新增“查看”按钮，打开只读试题回顾；回顾页仅在该复习仍待判分时显示“已交卷，待判分”，判分后只显示“已交卷”。
+
+验证：57 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过。回滚：按 `previous-release.txt` 切回并重启。
