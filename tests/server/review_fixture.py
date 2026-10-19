@@ -22,6 +22,14 @@ SENTENCE_PROMPT = '用本单元的语法翻译：三点见面吧。'
 RECALL_ITEMS = [{'card': 'N5-G-0013', 'form': 'に', 'usage': '时间点'},
                 {'card': 'N5-G-0032', 'form': 'へ', 'usage': '动作的方向'}]
 
+COMPARE = {'scene': '约定见面',
+           'forms': [{'card': 'N5-G-0013', 'form': 'に', 'connection': '时间词＋に', 'meaning': '时间点', 'tone': '中性；日常口语',
+                      'example': {'ja': '三時に会う。', 'target': 'に', 'zh': '三点见面。'},
+                      'confusion': '与“へ”的区别：“に”点，“へ”方向', 'memo': '时间点用“に”'},
+                     {'card': 'N5-G-0032', 'form': 'へ', 'connection': '场所＋へ', 'meaning': '方向', 'tone': '中性；偏书面',
+                      'example': {'ja': '駅へ行く。', 'target': 'へ', 'zh': '去车站。'},
+                      'confusion': '与“に”的区别：“へ”只表方向', 'memo': '方向用“へ”'}]}
+
 UNIT_PAGE = '''# B-01-1 に
 
 ## 成员接续图
@@ -100,7 +108,7 @@ def write_paper(notes, slug, count):
                     encoding='utf-8')
 
 
-def prepare_unit(notes, unit_id='B-01-1'):
+def prepare_unit(notes, unit_id='B-01-1', compare=None):
     """Unit page, unit material and five-question paper, left uncommitted as the plan prepares them."""
     write_markdown(notes / 'groups' / f'{unit_id}.md',
                    {'id': unit_id, 'kind': 'grammar_system_unit', 'schema_version': 1, 'title': 'に', 'order': 1,
@@ -108,7 +116,7 @@ def prepare_unit(notes, unit_id='B-01-1'):
                    UNIT_PAGE)
     write_json(notes / 'groups/units' / f'{unit_id}.json',
                {'schema_version': 1, 'unit_id': unit_id, 'paper': paper_slug(unit_id),
-                'recall_items': RECALL_ITEMS,
+                'recall_items': RECALL_ITEMS, **({'compare': compare} if compare else {}),
                 'sentence': {'card': 'N5-G-0013', 'prompt': SENTENCE_PROMPT}})
     write_paper(notes, paper_slug(unit_id), 5)
 

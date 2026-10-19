@@ -157,6 +157,36 @@ test('the usage overview shows each usage straight away and records nothing abou
   assert.doesNotMatch(await page.locator('#unit-view').innerText(),/已锁定/);
 }));
 
+test('the comparison stacks by item on a phone, switches to per-form cards and has no sideways scroll',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#compare').waitFor();
+  assert.equal(await page.locator('.compare-title').innerText(),'对比表');
+  assert.match(await page.locator('#compare').innerText(),/情境：约定见面/);
+  assert.deepEqual(await page.locator('.compare-by-item .compare-block h4').allInnerTexts(),['接续','核心含义','语气与感情色彩','代表例句','易混点','一句话记忆']);
+  assert.equal(await page.locator('.compare-by-item .compare-block').first().locator('.compare-line').count(),2);
+  assert.equal(await page.locator('.compare-by-item .compare-ja strong').first().innerText(),'に');
+  assert.equal(await page.locator('.compare-by-form').isVisible(),false);
+  assert.equal(await page.locator('.compare-table').isVisible(),false);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+  await page.getByRole('button',{name:'按语法看'}).click();
+  assert.equal(await page.locator('.compare-by-item').isVisible(),false);
+  assert.equal(await page.locator('.compare-by-form .compare-block').count(),2);
+  assert.equal(await page.getByRole('button',{name:'按语法看'}).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+}));
+
+test('the comparison is a real table on a wide screen',()=>withSite(chromium,{viewport:{width:1100,height:800},locale:'zh-CN'},async(page)=>{
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#compare').waitFor();
+  assert.equal(await page.locator('.compare-table').isVisible(),true);
+  assert.equal(await page.locator('.compare-by-item').isVisible(),false);
+  assert.equal(await page.locator('.compare-mode').first().isVisible(),false);
+  assert.deepEqual(await page.locator('.compare-table thead th').allInnerTexts(),['项目','に','へ']);
+  assert.equal(await page.locator('.compare-table tbody tr').count(),6);
+}));
+
 for(const [name,engine] of Object.entries({chromium,webkit})) {
   test(`${name}: a unit is learned end to end on a phone`,()=>withSite(engine,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
     await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();

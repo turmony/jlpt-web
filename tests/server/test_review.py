@@ -10,7 +10,7 @@ from server import review
 from server.app import Application, create_server
 from server.auth import Auth
 from server.store import Conflict
-from tests.server.review_fixture import finish_unit, make_study, paper_slug, prepare_review
+from tests.server.review_fixture import COMPARE, finish_unit, make_study, paper_slug, prepare_review, prepare_unit
 
 UNIT_PAPER = '2026-10-17-b-01-1'
 
@@ -40,6 +40,13 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual(view['recall'], {'items': [{'form': 'に', 'usage': '时间点'}, {'form': 'へ', 'usage': '动作的方向'}]})
         for key in ('page', 'cards', 'paper', 'sentence', 'note'):
             self.assertNotIn(key, view)
+
+    def test_unit_view_returns_compare_only_when_the_unit_has_one(self):
+        self.assertNotIn('compare', review.unit_view(self.study, 'B-01-1'))
+        prepare_unit(self.notes, 'B-01-1', compare=COMPARE)
+        view = review.unit_view(self.study, 'B-01-1')
+        self.assertEqual(view['compare'], COMPARE)
+        self.assertNotIn('page', view)
 
     def test_unit_view_after_recall_rewrites_images_and_card_links(self):
         review.load_groups(self.study).start_unit(self.notes, 'B-01-1')

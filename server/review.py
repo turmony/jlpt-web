@@ -106,6 +106,8 @@ def unit_view(study_root, unit_id):
                         'submitted_at': submission.get('submitted_at')},
             'recall': {'items': [{'form': item['form'], 'usage': item['usage']} for item in material['recall_items']]},
         }
+        if 'compare' in material:
+            view['compare'] = material['compare']
         if not submission:
             return view
         sentence = submission.get('sentence') if isinstance(submission.get('sentence'), dict) else {}

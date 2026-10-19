@@ -22,7 +22,9 @@ function notice(error) {
 }
 
 function h(tag, props = {}, ...children) {
-  const node = Object.assign(document.createElement(tag), props);
+  const {dataset, ...rest} = props;
+  const node = Object.assign(document.createElement(tag), rest);
+  if (dataset) Object.assign(node.dataset, dataset);
   node.append(...children.filter(child => child !== null && child !== undefined && child !== false));
   return node;
 }
@@ -252,10 +254,11 @@ function renderUnit(view) {
   const prefix = `review:${unit.id}:`;
   const root = $('unit-view');
   const scope = unit.position.slice(1).join(' › ');
+  const compare = compareView(view.compare);
   const recall = session.started
-    ? [recallList(view.recall.items)]
+    ? [recallList(view.recall.items), compare]
     : [h('p', {className: 'muted', textContent: '先看一遍各语法形式与用法，再进入对比页。'}),
-       recallList(view.recall.items),
+       recallList(view.recall.items), compare,
        h('div', {className: 'flow-actions'}, h('span'),
          h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => startUnit(unit.id, event.currentTarget).catch(notice)}))];
   root.replaceChildren(
@@ -339,6 +342,47 @@ function recallList(items) {
     list.append(h('section', {className: 'recall-group'}, h('h3', {className: 'recall-form', textContent: item.form}), rows));
   });
   return list;
+}
+
+// The optional comparison of look-alike forms: stacked by item or by form on a phone, a real table when wide.
+const COMPARE_ITEMS = [['connection', '接续'], ['meaning', '核心含义'], ['tone', '语气与感情色彩'],
+  ['example', '代表例句'], ['confusion', '易混点'], ['memo', '一句话记忆']];
+
+function compareCell(row, key) {
+  if (key !== 'example') return document.createTextNode(row[key]);
+  const {ja, target, zh} = row.example;
+  const at = ja.indexOf(target);
+  return h('span', {className: 'compare-example'},
+    h('span', {className: 'compare-ja'}, ja.slice(0, at), h('strong', {textContent: target}), ja.slice(at + target.length)),
+    h('span', {className: 'compare-zh', textContent: zh}));
+}
+
+function compareView(compare) {
+  if (!compare) return null;
+  const {forms} = compare;
+  const chip = (row, index) => h('span', {className: 'compare-chip', textContent: row.form, dataset: {tint: index % 6}});
+  const byItem = h('div', {className: 'compare-stack compare-by-item'}, ...COMPARE_ITEMS.map(([key, label]) =>
+    h('section', {className: 'compare-block'}, h('h4', {textContent: label}),
+      h('ul', {}, ...forms.map((row, index) => h('li', {className: 'compare-line'}, chip(row, index), h('span', {className: 'compare-value'}, compareCell(row, key))))))));
+  const byForm = h('div', {className: 'compare-stack compare-by-form', hidden: true}, ...forms.map((row, index) =>
+    h('section', {className: 'compare-block', dataset: {tint: index % 6}}, h('h4', {}, chip(row, index)),
+      h('dl', {}, ...COMPARE_ITEMS.flatMap(([key, label]) => [h('dt', {textContent: label}), h('dd', {}, compareCell(row, key))])))));
+  const table = h('table', {className: 'compare-table'},
+    h('thead', {}, h('tr', {}, h('th', {scope: 'col', textContent: '项目'}), ...forms.map((row, index) => h('th', {scope: 'col'}, chip(row, index))))),
+    h('tbody', {}, ...COMPARE_ITEMS.map(([key, label]) =>
+      h('tr', {}, h('th', {scope: 'row', textContent: label}), ...forms.map(row => h('td', {}, compareCell(row, key)))))));
+  const modes = [['item', '按项目比', byItem], ['form', '按语法看', byForm]];
+  const buttons = modes.map(([mode, label]) => h('button', {type: 'button', className: 'compare-mode', textContent: label, dataset: {mode}}));
+  const choose = mode => modes.forEach(([name, , view], index) => {
+    view.hidden = name !== mode;
+    buttons[index].setAttribute('aria-pressed', String(name === mode));
+  });
+  buttons.forEach((button, index) => button.addEventListener('click', () => choose(modes[index][0])));
+  choose('item');
+  return h('section', {id: 'compare', className: 'compare'},
+    h('h3', {className: 'compare-title', textContent: '对比表'}),
+    h('p', {className: 'muted', textContent: `情境：${compare.scene}`}),
+    h('div', {className: 'compare-modes'}, ...buttons), byItem, byForm, h('div', {className: 'compare-wide'}, table));
 }
 
 async function startUnit(id, button) {

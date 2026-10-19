@@ -1,8 +1,9 @@
+import json
 import sys
 from pathlib import Path
 from server.app import Application, create_server
 from server.auth import Auth
-from tests.server.review_fixture import make_study
+from tests.server.review_fixture import COMPARE, make_study
 
 PAPER = '''# 测试试卷
 
@@ -32,6 +33,8 @@ PAPER = '''# 测试试卷
 base = Path(sys.argv[1])
 # A study repository with the plan's first unit prepared, plus one regular paper.
 make_study(base)
+unit_json = base / 'study/jlpt-notes/groups/units/B-01-1.json'
+unit_json.write_text(json.dumps({**json.loads(unit_json.read_text()), 'compare': COMPARE}, ensure_ascii=False))
 papers = base / 'study/jlpt-notes/quizzes/papers'
 (papers / '2026-10-14-test.md').write_text(PAPER)
 app = Application({'state': str(base), 'study': str(base / 'study'), 'static': str(Path('server-public').resolve()),
