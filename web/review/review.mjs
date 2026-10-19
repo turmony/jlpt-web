@@ -159,7 +159,8 @@ function reviewNode(review) {
   const text = {done: '已完成 ✓', due: '已到期，待做', next: `还差 ${review.remaining} 个学习日`}[review.status];
   const node = h('li', {className: 'review-node'},
     h('span', {className: 'unit-name', textContent: label}),
-    h('span', {className: 'status-chip', textContent: text}));
+    h('span', {className: 'status-chip', textContent: text}),
+    review.status === 'done' ? h('button', {type: 'button', textContent: '查看', onclick: () => openReview(review.id).catch(notice)}) : null);
   node.dataset.status = review.status;
   return node;
 }
@@ -364,7 +365,8 @@ async function openReview(id) {
     h('h1', {id: 'review-title', className: 'paper-title', textContent: `复习 ${id}`}),
     h('p', {className: 'muted', textContent: `覆盖：${view.review.covers.join('、')}`}));
   if (view.session.submitted) {
-    root.append(h('p', {className: 'status-line', textContent: '已交卷，待判分'}), h('section', {className: 'step'}, h('h2', {textContent: '试题回顾'}), paperReview(view)));
+    const ungraded = today.pending_grading.some(item => item.id === id);
+    root.append(h('p', {className: 'status-line', textContent: ungraded ? '已交卷，待判分' : '已交卷'}), h('section', {className: 'step'}, h('h2', {textContent: '试题回顾'}), paperReview(view)));
     return;
   }
   const container = h('div', {id: 'review-paper', className: 'markdown paper-markdown'});

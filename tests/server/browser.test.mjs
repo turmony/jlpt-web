@@ -128,6 +128,8 @@ test('the directory shows finished, due and next reviews next to the unit that c
   assert.match(await nodes.nth(0).innerText(),/复习 review-01[\s\S]*已完成/);
   assert.match(await nodes.nth(1).innerText(),/下次复习 review-02[\s\S]*还差 3 个学习日/);
   assert.match(await page.locator('.directory-list li').nth(1).innerText(),/review-01/);
+  assert.equal(await nodes.nth(0).getByRole('button',{name:'查看'}).count(),1);
+  assert.equal(await nodes.nth(1).getByRole('button',{name:'查看'}).count(),0);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
