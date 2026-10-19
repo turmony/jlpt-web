@@ -345,8 +345,8 @@ function recallList(items) {
 }
 
 // The optional comparison of look-alike forms: stacked by item or by form on a phone, a real table when wide.
-const COMPARE_ITEMS = [['connection', '接续'], ['meaning', '核心含义'], ['tone', '语气与感情色彩'],
-  ['example', '代表例句'], ['confusion', '易混点'], ['memo', '一句话记忆']];
+const COMPARE_ITEMS = [['connection', '接续'], ['memo', '一句话记忆'], ['meaning', '核心含义'],
+  ['tone', '语气与感情色彩'], ['example', '代表例句']];
 
 function compareCell(row, key) {
   if (key !== 'example') return document.createTextNode(row[key]);

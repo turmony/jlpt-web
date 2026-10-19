@@ -23,12 +23,12 @@ RECALL_ITEMS = [{'card': 'N5-G-0013', 'form': 'に', 'usage': '时间点'},
                 {'card': 'N5-G-0032', 'form': 'へ', 'usage': '动作的方向'}]
 
 COMPARE = {'scene': '约定见面',
-           'forms': [{'card': 'N5-G-0013', 'form': 'に', 'connection': '时间词＋に', 'meaning': '时间点', 'tone': '中性；日常口语',
-                      'example': {'ja': '三時に会う。', 'target': 'に', 'zh': '三点见面。'},
-                      'confusion': '与“へ”的区别：“に”点，“へ”方向', 'memo': '时间点用“に”'},
-                     {'card': 'N5-G-0032', 'form': 'へ', 'connection': '场所＋へ', 'meaning': '方向', 'tone': '中性；偏书面',
-                      'example': {'ja': '駅へ行く。', 'target': 'へ', 'zh': '去车站。'},
-                      'confusion': '与“に”的区别：“へ”只表方向', 'memo': '方向用“へ”'}]}
+           'forms': [{'card': 'N5-G-0013', 'form': 'に', 'connection': '时间词＋に', 'memo': '时间点用“に”',
+                      'meaning': '时间点', 'tone': '中性；日常口语',
+                      'example': {'ja': '三時に会う。', 'target': 'に', 'zh': '三点见面。'}},
+                     {'card': 'N5-G-0032', 'form': 'へ', 'connection': '场所＋へ', 'memo': '方向用“へ”',
+                      'meaning': '方向', 'tone': '中性；偏书面',
+                      'example': {'ja': '駅へ行く。', 'target': 'へ', 'zh': '去车站。'}}]}
 
 UNIT_PAGE = '''# B-01-1 に
 

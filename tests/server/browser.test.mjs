@@ -163,7 +163,7 @@ test('the comparison stacks by item on a phone, switches to per-form cards and h
   await page.locator('#compare').waitFor();
   assert.equal(await page.locator('.compare-title').innerText(),'对比表');
   assert.match(await page.locator('#compare').innerText(),/情境：约定见面/);
-  assert.deepEqual(await page.locator('.compare-by-item .compare-block h4').allInnerTexts(),['接续','核心含义','语气与感情色彩','代表例句','易混点','一句话记忆']);
+  assert.deepEqual(await page.locator('.compare-by-item .compare-block h4').allInnerTexts(),['接续','一句话记忆','核心含义','语气与感情色彩','代表例句']);
   assert.equal(await page.locator('.compare-by-item .compare-block').first().locator('.compare-line').count(),2);
   assert.equal(await page.locator('.compare-by-item .compare-ja strong').first().innerText(),'に');
   assert.equal(await page.locator('.compare-by-form').isVisible(),false);
@@ -184,7 +184,7 @@ test('the comparison is a real table on a wide screen',()=>withSite(chromium,{vi
   assert.equal(await page.locator('.compare-by-item').isVisible(),false);
   assert.equal(await page.locator('.compare-mode').first().isVisible(),false);
   assert.deepEqual(await page.locator('.compare-table thead th').allInnerTexts(),['项目','に','へ']);
-  assert.equal(await page.locator('.compare-table tbody tr').count(),6);
+  assert.equal(await page.locator('.compare-table tbody tr').count(),5);
 }));
 
 for(const [name,engine] of Object.entries({chromium,webkit})) {
