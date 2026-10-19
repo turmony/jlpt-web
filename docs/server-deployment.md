@@ -274,11 +274,12 @@ HTTP 接口校验登录、请求来源、任务身份及运行状态；按发送
 
 ### 云端 Claude Code（CloudCLI，2026-10-14）
 
-`/code/` 现在是 [CloudCLI](https://github.com/siteboon/claudecodeui) 1.37.4（AGPL-3.0），用于手机或平板操作服务器上的 Claude Code：粘贴图片和上传附件、历史会话（读取 `~/.claude/projects`）、文件树和 git 面板（暂存、提交、切换分支）。它使用 `claude /login` 的 Pro 订阅登录，服务里清除了 `ANTHROPIC_API_KEY`，避免改为按 token 计费。
+`/code/` 现在是 [CloudCLI](https://github.com/siteboon/claudecodeui) 1.37.5（AGPL-3.0，2026-10-19 由 1.37.4 升级），用于手机或平板操作服务器上的 Claude Code：粘贴图片和上传附件、历史会话（读取 `~/.claude/projects`）、文件树和 git 面板（暂存、提交、切换分支）。它使用 `claude /login` 的 Pro 订阅登录，服务里清除了 `ANTHROPIC_API_KEY`，避免改为按 token 计费。
 
-- 程序安装在 `/srv/cloudcli`（约 1.3 GB），服务为 `cloudcli.service`，监听 `127.0.0.1:3001`，`MemoryHigh=1G`、`MemoryMax=1400M`。数据库在 `/root/.cloudcli`。
+- 程序安装在 `/srv/cloudcli`（约 0.93 GB，已删去用不到的 Codex 原生二进制），服务为 `cloudcli.service`，监听 `127.0.0.1:3001`，`MemoryHigh=1G`、`MemoryMax=1400M`。数据库在 `/root/.cloudcli`。
 - 访问需先通过网站登录（Caddy `forward_auth`），再登录 CloudCLI 自己的单用户账号。首个访问者会创建该账号。
-- CloudCLI 只支持挂在根路径。`deploy/cloudcli/patch-subpath.mjs` 在每次服务启动前修改其前端，并注入 `subpath-shim.js`：设置路由前缀，把 API、WebSocket、service worker 的根路径改为 `/code/...`。`<img>` 等无法改写的根路径请求，由 Caddy 按 `Referer` 含 `/code/` 转给 CloudCLI。补丁固定校验版本 1.37.4，升级后服务会拒绝启动，需重新核对补丁。
+- CloudCLI 只支持挂在根路径。`deploy/cloudcli/patch-subpath.mjs` 在每次服务启动前修改其前端，并注入 `subpath-shim.js`：设置路由前缀，把 API、WebSocket、service worker 的根路径改为 `/code/...`。`<img>` 等无法改写的根路径请求，由 Caddy 按 `Referer` 含 `/code/` 转给 CloudCLI。补丁里每处替换都必须恰好匹配 1 次，打包结构变了就会抛错、服务拒绝启动；`VERIFIED` 列出已核对的版本（1.37.4、1.37.5），其他版本只告警。
+- 升级用 `deploy/cloudcli/upgrade.sh <版本>`：先在 `/srv/cloudcli-next` 安装、删去 `@openai/codex-linux-x64`（370 MB，`codex`、`codex-sdk` 两个 JS 包启动时会被导入，必须保留）并对其打补丁，补丁失败则线上不受影响；再 `upgrade.sh <版本> --swap` 换目录并重启，健康检查失败自动换回并恢复数据库副本（`/var/backups/cloudcli-db-*`）。旧版留在 `/srv/cloudcli.prev`，确认 `/code/` 正常后手工删除。安装需约 1.3 GB 加 0.9 GB 的临时 npm 缓存（`/tmp/npm-cache-up`，脚本退出时清理），可用空间低于 2.5 GB 时脚本拒绝执行。`package.json` 精确锁定版本，不要在 `/srv/cloudcli` 里直接 `npm install`。
 - 页面右上角（手机为标题栏下方）显示订阅额度：5 小时和每周窗口的已用百分比，点开可看重置时间。数据来自 `cloudcli-quota.service`（`deploy/cloudcli/quota.py`，`127.0.0.1:3003`），读取 Claude 官方 OAuth usage 接口，缓存 60 秒，不刷新令牌。
 - 部署文件在 `deploy/cloudcli/`，对应安装位置：`/srv/cloudcli/`（补丁、shim、quota.py）、`/etc/systemd/system/`（两个服务）、`/etc/caddy/cloudcli.caddy` 和 `cloudcli-proxy.caddy`（Caddy 2.6 的 import 参数写作 `{args.0}`）。Caddyfile 修改前的副本在 `/var/backups/add-cloudcli-*`。
 - 手机尺寸已验证：创建账号、项目列表、git 面板、粘贴图片后 Claude 能读取图片并回复、额度显示。

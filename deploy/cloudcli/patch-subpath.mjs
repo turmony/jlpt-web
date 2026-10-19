@@ -1,16 +1,17 @@
 // Rewrites the installed CloudCLI frontend to run under /code/ (see subpath-shim.js).
-// Idempotent; refuses unknown versions because the bundle patterns are version-specific.
+// Idempotent. Every bundle pattern must match exactly once or the script throws, so a changed
+// bundle fails loudly; VERIFIED only lists the versions it was last checked against (others warn).
 // Usage: node patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli
 import {readFile, writeFile, copyFile, readdir} from 'node:fs/promises';
 import {resolve, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 
-const VERSION = '1.37.4';
+const VERIFIED = ['1.37.4', '1.37.5'];
 const app = resolve(process.argv[2] || '/srv/cloudcli/node_modules/@cloudcli-ai/cloudcli');
 const dist = resolve(app, 'dist');
 const {version} = JSON.parse(await readFile(resolve(app, 'package.json'), 'utf8'));
-if (version !== VERSION) throw new Error(`CloudCLI ${version} is not the verified ${VERSION}; recheck the patterns`);
+if (!VERIFIED.includes(version)) console.warn(`CloudCLI ${version} is not in the verified list (${VERIFIED.join(', ')}); patterns must still match exactly`);
 
 // Root-absolute same-origin paths, excluding protocol-relative and already prefixed ones.
 const rooted = '/(?!/|code/)';
@@ -39,6 +40,7 @@ for (const icon of manifest.icons || []) icon.src = icon.src.replace(new RegExp(
 await writeFile(resolve(dist, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 
 const sw = await readFile(resolve(dist, 'sw.js'), 'utf8');
+if (!sw.includes("'/code/manifest.json'") && !sw.includes("'/manifest.json'")) throw new Error('sw.js: manifest.json reference not found');
 await writeFile(resolve(dist, 'sw.js'), sw.replace(/'\/manifest\.json'/g, "'/code/manifest.json'"));
 
 const main = (await readdir(resolve(dist, 'assets'))).filter(name => /^index-.*\.js$/.test(name));
@@ -47,6 +49,7 @@ const bundlePath = resolve(dist, 'assets', main[0]);
 let bundle = await readFile(bundlePath, 'utf8');
 // Vite's dynamic-import preload base and the logo image are the only root paths not covered by the shim.
 bundle = replaceOnce(bundle, 'function(e){return"/"+e}', 'function(e){return"/code/"+e}', 'vite preload base');
+if (!bundle.includes('src:"/logo.svg"') && !bundle.includes('src:"/code/logo.svg"')) throw new Error('logo.svg reference not found');
 bundle = bundle.replaceAll('src:"/logo.svg"', 'src:"/code/logo.svg"');
 // Always dark, matching the study pages, regardless of the OS or a stored choice.
 bundle = replaceOnce(bundle, 'return e==="dark"||e==="light"?e:"system"}', 'return"dark"}', 'forced dark theme');
