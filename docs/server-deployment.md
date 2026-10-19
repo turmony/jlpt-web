@@ -400,3 +400,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261019-order-answer`，app 与 static 均已切换并重启 `jlpt.service`。试题回顾中的排序题除“★处正确项”外，新增“正确语序”与完整句；语序取自答案文件的“推荐语序”字段，缺字段时从解析句的“(编号)”推出，旧卷没有答案文件则不显示。
 
 验证：58 项后端测试（1 项按环境条件跳过）与 13 项浏览器测试通过。回滚：按 `previous-release.txt` 切回并重启。
+
+## 用法总览下的对比表（2026-10-19）
+
+发布目录为 `/srv/jlpt/releases/20261019-compare-table`，app 与 static 均已切换并重启 `jlpt.service`。单元材料带可选的 `compare` 字段时，“用法总览”的用法列表下显示对比表：手机默认“按项目比”，可切换“按语法看”，宽度 ≥720px 为表格。`/api/review/units/<单元>` 在单元开始前就返回 `compare`；没有该字段的单元显示不变。格式规则见 jlpt-study 设计文档 5.4.2。相对上一版本仅 `review/review.css`、`review/review.mjs`、`server/review.py` 变化。
+
+验证：59 项后端测试（1 项按环境条件跳过）与 15 项浏览器测试通过（含手机与宽屏对比表）；发布后以发布目录的 app 代码读取真实 G-001，返回 4 个语法的对比表，公网未登录访问仍被登录门禁拦截。回滚：按 `previous-release.txt` 切回并重启。
