@@ -112,6 +112,17 @@ export function mountPaperSheet({container, paper, initialAnswers = {}, draftKey
 }
 
 // Read-only look back at a submitted paper: the correct option, the learner's choice and the explanation.
+// Fills the stem's blanks (＿＿, the ★ one included) with the options in the answer's order.
+function orderedSentence(stem, optionTexts, start, order) {
+  if (!order) return null;
+  const blocks = [...order].map(digit => optionTexts[Number(digit) - start]);
+  if (blocks.some(block => !block)) return null;
+  const slots = stem.match(/＿＿|★/g) || [];
+  if (slots.length !== blocks.length) return {blocks, sentence: blocks.join('')};
+  let index = 0;
+  return {blocks, sentence: stem.replace(/＿＿|★/g, () => blocks[index++]).replace(/\s+/g, '')};
+}
+
 // `key` lists {number, correct, correct_text, explanation} from the answer file; `paper.answers` holds the learner's choices.
 export function mountPaperReview({container, paper, key}) {
   const keys = new Map(key.map(item => [String(item.number), item]));
@@ -128,6 +139,8 @@ export function mountPaperReview({container, paper, key}) {
     const uncertain = Boolean(mine && paper.answers[number]?.uncertain);
     const ordering = [heading, ...nodes].some(node => node.textContent.includes('★'));
     const start = Number(list.getAttribute('start') || 1);
+    const stem = heading.textContent.replace(/^\s*\d+\.\s*/, '');
+    const optionTexts = [...list.children].map(item => item.textContent.trim());
     list.classList.add('option-list', 'review-options');
     const tag = (item, text, kind) => {
       const badge = document.createElement('span');
@@ -163,6 +176,14 @@ export function mountPaperReview({container, paper, key}) {
       line.textContent = `我的语序：${mine ? mine.split('').join(' → ') : '未作答'}` + (info?.correct ? `　★处正确项：${info.correct}（${info.correct_text}）` : '');
       list.after(line);
       last = line;
+      const full = orderedSentence(stem, optionTexts, start, info?.order);
+      if (full) {
+        const answer = document.createElement('p');
+        answer.className = 'order-line order-answer';
+        answer.textContent = `正确语序：${full.blocks.join(' → ')}　完整句：${full.sentence}`;
+        line.after(answer);
+        last = answer;
+      }
     }
     if (info?.explanation) {
       const details = document.createElement('details');

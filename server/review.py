@@ -30,6 +30,8 @@ CARD_PAGE = re.compile(r'grammar/n[1-5]/(N[1-5]-G-\d{4,})\.md')
 ANSWER_SECTION = re.compile(r'^### 第 (\d+) 题.*$', re.M)
 ANSWER_CORRECT = re.compile(r'^\*\*正确项\*\*：\s*(\d+)（(.*?)）\s*$', re.M)
 # Lines of an answer-file section that the review page does not repeat (the paper shows the stem; sources stay in the file).
+ANSWER_ORDER_FIELD = re.compile(r'^\*\*推荐语序\*\*：\s*([1-4]{4})', re.M)
+ANSWER_ORDER_TEXT = re.compile(r'推荐语序：([^＋。\n]*)')
 ANSWER_SKIP = re.compile(r'^\*\*(?:题目|考点|来源|证据|正确项)\*\*[：:]')
 
 
@@ -216,10 +218,21 @@ def _answer_key(study_root, slug):
         section = text[mark.end():marks[index + 1].start() if index + 1 < len(marks) else len(text)]
         correct = ANSWER_CORRECT.search(section)
         explanation = '\n'.join(line for line in section.splitlines() if not ANSWER_SKIP.match(line)).strip()
-        key.append({'number': int(mark[1]), 'correct': correct[1] if correct else None,
+        key.append({'number': int(mark[1]), 'order': _answer_order(section),
+                    'correct': correct[1] if correct else None,
                     'correct_text': correct[2] if correct else None,
                     'explanation': _rewrite(explanation, 'quizzes/answers')})
     return key
+
+
+def _answer_order(section):
+    """Option numbers of a sorting question in the recommended order, e.g. '3124'; `None` for other questions."""
+    field = ANSWER_ORDER_FIELD.search(section)
+    if field:
+        return field[1]
+    text = ANSWER_ORDER_TEXT.search(section)
+    digits = re.findall(r'\(([1-4])\)', text[1]) if text else []
+    return ''.join(digits) if len(digits) == 4 and len(set(digits)) == 4 else None
 
 
 def _paper(study_root, slug):

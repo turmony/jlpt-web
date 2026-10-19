@@ -199,6 +199,14 @@ class ReviewSessionTests(unittest.TestCase):
             review.submit_review(self.study, 'review-01', {'12': {'answer': '1'}})
 
 
+class AnswerOrderTests(unittest.TestCase):
+    def test_order_comes_from_the_field_or_the_recommended_order_line(self):
+        self.assertEqual(review._answer_order('**推荐语序**：3124（见解析）\n'), '3124')
+        self.assertEqual(review._answer_order('**解析**：推荐语序：友達から(3)／もらった(1)／りんごを(2)／切って(4)＋食べました。★处'), '3124')
+        self.assertIsNone(review._answer_order('**解析**：「っけ」表示确认。'))
+        self.assertIsNone(review._answer_order('**解析**：推荐语序：甲(1)／乙(1)／丙(2)／丁(3)。'))
+
+
 class ReviewHTTPTests(unittest.TestCase):
     SUBMIT = {'answers': {'1': {'answer': '2', 'uncertain': True}}, 'sentence': '日本に行きます。', 'note': ''}
 
