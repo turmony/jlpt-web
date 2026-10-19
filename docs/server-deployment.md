@@ -406,3 +406,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261019-compare-table`，app 与 static 均已切换并重启 `jlpt.service`。单元材料带可选的 `compare` 字段时，“用法总览”的用法列表下显示对比表：手机默认“按项目比”，可切换“按语法看”，宽度 ≥720px 为表格。`/api/review/units/<单元>` 在单元开始前就返回 `compare`；没有该字段的单元显示不变。格式规则见 jlpt-study 设计文档 5.4.2。相对上一版本仅 `review/review.css`、`review/review.mjs`、`server/review.py` 变化。
 
 验证：59 项后端测试（1 项按环境条件跳过）与 15 项浏览器测试通过（含手机与宽屏对比表）；发布后以发布目录的 app 代码读取真实 G-001，返回 4 个语法的对比表，公网未登录访问仍被登录门禁拦截。回滚：按 `previous-release.txt` 切回并重启。
+
+## 对比表改为 5 项（2026-10-19）
+
+发布目录为 `/srv/jlpt/releases/20261019-compare-table5`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启（仍为 `20261019-compare-table/app`）。对比表删除易混点，固定 5 项，顺序为接续、一句话记忆、核心含义、语气与感情色彩、代表例句；一句话记忆移到接续下方。学习仓库 `groups.py` 同步取消 `confusion` 校验并重写 G-003 核心含义（提交 `511abe3`），网页发布提交 `a6339ae`。
+
+验证：学习仓库 279 项测试（1 项跳过）与 `validate-groups`、`validate-links`、`validate-doc-links` 通过；jlpt-web 59 项后端测试（1 项跳过）与 2 项对比表浏览器测试通过。发布后 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 运行中；以发布目录的 app 代码读取真实 G-001、G-003，均返回 5 项且无 `confusion`。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `20261019-compare-table/static`；学习仓库如需回退，回退提交 `511abe3`。
