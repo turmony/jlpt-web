@@ -118,3 +118,9 @@
 .review-verdict[data-result="wrong"]{color:var(--error)}
 .review-explain{margin:8px 0 16px}
 .review-explain>div{padding:4px 0}
+.directory,.stage{scroll-margin-top:16px}
+#directory-body li{scroll-margin:96px 0}
+.pager{display:flex;justify-content:space-between;gap:12px;margin:16px 0}
+.pager-link{min-height:40px;padding:6px 14px;border:1px solid var(--line);border-radius:var(--radius-small);background:var(--surface);color:var(--ink);font:inherit;font-size:14px;overflow-wrap:anywhere}
+.pager-next{margin-left:auto;text-align:right}
+.compare-meaning{margin:-4px 0 10px;padding:8px 14px;border-left:3px solid var(--accent);background:var(--raised);border-radius:var(--radius-small);font-size:14px}

@@ -205,7 +205,9 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('#unit-page details.member-card').count(),2);
     assert.equal(await page.locator('#card-N5-G-0013').evaluate(details=>!details.open
       && details.previousElementSibling.querySelector('img')?.alt==='时点に接续图'
-      && details.nextElementSibling.tagName==='H3'),true);
+      && details.nextElementSibling.className==='compare-meaning'
+      && details.nextElementSibling.nextElementSibling.tagName==='H3'),true);
+    assert.match(await page.locator('#card-N5-G-0013 + .compare-meaning').innerText(),/对比核心含义/);
     await page.locator('#card-N5-G-0013 summary').click();
     await page.locator('#card-N5-G-0013',{hasText:'时间词＋に，表示动作发生的时间点。'}).waitFor();
     await page.locator('#unit-page a[href="#card-N5-G-0032"]').click();
@@ -248,3 +250,31 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('.status-chip').innerText(),'已提交');
   }));
 }
+
+test('opening the directory scrolls the current unit into view',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.evaluate(()=>{const filler=document.createElement('div');filler.style.height='3000px';document.querySelector('#directory').before(filler);});
+  await page.locator('#directory > summary').click();
+  await page.waitForFunction(()=>{const box=document.querySelector('#directory-body li.is-current')?.getBoundingClientRect();return box&&box.top>=0&&box.bottom<=innerHeight;});
+}));
+
+test('units and reviews get previous/next buttons at the top and bottom, only toward steps that are ready',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#recall-list').waitFor();
+  // B-01-2 is not prepared in the fixture: no next button, and nothing before the first unit.
+  assert.equal(await page.locator('#unit-view .pager').count(),2);
+  assert.equal(await page.locator('#unit-view .pager-link').count(),0);
+  await page.getByRole('button',{name:'← 今日安排'}).click();
+  await page.route('**/api/review/today',async route=>{
+    const response=await route.fetch();const body=await response.json();
+    const units=body.directory.flatMap(section=>section.children.flatMap(child=>child.units));
+    units[1].status='prepared';units[0].review={id:'review-01',status:'done'};
+    await route.fulfill({response,json:body});
+  });
+  await page.reload();
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#unit-view .pager').first().waitFor();
+  assert.deepEqual(await page.locator('#unit-view .pager-next').allInnerTexts(),['下一页 复习 review-01 →','下一页 复习 review-01 →']);
+}));

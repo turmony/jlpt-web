@@ -120,6 +120,12 @@ function renderStageBar(list) {
     : progress.total ? '已提交的阶段已全部学完' : '';
 }
 
+// Opening the directory brings the learner's current unit (else the current stage) into view.
+function locateCurrent() {
+  const target = document.querySelector('#directory-body li.is-current') || document.querySelector('#directory-body .stage[data-status="current"] summary');
+  if (target) target.scrollIntoView({block: 'center'});
+}
+
 function renderProgress() {
   const progress = today.progress;
   const {list, currentId} = stages();
@@ -218,6 +224,34 @@ function showFlow(id) {
   scrollTo({top: 0});
 }
 
+// The learning path in directory order: each unit, then the review that closes its cycle.
+// Only steps that are ready to open are offered.
+function pathSteps() {
+  const steps = [];
+  const ahead = canStartAhead();
+  for (const section of today.directory) for (const child of section.children) for (const unit of child.units) {
+    steps.push({kind: 'unit', id: unit.id, label: unit.id, ready: unit.status === 'learned' || (unit.status === 'in_progress') || (unit.status === 'prepared' && (ahead || today.unit?.id === unit.id))});
+    const review = unit.review;
+    if (review) steps.push({kind: 'review', id: review.id, label: `复习 ${review.id}`,
+      ready: review.status === 'done' || (review.status === 'due' && today.state === 'review' && today.review?.id === review.id)});
+  }
+  return steps;
+}
+
+function openStep(step) {
+  return (step.kind === 'unit' ? openUnit : openReview)(step.id).catch(notice);
+}
+
+function pager(kind, id) {
+  const steps = pathSteps();
+  const index = steps.findIndex(step => step.kind === kind && step.id === id);
+  const link = (step, text, className) => step && step.ready
+    ? h('button', {type: 'button', className: `pager-link ${className}`, textContent: text, onclick: () => openStep(step)})
+    : h('span');
+  return h('div', {className: 'pager'}, link(steps[index - 1], `← 上一页 ${steps[index - 1]?.label ?? ''}`, 'pager-prev'),
+    link(steps[index + 1], `下一页 ${steps[index + 1]?.label ?? ''} →`, 'pager-next'));
+}
+
 function backButton() {
   return h('button', {type: 'button', className: 'back-link', textContent: '← 今日安排', onclick: showOverview});
 }
@@ -263,11 +297,12 @@ function renderUnit(view) {
          h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => startUnit(unit.id, event.currentTarget).catch(notice)}))];
   root.replaceChildren(
     h('div', {className: 'paper-actions'}, backButton()),
+    pager('unit', unit.id),
     h('h1', {id: 'unit-title', className: 'paper-title', textContent: `${unit.id} ${unit.title}`}),
     h('p', {className: 'muted', textContent: unit.position.join(' › ')}),
     h('section', {className: 'step'}, h('h2', {textContent: '一、用法总览'}),
       h('p', {textContent: `范围：${scope}（共 ${view.recall.items.length} 项）`}), ...recall));
-  if (!session.started) return;
+  if (!session.started) { root.append(pager('unit', unit.id)); return; }
 
   const page = markdown(view.page, {id: 'unit-page'});
   page.addEventListener('click', event => {
@@ -285,7 +320,11 @@ function renderUnit(view) {
     const heading = [...page.querySelectorAll('h3')].find(node => node.querySelector(`a[href="#card-${card.id}"]`));
     let next = heading && heading.nextElementSibling;
     while (next && !/^H[1-3]$/.test(next.tagName)) next = next.nextElementSibling;
+    // Only forms that made it into the comparison table get their table meaning here too.
+    const row = view.compare?.forms.find(form => form.card === card.id);
+    const meaning = row && h('p', {className: 'compare-meaning'}, h('strong', {textContent: '对比核心含义 · '}), row.meaning);
     if (heading) heading.parentNode.insertBefore(details, next); else page.append(details);
+    if (meaning) details.after(meaning);
   }
   root.append(h('section', {className: 'step'}, h('h2', {textContent: '二、对比页'}), page));
 
@@ -294,7 +333,8 @@ function renderUnit(view) {
     const ungraded = today.pending_grading.some(item => item.id === unit.id);
     root.append(h('section', {className: 'step'}, h('h2', {textContent: ungraded ? '已交卷，待判分' : '已交卷'}),
       h('p', {className: 'locked-text', textContent: view.sentence.text || ''}),
-      view.note ? h('p', {className: 'locked-text', textContent: view.note}) : null));
+      view.note ? h('p', {className: 'locked-text', textContent: view.note}) : null),
+      pager('unit', unit.id));
     return;
   }
 
@@ -309,7 +349,7 @@ function renderUnit(view) {
     h('p', {className: 'sentence-prompt', textContent: view.sentence.prompt}),
     h('label', {htmlFor: 'sentence', textContent: '造句'}), drafted(h('textarea', {id: 'sentence', rows: 3}), prefix + 'sentence'),
     h('label', {htmlFor: 'note', textContent: '备注（可选）'}), drafted(h('textarea', {id: 'note', rows: 3, placeholder: '可写发现的对比页问题'}), prefix + 'note'),
-    h('div', {className: 'flow-actions'}, counter.line, submit)));
+    h('div', {className: 'flow-actions'}, counter.line, submit)), pager('unit', unit.id));
   submit.addEventListener('click', async () => {
     if (!confirmSubmit(view.paper.numbers.length - sheet.answeredCount())) return;
     submit.disabled = true;
@@ -406,11 +446,12 @@ async function openReview(id) {
   const root = $('review-view');
   root.replaceChildren(
     h('div', {className: 'paper-actions'}, backButton()),
+    pager('review', id),
     h('h1', {id: 'review-title', className: 'paper-title', textContent: `复习 ${id}`}),
     h('p', {className: 'muted', textContent: `覆盖：${view.review.covers.join('、')}`}));
   if (view.session.submitted) {
     const ungraded = today.pending_grading.some(item => item.id === id);
-    root.append(h('p', {className: 'status-line', textContent: ungraded ? '已交卷，待判分' : '已交卷'}), h('section', {className: 'step'}, h('h2', {textContent: '试题回顾'}), paperReview(view)));
+    root.append(h('p', {className: 'status-line', textContent: ungraded ? '已交卷，待判分' : '已交卷'}), h('section', {className: 'step'}, h('h2', {textContent: '试题回顾'}), paperReview(view)), pager('review', id));
     return;
   }
   const container = h('div', {id: 'review-paper', className: 'markdown paper-markdown'});
@@ -419,7 +460,7 @@ async function openReview(id) {
   const sheet = mountPaperSheet({container, paper: view.paper, initialAnswers: view.paper.answers, draftKey: prefix + 'paper', onChange: () => counter.update(sheet.answeredCount())});
   counter.update(sheet.answeredCount());
   const submit = h('button', {className: 'primary', type: 'button', textContent: '交卷'});
-  root.append(h('div', {className: 'flow-actions'}, counter.line, submit));
+  root.append(h('div', {className: 'flow-actions'}, counter.line, submit), pager('review', id));
   submit.addEventListener('click', async () => {
     if (!confirmSubmit(view.paper.numbers.length - sheet.answeredCount())) return;
     submit.disabled = true;
@@ -433,3 +474,7 @@ async function openReview(id) {
 }
 
 refresh().catch(notice);
+
+$('directory').addEventListener('toggle', event => {
+  if (event.target.open) requestAnimationFrame(locateCurrent);
+});
