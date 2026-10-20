@@ -418,3 +418,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261020-review-pager`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启（仍为 `20261019-compare-table/app`）。展开“全程目录”自动滚到当前单元；单元页与复习页顶部、底部各有“上一页／下一页”，按目录顺序（单元后接其收尾的复习），只向已准备好的一步显示；对比页中入表的成员，其“原卡核心”下方再显示该成员的对比核心含义。网页发布提交 `d26834b`，仅前端改动。
 
 验证：59 项后端测试（1 项跳过）与 17 项浏览器测试通过；发布后 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中，发布目录的 `review.mjs` 与源码一致。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `20261019-compare-table5/static`。
+
+## 对比核心含义改为原样复制（2026-10-20）
+
+发布目录为 `/srv/jlpt/releases/20261020-review-pager2`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。对比页中入表的成员，其“原卡核心”下方改为原样复制对比表“按项目比”的“核心含义”行（标题、语法颜色标签、文字与样式一致），取代上一版的简化单行。网页发布提交 `fc74b7e`，仅前端改动。
+
+验证：17 项浏览器测试通过；发布后 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中，发布目录 `review.mjs` 与源码一致。回滚：把 `/srv/jlpt/static` 切回 `20261020-review-pager/static`。
