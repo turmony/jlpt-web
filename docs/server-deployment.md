@@ -412,3 +412,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261019-compare-table5`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启（仍为 `20261019-compare-table/app`）。对比表删除易混点，固定 5 项，顺序为接续、一句话记忆、核心含义、语气与感情色彩、代表例句；一句话记忆移到接续下方。学习仓库 `groups.py` 同步取消 `confusion` 校验并重写 G-003 核心含义（提交 `511abe3`），网页发布提交 `a6339ae`。
 
 验证：学习仓库 279 项测试（1 项跳过）与 `validate-groups`、`validate-links`、`validate-doc-links` 通过；jlpt-web 59 项后端测试（1 项跳过）与 2 项对比表浏览器测试通过。发布后 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 运行中；以发布目录的 app 代码读取真实 G-001、G-003，均返回 5 项且无 `confusion`。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `20261019-compare-table/static`；学习仓库如需回退，回退提交 `511abe3`。
+
+## 目录定位、上下页与对比核心含义（2026-10-20）
+
+发布目录为 `/srv/jlpt/releases/20261020-review-pager`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启（仍为 `20261019-compare-table/app`）。展开“全程目录”自动滚到当前单元；单元页与复习页顶部、底部各有“上一页／下一页”，按目录顺序（单元后接其收尾的复习），只向已准备好的一步显示；对比页中入表的成员，其“原卡核心”下方再显示该成员的对比核心含义。网页发布提交 `d26834b`，仅前端改动。
+
+验证：59 项后端测试（1 项跳过）与 17 项浏览器测试通过；发布后 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中，发布目录的 `review.mjs` 与源码一致。回滚：按 `previous-release.txt` 把 `/srv/jlpt/static` 切回 `20261019-compare-table5/static`。
