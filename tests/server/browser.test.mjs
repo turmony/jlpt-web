@@ -205,9 +205,9 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('#unit-page details.member-card').count(),2);
     assert.equal(await page.locator('#card-N5-G-0013').evaluate(details=>!details.open
       && details.previousElementSibling.querySelector('img')?.alt==='时点に接续图'
-      && details.nextElementSibling.className==='compare-meaning'
+      && details.nextElementSibling.classList.contains('compare-meaning')
       && details.nextElementSibling.nextElementSibling.tagName==='H3'),true);
-    assert.match(await page.locator('#card-N5-G-0013 + .compare-meaning').innerText(),/对比核心含义/);
+    assert.match(await page.locator('#card-N5-G-0013 + .compare-meaning').innerText(),/核心含义[\s\S]*に[\s\S]*时间点/);
     await page.locator('#card-N5-G-0013 summary').click();
     await page.locator('#card-N5-G-0013',{hasText:'时间词＋に，表示动作发生的时间点。'}).waitFor();
     await page.locator('#unit-page a[href="#card-N5-G-0032"]').click();

@@ -322,7 +322,7 @@ function renderUnit(view) {
     while (next && !/^H[1-3]$/.test(next.tagName)) next = next.nextElementSibling;
     // Only forms that made it into the comparison table get their table meaning here too.
     const row = view.compare?.forms.find(form => form.card === card.id);
-    const meaning = row && h('p', {className: 'compare-meaning'}, h('strong', {textContent: '对比核心含义 · '}), row.meaning);
+    const meaning = row && compareMeaning(row, view.compare.forms.indexOf(row));
     if (heading) heading.parentNode.insertBefore(details, next); else page.append(details);
     if (meaning) details.after(meaning);
   }
@@ -397,10 +397,19 @@ function compareCell(row, key) {
     h('span', {className: 'compare-zh', textContent: zh}));
 }
 
+const compareChip = (row, index) => h('span', {className: 'compare-chip', textContent: row.form, dataset: {tint: index % 6}});
+
+// The same 核心含义 row as in the comparison (by-item layout), for one form.
+function compareMeaning(row, index) {
+  return h('div', {className: 'compare-by-item compare-meaning'},
+    h('section', {className: 'compare-block'}, h('h4', {textContent: '核心含义'}),
+      h('ul', {}, h('li', {className: 'compare-line'}, compareChip(row, index), h('span', {className: 'compare-value'}, compareCell(row, 'meaning'))))));
+}
+
 function compareView(compare) {
   if (!compare) return null;
   const {forms} = compare;
-  const chip = (row, index) => h('span', {className: 'compare-chip', textContent: row.form, dataset: {tint: index % 6}});
+  const chip = compareChip;
   const byItem = h('div', {className: 'compare-stack compare-by-item'}, ...COMPARE_ITEMS.map(([key, label]) =>
     h('section', {className: 'compare-block'}, h('h4', {textContent: label}),
       h('ul', {}, ...forms.map((row, index) => h('li', {className: 'compare-line'}, chip(row, index), h('span', {className: 'compare-value'}, compareCell(row, key))))))));
