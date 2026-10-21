@@ -158,6 +158,10 @@ def create_server(app, address):
                     raise ValueError('图片路径无效')
                 data, mime = review.asset(study, values[0])
                 return self.reply(200, data, mime, headers={'Cache-Control': 'private, max-age=3600'})
+            if path == '/spaced' and not post:
+                return self.reply(200, review.spaced_today(study))
+            if path == '/spaced/submit' and post:
+                return self.reply(200, review.submit_spaced(study, self.json_body().get('units')))
             match = re.fullmatch(r'/units/(B-\d{2}-\d+|G-\d{3})(/recall|/submit)?', path)
             if match:
                 unit_id, action = match.groups()

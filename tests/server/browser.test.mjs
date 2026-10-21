@@ -63,6 +63,36 @@ test('a home-screen launch at grammar memory opens the review plan first',()=>wi
   assert.equal(app.url(),url+'/grammar/');
 }));
 
+test('today\'s spaced review groups due units by learning date and records the ticked ones',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  const beijing=offset=>new Date(Date.now()+8*3600e3+offset*864e5).toISOString().slice(0,10);
+  const plan=join(tmp,'study/jlpt-notes/groups/spaced-reviews.json');
+  await writeFile(plan,JSON.stringify({schema_version:1,anchors:{'G-001':beijing(0),'G-002':beijing(0),'G-003':beijing(-2)},done:[]}));
+  await page.reload();
+  const block=page.locator('#spaced-review');
+  await block.getByText('有 3 个单元待复习').waitFor();
+  const groups=block.locator('.spaced-group');
+  assert.equal(await groups.count(),2);
+  assert.match(await groups.nth(0).innerText(),/第 1 天复习[\s\S]*逾期 2 天[\s\S]*G-003/);
+  assert.doesNotMatch(await groups.nth(1).innerText(),/逾期/);
+  assert.equal(await page.locator('#spaced-submit').isDisabled(),true);
+  await groups.nth(1).getByRole('button',{name:'G-001'}).click();
+  assert.equal(await groups.nth(1).getByRole('button',{name:'G-001'}).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('#spaced-count').innerText(),'已选 1 / 3');
+  await groups.nth(0).getByRole('button',{name:'全选本组'}).click();
+  assert.equal(await page.locator('#spaced-count').innerText(),'已选 2 / 3');
+  await groups.nth(0).getByRole('button',{name:'取消本组'}).click();
+  await groups.nth(0).getByRole('button',{name:'全选本组'}).click();
+  await page.locator('#spaced-submit').click();
+  await block.getByText('有 1 个单元待复习').waitFor();
+  assert.equal(await page.locator('#spaced-done').innerText(),'今日已复习：G-001、G-003');
+  assert.equal(await block.locator('.spaced-unit').count(),1);
+  const stored=JSON.parse(await readFile(plan,'utf8'));
+  assert.deepEqual(stored.done.map(item=>[item.unit,item.step,item.date]),[['G-001',1,beijing(0)],['G-003',1,beijing(0)]]);
+  await page.reload();
+  await block.getByText('有 1 个单元待复习').waitFor();
+  assert.equal(await block.locator('.spaced-unit[aria-pressed=true]').count(),0);
+}));
+
 test('stage progress shows the current stage, the next milestone and the plan directory',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   const finish=async(unit,minute)=>{
     const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');

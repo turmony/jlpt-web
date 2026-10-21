@@ -22,6 +22,7 @@ from .store import Conflict
 
 NOTES = 'jlpt-notes'
 RULES = 'src/jlpt_notes/groups.py'
+SPACED = 'src/jlpt_notes/spaced_review.py'
 IMAGES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif'}
 FRONTMATTER = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)', re.S)
 # `[text](target)` or `![alt](target "title")`; nested brackets are left alone.
@@ -50,7 +51,15 @@ _write_lock = threading.Lock()
 
 
 def load_groups(study_root):
-    path = Path(study_root) / RULES
+    return _load(study_root, RULES)
+
+
+def load_spaced(study_root):
+    return _load(study_root, SPACED)
+
+
+def _load(study_root, relative):
+    path = Path(study_root) / relative
     try:
         stamp = path.stat().st_mtime_ns
     except OSError:
@@ -59,7 +68,7 @@ def load_groups(study_root):
         cached = _modules.get(path)
         if cached and cached[0] == stamp:
             return cached[1]
-        name = f'_jlpt_study_groups_{len(_modules)}_{stamp}'
+        name = f'_jlpt_study_{path.stem}_{len(_modules)}_{stamp}'
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
@@ -83,6 +92,15 @@ def _rules(study_root):
         raise StudyDataError('资料格式错误：' + str(error)) from error
 
 
+@contextmanager
+def _spaced_rules(study_root):
+    spaced = load_spaced(study_root)
+    try:
+        yield spaced
+    except spaced.SpacedError as error:
+        raise {'conflict': Conflict, 'data': StudyDataError}.get(error.code, ValueError)(str(error)) from error
+
+
 def _notes(study_root):
     return Path(study_root) / NOTES
 
@@ -90,6 +108,26 @@ def _notes(study_root):
 def today(study_root):
     with _rules(study_root) as groups:
         return groups.plan_state(_notes(study_root))
+
+
+def spaced_today(study_root):
+    """Learned units due for their spaced review today, with unit titles from the committed catalog."""
+    notes = _notes(study_root)
+    with _spaced_rules(study_root) as spaced:
+        return _with_titles(study_root, spaced.due_state(notes))
+
+
+def submit_spaced(study_root, units):
+    notes = _notes(study_root)
+    with _write_lock, _spaced_rules(study_root) as spaced:
+        return _with_titles(study_root, spaced.record(notes, units))
+
+
+def _with_titles(study_root, state):
+    shown = {unit for group in state['groups'] for unit in group['units']} | set(state['done_today'])
+    with _rules(study_root) as groups:
+        titles = {unit.id: unit.title for unit in groups.load_catalog(_notes(study_root)).units if unit.id in shown}
+    return {**state, 'titles': titles}
 
 
 def unit_view(study_root, unit_id):

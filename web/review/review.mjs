@@ -51,10 +51,80 @@ function dropDrafts(prefix) {
 let today;
 
 async function refresh() {
+  refreshSpaced();
   today = await api('/today');
   renderProgress();
   renderStatus();
 }
+
+// ---- Spaced review: tick the units reviewed today, then confirm ----
+let spaced = null;
+const picked = new Set();
+
+async function refreshSpaced() {
+  try {
+    spaced = await api('/spaced');
+  } catch (error) {
+    spaced = null;
+    $('spaced-summary').textContent = `复习清单读取失败：${error.message || error}`;
+    $('spaced-groups').replaceChildren();
+    $('spaced-bar').hidden = true;
+    return;
+  }
+  renderSpaced();
+}
+
+function monthDay(iso) {
+  const [, month, day] = iso.split('-');
+  return `${Number(month)}/${Number(day)}`;
+}
+
+function renderSpaced() {
+  const due = new Set(spaced.groups.flatMap(group => group.units));
+  for (const id of [...picked]) if (!due.has(id)) picked.delete(id);
+  $('spaced-summary').textContent = spaced.pending ? `有 ${spaced.pending} 个单元待复习：点选已复习的，再确认提交`
+    : spaced.done_today.length ? '今日复习已完成' : '今天没有到期的复习';
+  $('spaced-groups').replaceChildren(...spaced.groups.map(group => {
+    const all = group.units.every(id => picked.has(id));
+    const toggle = () => {
+      for (const id of group.units) (all ? picked.delete(id) : picked.add(id));
+      renderSpaced();
+    };
+    return h('div', {className: 'spaced-group'},
+      h('div', {className: 'spaced-head'},
+        h('strong', {textContent: `${monthDay(group.learned)} 学的 · 第 ${group.day} 天复习`}),
+        group.overdue ? h('span', {className: 'spaced-late', textContent: `逾期 ${group.overdue} 天`}) : null,
+        h('button', {type: 'button', className: 'spaced-all', textContent: all ? '取消本组' : '全选本组', onclick: toggle})),
+      h('div', {className: 'spaced-units'}, ...group.units.map(id => {
+        const title = spaced.titles[id];
+        const button = h('button', {type: 'button', className: 'spaced-unit', onclick: () => {
+          picked.has(id) ? picked.delete(id) : picked.add(id);
+          renderSpaced();
+        }}, id, title ? h('small', {textContent: title}) : null);
+        button.setAttribute('aria-pressed', String(picked.has(id)));
+        return button;
+      })));
+  }));
+  $('spaced-bar').hidden = !spaced.pending;
+  $('spaced-count').textContent = `已选 ${picked.size} / ${spaced.pending}`;
+  $('spaced-submit').disabled = !picked.size;
+  $('spaced-done').textContent = `今日已复习：${spaced.done_today.join('、')}`;
+  $('spaced-done').hidden = !spaced.done_today.length;
+}
+
+$('spaced-submit').addEventListener('click', async () => {
+  const button = $('spaced-submit');
+  button.disabled = true;
+  notice(null);
+  try {
+    spaced = await api('/spaced/submit', {units: [...picked]});
+    picked.clear();
+    renderSpaced();
+  } catch (error) {
+    notice(error);
+    await refreshSpaced();
+  }
+});
 
 function canStartAhead() {
   const busy = today.directory.some(section => section.children.some(child => child.units.some(unit => unit.status === 'in_progress')));
@@ -217,6 +287,7 @@ function renderStatus() {
 }
 
 function showOverview() {
+  $('spaced-review').hidden = false;
   $('unit-view').hidden = true;
   $('review-view').hidden = true;
   $('plan-progress').hidden = false;
@@ -226,6 +297,7 @@ function showOverview() {
 
 function showFlow(id) {
   notice(null);
+  $('spaced-review').hidden = true;
   $('plan-progress').hidden = true;
   $('status').hidden = true;
   $('unit-view').hidden = id !== 'unit-view';

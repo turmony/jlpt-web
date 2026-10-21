@@ -5,6 +5,17 @@
   <nav class="topbar" aria-label="学习导航"><strong><svg class="brand-mark" viewBox="0 0 28 32" fill="none" aria-hidden="true"><path d="M5 3h18v25H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2 0v21m-4 0h20M12 9h6m-6 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>JLPT 学习册</strong><a href="/review/" aria-current="page">今日安排</a><a href="/grammar/">语法记忆</a><a href="/papers.html">做题</a><a href="/code/">云开发</a></nav>
   <p id="notice" class="paper-notice" role="alert" hidden></p>
 
+  <section id="spaced-review" class="panel spaced" aria-labelledby="spaced-title">
+    <h2 id="spaced-title">今日复习</h2>
+    <p id="spaced-summary" class="muted" aria-live="polite">正在读取复习清单…</p>
+    <div id="spaced-groups"></div>
+    <div id="spaced-bar" class="spaced-bar" hidden>
+      <span id="spaced-count" class="muted"></span>
+      <button id="spaced-submit" class="primary" type="button" disabled>确认提交</button>
+    </div>
+    <p id="spaced-done" class="muted" hidden></p>
+  </section>
+
   <section id="plan-progress" class="plan-progress" aria-labelledby="progress-summary">
     <p id="progress-summary" class="progress-summary">正在读取学习计划…</p>
     <div id="progress-bar" class="stage-bar" role="progressbar" aria-labelledby="progress-summary" aria-valuemin="0"></div>

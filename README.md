@@ -1,6 +1,6 @@
 # JLPT 语法记忆页面
 
-现已加入个人服务器版本：密码登录、语法记忆、网页作答试卷（`/papers.html`），以及云端 Claude Code（`/code/`，用于出题和判卷）。服务器版本的“今日安排”（`/review/`）显示语法联想网复习计划的进度与当前状态，并在同一页完成回忆核对、对比页、选择题与造句交卷（判分与准备单元仍由智能体完成）。部署和维护方法见 [服务器部署说明](docs/server-deployment.md)。原 Cloudflare 构建继续保留。构建服务器版本使用 Node 22–24：`npm ci && npm run build`。
+现已加入个人服务器版本：密码登录、语法记忆、网页作答试卷（`/papers.html`），以及云端 Claude Code（`/code/`，用于出题和判卷）。服务器版本的“今日安排”（`/review/`）显示语法联想网复习计划的进度与当前状态，并在同一页完成回忆核对、对比页、选择题与造句交卷（判分与准备单元仍由智能体完成）。页面顶部的“今日复习”按学习日期分组列出学习后第 1、3、8、21 天到期的单元，点选已复习的再确认提交；记录写入学习仓库的 `jlpt-notes/groups/spaced-reviews.json`，计划规则在学习仓库 `src/jlpt_notes/spaced_review.py`，网站按路径加载。部署和维护方法见 [服务器部署说明](docs/server-deployment.md)。原 Cloudflare 构建继续保留。构建服务器版本使用 Node 22–24：`npm ci && npm run build`。
 
 适用于 iPhone Safari 的独立在线页面。当前网站：https://jlpt-image-cards.pages.dev/
 

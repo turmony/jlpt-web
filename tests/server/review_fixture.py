@@ -15,6 +15,7 @@ from pathlib import Path
 
 STUDY_ROOT = Path(os.environ.get('JLPT_STUDY_ROOT', '/root/projects/jlpt-study'))
 GROUPS = Path('src/jlpt_notes/groups.py')
+SPACED = Path('src/jlpt_notes/spaced_review.py')
 TOPS = ('ものごとの様子', 'ものごとの関係', 'もの・こと', '人との関係', '場所・時間', '考え・感情')
 CARDS = {'N5-G-0013': '助词：动作进行时点「に」', 'N5-G-0032': '助词：动作对象「に」'}
 CORES = {'N5-G-0013': '时间词＋に，表示动作发生的时间点。', 'N5-G-0032': '## 功能一：对象\n\n「に」标出动作指向的对象。\n\n## 功能二：到达点\n\n「に」标出到达的地点。'}
@@ -144,6 +145,7 @@ def make_study(tmp, units=2):
     notes = study / 'jlpt-notes'
     (study / GROUPS).parent.mkdir(parents=True)
     shutil.copy2(source, study / GROUPS)
+    shutil.copy2(STUDY_ROOT / SPACED, study / SPACED)
     git(study, 'init', '-q')
     git(study, 'config', 'user.name', 'Test')
     git(study, 'config', 'user.email', 'test@example.invalid')

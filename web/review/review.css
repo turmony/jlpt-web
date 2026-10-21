@@ -2,6 +2,23 @@
 .review-page .topbar{row-gap:10px}
 .topbar a[aria-current="page"]{border-color:var(--accent);color:var(--accent-text)}
 
+/* Today's spaced review: groups by learning date, tap to select */
+.spaced{margin:20px 0 0;padding:18px}
+.spaced h2{margin-bottom:6px}
+.spaced>p{margin:4px 0}
+.spaced-group{margin-top:16px}
+.spaced-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.spaced-head strong{font-size:15px}
+.spaced-late{font-size:13px;color:var(--error)}
+.spaced-all{margin-left:auto;min-height:32px;padding:2px 14px;border-radius:999px;font-size:13px}
+.spaced-units{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.spaced-unit{position:relative;display:inline-flex;flex-direction:column;align-items:flex-start;min-width:96px;min-height:48px;padding:6px 14px;text-align:left;line-height:1.35}
+.spaced-unit small{max-width:12em;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.spaced-unit[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.spaced-unit[aria-pressed="true"]::after{content:'✓';position:absolute;top:4px;right:8px;font-size:13px;color:var(--accent-text)}
+.spaced-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
+.spaced-bar .primary{min-height:44px;padding:8px 26px}
+
 /* Progress, always above the status card */
 .plan-progress{margin:20px 0 22px}
 .plan-progress p{margin:6px 0}
