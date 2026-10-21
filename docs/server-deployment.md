@@ -468,3 +468,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261021-usage-toggle`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。`/review/` 单元页的“一、用法总览”里，每个语法形式标题旁有“隐藏用法／显示用法”按钮，列表上方有“全部隐藏／全部显示”（全部已隐藏时显示“全部显示”，否则显示“全部隐藏”）。默认状态：单元还没点“进入对比页”时（第一次学）用法全部显示；进入对比页之后（包括进行中、已交卷以及第 1／3／8／21 天复习时再打开）默认全部隐藏，只留形式名和“用法已隐藏，先回忆，再点‘显示用法’核对”的提示，方便先回忆再核对。开关只存在于当前页面，不写 localStorage，也不写服务器记录，与“用法总览不记录是否想到”的规则一致；对比表与原卡核心不受影响。仅改 `web/review/review.mjs`（`recallList` 与 `renderUnit`）和 `web/review/review.css`。
 
 验证：22 项浏览器测试（新增“用法首次显示、进入后默认隐藏，可按单项或全部切换”；原两处“用法总览无按钮”的断言随之改为不检查按钮）与 70 项后端测试（1 项跳过）通过。发布后与上一版本逐文件比对，static 只有 `review/review.css`、`review/review.mjs` 不同，二者与源码一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。网页提交 `49087c4`。回滚：把 `/srv/jlpt/static` 切回 `20261021-cycle-off/static`。
+
+## 用法总览改为滑动开关与遮罩条（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-usage-switch`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。上一版的“显示／隐藏用法”文字按钮改为滑动开关（`role="switch"`，`aria-checked` 为 `true`／`false`，触摸高度 ≥44px）：每个语法形式标题旁一个“用法”开关，列表上方一个“全部”开关；各形式状态不一致时“全部”的 `aria-checked` 为 `mixed`，滑块停在轨道中间。点“全部”：有隐藏的就全部显示，全部已显示就全部隐藏。隐藏时页面里不再渲染用法文字，每条用法换成一条圆角遮罩条（宽度按 86%／58%／72% 轮换，与真实文字长度无关，带缓慢微光，`prefers-reduced-motion` 下不动），序号与条数保留；点遮罩区域可揭开该形式，揭开时文字淡入。去掉了“用法已隐藏…”文字提示。默认规则不变：新单元未进入对比页时显示，进入之后默认隐藏；状态不存储。仅改 `web/review/review.mjs`（`usageSwitch`、`recallList`）与 `web/review/review.css`。
+
+验证：22 项浏览器测试（重写“用法显示／遮罩／开关”一项：开关状态、半开、点遮罩揭开、隐藏时页面不含用法文字、开关高度）与 70 项后端测试（1 项跳过）通过；手机宽度截图核对显示、半开与全隐藏三种状态。发布后与上一版本逐文件比对，static 只有 `review/review.css`、`review/review.mjs` 不同，二者与源码一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。网页提交 `d9e7851`。回滚：把 `/srv/jlpt/static` 切回 `20261021-usage-toggle/static`。
