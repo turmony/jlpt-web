@@ -193,39 +193,57 @@ test('the usage overview shows each usage straight away and records nothing abou
   await page.locator('#unit-page').waitFor();
   const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
   assert.equal('recall' in sub,false);
-  assert.equal(await page.locator('#recall-list .recall-text').count(),2);
+  assert.equal(await page.locator('#recall-list .recall-mask').count(),2);
   assert.doesNotMatch(await page.locator('#unit-view').innerText(),/已锁定/);
 }));
 
-test('usages show on the first look, start hidden once the unit is entered, and toggle per form or all at once',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
+test('usages show on the first look, start as bars once the unit is entered, and slide per form or all at once',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
   await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#recall-list').waitFor();
-  // First look: everything shown, the buttons offer to hide.
+  const all=page.locator('.recall-bar .recall-switch');
+  const forms=page.locator('#recall-list .recall-switch');
+  // First look: everything shown, every switch is on.
   assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['时间点','动作的方向']);
-  assert.deepEqual(await page.locator('#recall-list .recall-toggle').allInnerTexts(),['隐藏用法','隐藏用法']);
-  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部隐藏');
-  await page.locator('#recall-list .recall-toggle').first().click();
-  assert.equal(await page.locator('#recall-list .recall-text').first().isVisible(),false);
-  assert.equal(await page.locator('#recall-list .recall-text').nth(1).isVisible(),true);
-  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部隐藏');
-  await page.locator('.recall-toggle-all').click();
-  assert.equal(await page.locator('#recall-list .recall-text:visible').count(),0);
-  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部显示');
-  await page.locator('.recall-toggle-all').click();
-  assert.equal(await page.locator('#recall-list .recall-text:visible').count(),2);
-  // Entered: the usages start hidden behind a note, the form names stay.
+  assert.deepEqual(await forms.evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-checked'))),['true','true']);
+  assert.equal(await all.getAttribute('aria-checked'),'true');
+  assert.equal(await all.getAttribute('role'),'switch');
+  // One form off: that form turns into bars, the other stays, "all" sits in the middle.
+  await forms.first().click();
+  assert.equal(await forms.first().getAttribute('aria-checked'),'false');
+  assert.equal(await page.locator('#recall-list .recall-group').first().locator('.recall-text').count(),0);
+  assert.equal(await page.locator('#recall-list .recall-group').first().locator('.recall-mask').count(),1);
+  assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['动作的方向']);
+  assert.equal(await all.getAttribute('aria-checked'),'mixed');
+  // "All" with something hidden shows everything; with everything shown hides everything.
+  await all.click();
+  assert.equal(await page.locator('#recall-list .recall-text').count(),2);
+  assert.equal(await all.getAttribute('aria-checked'),'true');
+  await all.click();
+  assert.equal(await page.locator('#recall-list .recall-text').count(),0);
+  assert.equal(await page.locator('#recall-list .recall-mask').count(),2);
+  assert.equal(await all.getAttribute('aria-checked'),'false');
+  await all.click();
+  // Entered: the usages start as bars; the form names stay and no usage text is in the page.
   await page.getByRole('button',{name:'进入对比页'}).click();
   await page.locator('#unit-page').waitFor();
-  assert.equal(await page.locator('#recall-list .recall-text:visible').count(),0);
+  assert.equal(await page.locator('#recall-list .recall-text').count(),0);
+  assert.equal(await page.locator('#recall-list').innerText().then(text=>/时间点|动作的方向/.test(text)),false);
   assert.deepEqual(await page.locator('#recall-list .recall-form').allInnerTexts(),['に','へ']);
-  assert.equal(await page.locator('#recall-list .recall-hidden:visible').count(),2);
-  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部显示');
-  await page.locator('#recall-list .recall-toggle').nth(1).click();
-  assert.deepEqual(await page.locator('#recall-list .recall-text:visible').allInnerTexts(),['动作的方向']);
-  assert.equal(await page.locator('#recall-list .recall-toggle').nth(1).getAttribute('aria-expanded'),'true');
-  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部隐藏');
+  assert.equal(await page.locator('#recall-list .recall-mask').count(),2);
+  assert.equal(await all.getAttribute('aria-checked'),'false');
+  assert.doesNotMatch(await page.locator('#unit-view').innerText(),/用法已隐藏/);
+  // Clicking the bars reveals that form; its switch follows.
+  await page.locator('#recall-list .recall-group').nth(1).locator('.recall-rows').click();
+  assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['动作的方向']);
+  assert.equal(await forms.nth(1).getAttribute('aria-checked'),'true');
+  assert.equal(await all.getAttribute('aria-checked'),'mixed');
+  // Hiding again leaves a bar and no text.
+  await forms.nth(1).click();
+  assert.equal(await page.locator('#recall-list .recall-text').count(),0);
   assert.equal(await page.locator('#compare').isVisible(),true);
+  const box=await forms.first().boundingBox();
+  assert.ok(box.height>=44);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
