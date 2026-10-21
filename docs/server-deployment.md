@@ -462,3 +462,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261021-cycle-off`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 均已切换并重启 `jlpt.service`。学习仓库的 `groups/plan.json` 新增可选 `review_cycle`，当前为 `"off"`：规则模块 `groups.py` 不再触发“复习已到期”，`start_unit` 不再因旧复习而拒绝新单元，`progress.days_to_review` 为 `null`（规则在学习仓库，网站按路径加载，`server/` 代码无变化）。本次网站只改 `web/review/review.mjs`：`days_to_review` 为 `null` 时隐藏“距下次复习还差…/复习已到期”那一行。
 
 验证：70 项后端测试（1 项跳过）、21 项浏览器测试通过（新增“周期开启时显示该行，关闭后隐藏”）。发布后与上一版本逐文件比对，static 只有 `review/review.mjs` 不同，server 代码一致；用线上 app 代码读取线上学习仓库得到：状态 `not_prepared`、下一单元 G-015、复习为空、`days_to_review` 为 `null`；公网 `/review/` 未登录 303、两个 `/api/review/*` 接口 401，`jlpt.service` 与 caddy 运行中。网页提交 `53b4d9c`，学习仓库提交 `0b57095`。回滚：把 `/srv/jlpt/app` 与 `/srv/jlpt/static` 切回 `20261021-spaced-review` 下对应目录后重启服务（旧页面在 `review_cycle` 为 `off` 时会多显示一行“复习已到期”，不影响使用；要恢复旧周期，把 `plan.json` 的该字段改为 `"on"`）。
+
+## 用法总览可隐藏用法（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-usage-toggle`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。`/review/` 单元页的“一、用法总览”里，每个语法形式标题旁有“隐藏用法／显示用法”按钮，列表上方有“全部隐藏／全部显示”（全部已隐藏时显示“全部显示”，否则显示“全部隐藏”）。默认状态：单元还没点“进入对比页”时（第一次学）用法全部显示；进入对比页之后（包括进行中、已交卷以及第 1／3／8／21 天复习时再打开）默认全部隐藏，只留形式名和“用法已隐藏，先回忆，再点‘显示用法’核对”的提示，方便先回忆再核对。开关只存在于当前页面，不写 localStorage，也不写服务器记录，与“用法总览不记录是否想到”的规则一致；对比表与原卡核心不受影响。仅改 `web/review/review.mjs`（`recallList` 与 `renderUnit`）和 `web/review/review.css`。
+
+验证：22 项浏览器测试（新增“用法首次显示、进入后默认隐藏，可按单项或全部切换”；原两处“用法总览无按钮”的断言随之改为不检查按钮）与 70 项后端测试（1 项跳过）通过。发布后与上一版本逐文件比对，static 只有 `review/review.css`、`review/review.mjs` 不同，二者与源码一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。网页提交 `49087c4`。回滚：把 `/srv/jlpt/static` 切回 `20261021-cycle-off/static`。
