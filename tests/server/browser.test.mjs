@@ -187,7 +187,6 @@ test('the usage overview shows each usage straight away and records nothing abou
   await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#recall-list').waitFor();
   assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['时间点','动作的方向']);
-  assert.equal(await page.locator('#recall-list button').count(),0);
   assert.equal(await page.locator('#unit-view .step h2').first().innerText(),'一、用法总览');
   assert.doesNotMatch(await page.locator('#unit-view').innerText(),/没想到|点击显示|回忆/);
   await page.getByRole('button',{name:'进入对比页'}).click();
@@ -196,6 +195,38 @@ test('the usage overview shows each usage straight away and records nothing abou
   assert.equal('recall' in sub,false);
   assert.equal(await page.locator('#recall-list .recall-text').count(),2);
   assert.doesNotMatch(await page.locator('#unit-view').innerText(),/已锁定/);
+}));
+
+test('usages show on the first look, start hidden once the unit is entered, and toggle per form or all at once',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
+  await page.locator('#recall-list').waitFor();
+  // First look: everything shown, the buttons offer to hide.
+  assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['时间点','动作的方向']);
+  assert.deepEqual(await page.locator('#recall-list .recall-toggle').allInnerTexts(),['隐藏用法','隐藏用法']);
+  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部隐藏');
+  await page.locator('#recall-list .recall-toggle').first().click();
+  assert.equal(await page.locator('#recall-list .recall-text').first().isVisible(),false);
+  assert.equal(await page.locator('#recall-list .recall-text').nth(1).isVisible(),true);
+  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部隐藏');
+  await page.locator('.recall-toggle-all').click();
+  assert.equal(await page.locator('#recall-list .recall-text:visible').count(),0);
+  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部显示');
+  await page.locator('.recall-toggle-all').click();
+  assert.equal(await page.locator('#recall-list .recall-text:visible').count(),2);
+  // Entered: the usages start hidden behind a note, the form names stay.
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page').waitFor();
+  assert.equal(await page.locator('#recall-list .recall-text:visible').count(),0);
+  assert.deepEqual(await page.locator('#recall-list .recall-form').allInnerTexts(),['に','へ']);
+  assert.equal(await page.locator('#recall-list .recall-hidden:visible').count(),2);
+  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部显示');
+  await page.locator('#recall-list .recall-toggle').nth(1).click();
+  assert.deepEqual(await page.locator('#recall-list .recall-text:visible').allInnerTexts(),['动作的方向']);
+  assert.equal(await page.locator('#recall-list .recall-toggle').nth(1).getAttribute('aria-expanded'),'true');
+  assert.equal(await page.locator('.recall-toggle-all').innerText(),'全部隐藏');
+  assert.equal(await page.locator('#compare').isVisible(),true);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
 test('the comparison stacks by item on a phone, switches to per-form cards and has no sideways scroll',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
@@ -240,7 +271,6 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     assert.equal(await page.locator('#recall-list .recall-group').nth(1).locator('.recall-row').count(),1);
     await page.getByRole('button',{name:'进入对比页'}).click();
     await page.locator('#unit-page img').first().waitFor();
-    assert.equal(await page.locator('#recall-list button').count(),0);
     assert.equal(await page.locator('#unit-page img').first().evaluate(image=>image.complete&&image.naturalWidth>0),true);
     assert.equal(await page.locator('.cards-title').count(),0);
     assert.equal(await page.locator('#unit-page details.member-card').count(),2);

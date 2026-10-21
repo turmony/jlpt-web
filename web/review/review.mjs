@@ -372,10 +372,11 @@ function renderUnit(view) {
   const root = $('unit-view');
   const scope = unit.position.slice(1).join(' › ');
   const compare = compareView(view.compare);
+  const usages = recallList(view.recall.items, session.started);
   const recall = session.started
-    ? [recallList(view.recall.items), compare]
+    ? [usages, compare]
     : [h('p', {className: 'muted', textContent: '先看一遍各语法形式与用法，再进入对比页。'}),
-       recallList(view.recall.items), compare,
+       usages, compare,
        h('div', {className: 'flow-actions'}, h('span'),
          h('button', {className: 'primary', type: 'button', textContent: '进入对比页', onclick: event => startUnit(unit.id, event.currentTarget).catch(notice)}))];
   root.replaceChildren(
@@ -455,18 +456,40 @@ function paperReview(view) {
   return container;
 }
 
-// Recall rows, grouped under their grammar form, each with its usage shown.
-function recallList(items) {
+// Usage rows, grouped under their grammar form. A unit not yet started shows them (first look); once it has been
+// entered they start hidden so the learner recalls each usage before checking. Nothing is stored about the toggles.
+function recallList(items, hidden) {
   const list = h('div', {id: 'recall-list', className: 'recall-list'});
+  const groups = [];
+  const all = h('button', {type: 'button', className: 'recall-toggle recall-toggle-all'});
+  const sync = () => { all.textContent = groups.every(group => group.rows.hidden) ? '全部显示' : '全部隐藏'; };
   items.forEach((item, index) => {
     if (index > 0 && items[index - 1].form === item.form) return;
     const rows = h('ol', {className: 'recall-rows', start: index + 1});
     for (let next = index; next < items.length && items[next].form === item.form; next++) {
       rows.append(h('li', {className: 'recall-row'}, h('span', {className: 'recall-text', textContent: items[next].usage})));
     }
-    list.append(h('section', {className: 'recall-group'}, h('h3', {className: 'recall-form', textContent: item.form}), rows));
+    const note = h('p', {className: 'recall-hidden muted', textContent: '用法已隐藏，先回忆，再点“显示用法”核对。'});
+    const toggle = h('button', {type: 'button', className: 'recall-toggle'});
+    const set = value => {
+      rows.hidden = value;
+      note.hidden = !value;
+      toggle.textContent = value ? '显示用法' : '隐藏用法';
+      toggle.setAttribute('aria-expanded', String(!value));
+    };
+    toggle.addEventListener('click', () => { set(!rows.hidden); sync(); });
+    groups.push({rows, set});
+    set(hidden);
+    list.append(h('section', {className: 'recall-group'},
+      h('div', {className: 'recall-head'}, h('h3', {className: 'recall-form', textContent: item.form}), toggle), note, rows));
   });
-  return list;
+  all.addEventListener('click', () => {
+    const hideAll = !groups.every(group => group.rows.hidden);
+    groups.forEach(group => group.set(hideAll));
+    sync();
+  });
+  sync();
+  return h('div', {className: 'recall'}, h('div', {className: 'recall-bar'}, all), list);
 }
 
 // The optional comparison of look-alike forms: stacked by item or by form on a phone, a real table when wide.
