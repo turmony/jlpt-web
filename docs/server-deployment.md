@@ -450,3 +450,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 新版本图片由 `scripts/setup_study.py` 的 `materialize_images` 导出到 `static/grammar/images/0d93492…/`，没有调用其 `prepare()`（它会新建 `.worktrees/web-study` 并改学习仓库的 push 地址）；导出后把与旧版内容相同的 940 张图片改为指向旧目录的硬链接，只新增 258 张（N5 238 张加 N4 改名 20 张）。旧目录 `images/7e762bb…` 与旧 catalog 保留用于回滚。`/grammar/` 与 `/review/` 的功能标题显示不再因目录过旧而缺失。`public/` 旧镜像里的 `catalog.json` 未同步。
 
 验证：63 项后端测试（1 项跳过）、19 项服务端浏览器测试（整套并发运行时曾有 1 项偶发失败，单独与整套再跑两次均通过）、20 项移动端浏览器测试通过（需设 `JLPT_STUDY_ROOT`，并在临时副本里运行 `node scripts/build.mjs` 生成含新 catalog 的站点目录，不改仓库的 `public/`）。移动端旧测试“缺少 N5 图片提示”依赖旧目录缺图，已改为用路由置空某张卡图片触发提示，并新增“N5 卡片可打开阅读”。发布前核对：目录引用的 1198 张图片全部存在；发布目录与构建产物只有 `grammar/catalog.json` 不同；发布后本机 `/review/` 未登录 303、`/api/review/today` 401，线上 `catalog.json` 与源码一致，`jlpt.service` 与 caddy 运行中。回滚：把 `/srv/jlpt/static` 切回 `20261021-core-function-count/static`。
+
+## 今日复习（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-spaced-review`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 均已切换并重启 `jlpt.service`。`/review/` 顶部（“第 N 轮 · 已学”上方）新增“今日复习”：服务端 `server/review.py` 按路径加载学习仓库的 `src/jlpt_notes/spaced_review.py`（与 `groups.py` 同样的加载方式），新增 `GET /api/review/spaced`（到期清单，按学习日期分组，附单元标题）与 `POST /api/review/spaced/submit`（`{"units": [...]}`，只接受当前到期的单元，全部通过才写入，重复提交返回 409）。记录写入学习仓库 `jlpt-notes/groups/spaced-reviews.json`，网站不提交 Git；学习仓库缺少该模块时接口返回 500 并指出路径。
+
+验证：69 项后端测试（1 项跳过）与 20 项浏览器测试通过（新增“今日复习按学习日期分组并记录勾选”）；手机宽度截图核对布局。发布后与上一版本逐文件比对，static 只有 `review/index.html`、`review/review.css`、`review/review.mjs` 不同，app 源码与仓库一致；公网 `/review/` 未登录 303、`/api/review/today` 与 `/api/review/spaced` 401，`jlpt.service` 与 caddy 运行中。未登录状态下无法核对接口内容，登录后的行为以浏览器测试为准。网页提交 `d7b1631`，学习仓库提交 `843ab5f`。回滚：把 `/srv/jlpt/app` 切回 `20261021-no-sentence/app`、`/srv/jlpt/static` 切回 `20261021-catalog-refresh/static` 后重启服务。
