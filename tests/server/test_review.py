@@ -70,6 +70,14 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual(view['sentence'], {'card': 'N5-G-0013', 'prompt': '用本单元的语法翻译：三点见面吧。', 'text': None})
         self.assertIsNone(view['note'])
 
+    def test_unit_without_sentence_has_no_sentence_in_its_view(self):
+        prepare_unit(self.notes, 'B-01-1', sentence=False)
+        review.recall(self.study, 'B-01-1')
+        view = review.unit_view(self.study, 'B-01-1')
+        self.assertNotIn('sentence', view)
+        self.assertIsNone(view['note'])
+        self.assertEqual(view['paper']['numbers'], [1, 2, 3, 4, 5])
+
     def test_unknown_or_unprepared_unit_is_missing(self):
         for unit_id in ('B-01-2', 'G-001', 'B-09-9'):
             with self.subTest(unit_id=unit_id), self.assertRaises(KeyError):
@@ -280,6 +288,18 @@ class ReviewHTTPTests(unittest.TestCase):
         self.assertRegex(self.paper_text(), r'\*1-2')
         self.assertEqual(self.submission()['sentence']['text'], '日本に行きます。')
         self.assertNotIn('recall', self.submission())
+
+    def test_unit_without_sentence_submits_with_only_a_note(self):
+        prepare_unit(self.notes, 'B-01-1', sentence=False)
+        self.login()
+        self.request('/api/review/units/B-01-1/recall', {'missed': []})
+        body = {'answers': {'1': {'answer': '2'}}, 'note': '对比页少了例句'}
+        self.assertEqual(self.request('/api/review/units/B-01-1/submit', body).status, 200)
+        self.assertNotIn('sentence', self.submission())
+        self.assertEqual(self.submission()['note'], '对比页少了例句')
+        view = json.load(self.request('/api/review/units/B-01-1'))
+        self.assertTrue(view['session']['submitted'])
+        self.assertNotIn('sentence', view)
 
     def test_second_submit_conflicts(self):
         self.login()

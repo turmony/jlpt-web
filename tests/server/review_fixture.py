@@ -108,7 +108,7 @@ def write_paper(notes, slug, count):
                     encoding='utf-8')
 
 
-def prepare_unit(notes, unit_id='B-01-1', compare=None):
+def prepare_unit(notes, unit_id='B-01-1', compare=None, sentence=True):
     """Unit page, unit material and five-question paper, left uncommitted as the plan prepares them."""
     write_markdown(notes / 'groups' / f'{unit_id}.md',
                    {'id': unit_id, 'kind': 'grammar_system_unit', 'schema_version': 1, 'title': 'に', 'order': 1,
@@ -117,15 +117,15 @@ def prepare_unit(notes, unit_id='B-01-1', compare=None):
     write_json(notes / 'groups/units' / f'{unit_id}.json',
                {'schema_version': 1, 'unit_id': unit_id, 'paper': paper_slug(unit_id),
                 'recall_items': RECALL_ITEMS, **({'compare': compare} if compare else {}),
-                'sentence': {'card': 'N5-G-0013', 'prompt': SENTENCE_PROMPT}})
+                **({'sentence': {'card': 'N5-G-0013', 'prompt': SENTENCE_PROMPT}} if sentence else {})})
     write_paper(notes, paper_slug(unit_id), 5)
 
 
-def finish_unit(notes, unit_id, minute):
+def finish_unit(notes, unit_id, minute, sentence=True):
     """A unit submission as the server leaves it after 交卷."""
     write_json(notes / 'groups/submissions/r1' / f'{unit_id}.json',
                {'schema_version': 1, 'unit_id': unit_id, 'round': 1, 'paper': paper_slug(unit_id),
-                'sentence': {'card': 'N5-G-0013', 'text': '三時に会いましょう。'}, 'note': '',
+                **({'sentence': {'card': 'N5-G-0013', 'text': '三時に会いましょう。'}} if sentence else {}), 'note': '',
                 'submitted_at': f'2026-10-17T20:{minute:02d}:00+08:00'})
 
 

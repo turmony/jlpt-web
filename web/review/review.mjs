@@ -284,7 +284,7 @@ async function afterSubmit(state, prefix) {
   showOverview();
 }
 
-// ---- A unit: recall → comparison page and member cores → 5 questions → sentence ----
+// ---- A unit: recall → comparison page and member cores → 5 questions → (sentence) → note ----
 async function openUnit(id) {
   const view = await api(`/units/${encodeURIComponent(id)}`);
   showFlow('unit-view');
@@ -340,7 +340,7 @@ function renderUnit(view) {
     root.append(h('section', {className: 'step'}, h('h2', {textContent: '三、试题回顾'}), paperReview(view)));
     const ungraded = today.pending_grading.some(item => item.id === unit.id);
     root.append(h('section', {className: 'step'}, h('h2', {textContent: ungraded ? '已交卷，待判分' : '已交卷'}),
-      h('p', {className: 'locked-text', textContent: view.sentence.text || ''}),
+      view.sentence ? h('p', {className: 'locked-text', textContent: view.sentence.text || ''}) : null,
       view.note ? h('p', {className: 'locked-text', textContent: view.note}) : null),
       pager('unit', unit.id));
     return;
@@ -353,16 +353,18 @@ function renderUnit(view) {
   counter.update(sheet.answeredCount());
 
   const submit = h('button', {className: 'primary', type: 'button', textContent: '交卷'});
-  root.append(h('section', {className: 'step'}, h('h2', {textContent: '四、造句'}),
+  // Units prepared from 2026-10-21 on carry no sentence prompt: their last step is just the note.
+  const sentence = view.sentence ? [
     h('p', {className: 'sentence-prompt', textContent: view.sentence.prompt}),
-    h('label', {htmlFor: 'sentence', textContent: '造句'}), drafted(h('textarea', {id: 'sentence', rows: 3}), prefix + 'sentence'),
+    h('label', {htmlFor: 'sentence', textContent: '造句'}), drafted(h('textarea', {id: 'sentence', rows: 3}), prefix + 'sentence')] : [];
+  root.append(h('section', {className: 'step'}, h('h2', {textContent: view.sentence ? '四、造句' : '四、备注'}), ...sentence,
     h('label', {htmlFor: 'note', textContent: '备注（可选）'}), drafted(h('textarea', {id: 'note', rows: 3, placeholder: '可写发现的对比页问题'}), prefix + 'note'),
     h('div', {className: 'flow-actions'}, counter.line, submit)), pager('unit', unit.id));
   submit.addEventListener('click', async () => {
     if (!confirmSubmit(view.paper.numbers.length - sheet.answeredCount())) return;
     submit.disabled = true;
     try {
-      const state = await api(`/units/${encodeURIComponent(unit.id)}/submit`, {answers: sheet.getAnswers(), sentence: $('sentence').value, note: $('note').value});
+      const state = await api(`/units/${encodeURIComponent(unit.id)}/submit`, {answers: sheet.getAnswers(), ...(view.sentence ? {sentence: $('sentence').value} : {}), note: $('note').value});
       await afterSubmit(state, prefix);
     } catch (error) {
       submit.disabled = false;

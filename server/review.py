@@ -110,15 +110,19 @@ def unit_view(study_root, unit_id):
             view['compare'] = material['compare']
         if not submission:
             return view
-        sentence = submission.get('sentence') if isinstance(submission.get('sentence'), dict) else {}
         key = _answer_key(study_root, material['paper']) if _finished(submission) else None
+        # Units prepared from 2026-10-21 on have no sentence prompt; older ones keep theirs.
+        sentence = {}
+        if 'sentence' in material:
+            written = submission.get('sentence') if isinstance(submission.get('sentence'), dict) else {}
+            sentence = {'sentence': {'card': material['sentence']['card'], 'prompt': material['sentence']['prompt'],
+                                     'text': written.get('text')}}
         return {**view,
                 **({'key': key} if key is not None else {}),
                 'page': _rewrite(_body(notes, f'groups/{unit_id}.md'), 'groups'),
                 'cards': [_card(notes, card) for card in unit.members],
                 'paper': _paper(study_root, material['paper']),
-                'sentence': {'card': material['sentence']['card'], 'prompt': material['sentence']['prompt'],
-                             'text': sentence.get('text')},
+                **sentence,
                 'note': submission.get('note')}
 
 
