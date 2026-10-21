@@ -424,3 +424,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261020-review-pager2`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。对比页中入表的成员，其“原卡核心”下方改为原样复制对比表“按项目比”的“核心含义”行（标题、语法颜色标签、文字与样式一致），取代上一版的简化单行。网页发布提交 `fc74b7e`，仅前端改动。
 
 验证：17 项浏览器测试通过；发布后 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中，发布目录 `review.mjs` 与源码一致。回滚：把 `/srv/jlpt/static` 切回 `20261020-review-pager/static`。
+
+## 目录与上下页补上“当前”单元（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-pager-current`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。此前“下一个要学的单元”状态为 `current`，目录按钮与上下页都不认它，导致大类最后一个语法没有“下一页”、下一大类第一个语法没有按钮；现在 `current`（今日安排正是它时）显示“开始”，`in_progress` 显示“继续”，翻页与目录共用同一判断。网页发布提交 `a5af823`，仅前端改动。
+
+验证：18 项浏览器测试与 59 项后端测试（1 项跳过）通过；发布后 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中，`/srv/jlpt/static` 的 `review.mjs` 与源码一致。回滚：把 `/srv/jlpt/static` 切回 `20261020-review-pager2/static`。
