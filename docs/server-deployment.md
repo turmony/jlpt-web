@@ -474,3 +474,7 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261021-usage-switch`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。上一版的“显示／隐藏用法”文字按钮改为滑动开关（`role="switch"`，`aria-checked` 为 `true`／`false`，触摸高度 ≥44px）：每个语法形式标题旁一个“用法”开关，列表上方一个“全部”开关；各形式状态不一致时“全部”的 `aria-checked` 为 `mixed`，滑块停在轨道中间。点“全部”：有隐藏的就全部显示，全部已显示就全部隐藏。隐藏时页面里不再渲染用法文字，每条用法换成一条圆角遮罩条（宽度按 86%／58%／72% 轮换，与真实文字长度无关，带缓慢微光，`prefers-reduced-motion` 下不动），序号与条数保留；点遮罩区域可揭开该形式，揭开时文字淡入。去掉了“用法已隐藏…”文字提示。默认规则不变：新单元未进入对比页时显示，进入之后默认隐藏；状态不存储。仅改 `web/review/review.mjs`（`usageSwitch`、`recallList`）与 `web/review/review.css`。
 
 验证：22 项浏览器测试（重写“用法显示／遮罩／开关”一项：开关状态、半开、点遮罩揭开、隐藏时页面不含用法文字、开关高度）与 70 项后端测试（1 项跳过）通过；手机宽度截图核对显示、半开与全隐藏三种状态。发布后与上一版本逐文件比对，static 只有 `review/review.css`、`review/review.mjs` 不同，二者与源码一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。网页提交 `d9e7851`。回滚：把 `/srv/jlpt/static` 切回 `20261021-usage-toggle/static`。
+
+## 用法遮罩条改为静态（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-usage-mask-static`，仅切换 `/srv/jlpt/static`，app 与服务不变。上一版隐藏用法时的遮罩条带缓慢微光，现改为静态纯色（`--control-line`，不透明度 .7），去掉 `recall-shimmer` 动画；开关滑动与揭开时文字淡入保持不变，`prefers-reduced-motion` 下淡入也不动。仅改 `web/review/review.css`。验证：22 项浏览器测试通过，手机宽度截图核对；发布后与上一版本比对只有 `review/review.css` 不同，且与源码一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。网页提交 `27debfe`。回滚：把 `/srv/jlpt/static` 切回 `20261021-usage-switch/static`。
