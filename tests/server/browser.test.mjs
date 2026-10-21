@@ -93,6 +93,17 @@ test('today\'s spaced review groups due units by learning date and records the t
   assert.equal(await block.locator('.spaced-unit[aria-pressed=true]').count(),0);
 }));
 
+test('the cycle line follows the plan: shown while the 7-day review is on, hidden once it is retired',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  await page.locator('#progress-cycle',{hasText:'距下次复习还差 7 个学习日'}).waitFor();
+  const plan=join(tmp,'study/jlpt-notes/groups/plan.json');
+  await mkdir(join(tmp,'study/jlpt-notes/groups'),{recursive:true});
+  await writeFile(plan,JSON.stringify({schema_version:1,round:1,review_cycle:'off'}));
+  await page.reload();
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  assert.equal(await page.locator('#progress-cycle').isHidden(),true);
+  assert.equal(await page.locator('#status').innerText().then(text=>text.includes('复习已到期')),false);
+}));
+
 test('stage progress shows the current stage, the next milestone and the plan directory',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   const finish=async(unit,minute)=>{
     const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');

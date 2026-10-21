@@ -148,6 +148,11 @@ class ReviewModuleTests(unittest.TestCase):
         with self.assertRaisesRegex(review.StudyDataError, 'src/jlpt_notes/spaced_review.py'):
             review.spaced_today(self.study)
 
+    def test_retired_review_cycle_has_no_days_to_review(self):
+        write_json(self.notes / 'groups/plan.json', {'schema_version': 1, 'round': 1, 'review_cycle': 'off'})
+        progress = review.today(self.study)['progress']
+        self.assertIsNone(progress['days_to_review'])
+
     def test_missing_groups_module_is_study_data_error(self):
         (self.study / 'src/jlpt_notes/groups.py').unlink()
         with self.assertRaisesRegex(review.StudyDataError, 'src/jlpt_notes/groups.py'):

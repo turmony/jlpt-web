@@ -215,8 +215,10 @@ function renderProgress() {
   const position = today.unit ? today.unit.position.join(' › ') : today.review ? `复习 ${today.review.id}` : '';
   $('progress-position').textContent = '当前位置：' + position;
   $('progress-position').hidden = !position;
+  // The 7-study-day review cycle is retired when `days_to_review` is null (plan.json `review_cycle: "off"`).
   const cycle = progress.days_to_review > 0 ? `距下次复习还差 ${progress.days_to_review} 个学习日` : '复习已到期';
   $('progress-cycle').textContent = `${cycle} · 已完成复习 ${progress.reviews_done} 次`;
+  $('progress-cycle').hidden = progress.days_to_review === null;
 
   const ahead = canStartAhead();
   $('directory-body').replaceChildren(...list.map(stage => {
