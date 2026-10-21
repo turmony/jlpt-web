@@ -60,6 +60,15 @@ function canStartAhead() {
   return !['review', 'review_not_ready'].includes(today.state) && !busy;
 }
 
+// What the learner can do with a unit from the directory or the pager; null when it cannot be opened yet.
+// The unit to learn now is `current` (never `prepared`), and it opens only while today's status offers it.
+function unitAction(unit, ahead = canStartAhead()) {
+  if (unit.status === 'learned') return '查看';
+  if (unit.status === 'in_progress') return '继续';
+  if (unit.status === 'current') return today.state === 'learn' && today.unit?.id === unit.id ? '开始' : null;
+  return unit.status === 'prepared' && ahead ? '提前学' : null;
+}
+
 const STAGE = {pending: '待整理（不计入总数）', done: '已完成 ✓', current: '当前阶段', partial: '进行中', todo: '未开始', empty: '暂无单元'};
 
 // Stages in learning order (基础体系表, then the top categories), with the unit the learner is on now:
@@ -153,8 +162,7 @@ function renderProgress() {
         h('ul', {className: 'directory-list'}, ...child.units.flatMap(unit => [h('li', {className: unit.id === currentId ? 'is-current' : ''},
           h('span', {className: 'unit-name', textContent: `${unit.id} ${unit.title}`}),
           chip(unit.status),
-          unit.status === 'prepared' && ahead ? h('button', {type: 'button', textContent: '提前学', onclick: () => openUnit(unit.id).catch(notice)}) : null,
-          unit.status === 'learned' ? h('button', {type: 'button', textContent: '查看', onclick: () => openUnit(unit.id).catch(notice)}) : null),
+          unitAction(unit, ahead) ? h('button', {type: 'button', textContent: unitAction(unit, ahead), onclick: () => openUnit(unit.id).catch(notice)}) : null),
           unit.review ? reviewNode(unit.review) : null].filter(Boolean))))));
     details.dataset.status = stage.status;
     return details;
@@ -230,7 +238,7 @@ function pathSteps() {
   const steps = [];
   const ahead = canStartAhead();
   for (const section of today.directory) for (const child of section.children) for (const unit of child.units) {
-    steps.push({kind: 'unit', id: unit.id, label: unit.id, ready: unit.status === 'learned' || (unit.status === 'in_progress') || (unit.status === 'prepared' && (ahead || today.unit?.id === unit.id))});
+    steps.push({kind: 'unit', id: unit.id, label: unit.id, ready: unitAction(unit, ahead) !== null});
     const review = unit.review;
     if (review) steps.push({kind: 'review', id: review.id, label: `复习 ${review.id}`,
       ready: review.status === 'done' || (review.status === 'due' && today.state === 'review' && today.review?.id === review.id)});

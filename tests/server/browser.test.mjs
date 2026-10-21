@@ -143,7 +143,7 @@ test('damaged study data shows the server error instead of a blank page',()=>wit
 
 test('the usage overview shows each usage straight away and records nothing about it',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
-  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#recall-list').waitFor();
   assert.deepEqual(await page.locator('#recall-list .recall-text').allInnerTexts(),['时间点','动作的方向']);
   assert.equal(await page.locator('#recall-list button').count(),0);
@@ -159,7 +159,7 @@ test('the usage overview shows each usage straight away and records nothing abou
 
 test('the comparison stacks by item on a phone, switches to per-form cards and has no sideways scroll',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
-  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#compare').waitFor();
   assert.equal(await page.locator('.compare-title').innerText(),'对比表');
   assert.match(await page.locator('#compare').innerText(),/情境：约定见面/);
@@ -178,7 +178,7 @@ test('the comparison stacks by item on a phone, switches to per-form cards and h
 
 test('the comparison is a real table on a wide screen',()=>withSite(chromium,{viewport:{width:1100,height:800},locale:'zh-CN'},async(page)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
-  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#compare').waitFor();
   assert.equal(await page.locator('.compare-table').isVisible(),true);
   assert.equal(await page.locator('.compare-by-item').isVisible(),false);
@@ -190,7 +190,7 @@ test('the comparison is a real table on a wide screen',()=>withSite(chromium,{vi
 for(const [name,engine] of Object.entries({chromium,webkit})) {
   test(`${name}: a unit is learned end to end on a phone`,()=>withSite(engine,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
     await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
-    await page.getByRole('button',{name:'开始'}).click();
+    await page.locator('#status').getByRole('button',{name:'开始'}).click();
     await page.locator('#recall-list').waitFor();
     assert.equal(await page.locator('#recall-list .recall-row').count(),2);
     assert.equal(await page.locator('#unit-page').count(),0);
@@ -260,7 +260,7 @@ test('opening the directory scrolls the current unit into view',()=>withSite(chr
 
 test('units and reviews get previous/next buttons at the top and bottom, only toward steps that are ready',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
-  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#recall-list').waitFor();
   // B-01-2 is not prepared in the fixture: no next button, and nothing before the first unit.
   assert.equal(await page.locator('#unit-view .pager').count(),2);
@@ -274,7 +274,31 @@ test('units and reviews get previous/next buttons at the top and bottom, only to
   });
   await page.reload();
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
-  await page.getByRole('button',{name:'开始'}).click();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#unit-view .pager').first().waitFor();
   assert.deepEqual(await page.locator('#unit-view .pager-next').allInnerTexts(),['下一页 复习 review-01 →','下一页 复习 review-01 →']);
+}));
+
+test('the last unit of a category can page forward to the next category\'s first unit when it is the one to learn now',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
+  await page.route('**/api/review/today',async route=>{
+    const response=await route.fetch();const body=await response.json();
+    const [first,second]=body.directory.flatMap(section=>section.children.flatMap(child=>child.units));
+    // Category A ends with a learned unit; category B starts with the unit to learn now.
+    first.status='learned';second.status='current';
+    const [section]=body.directory;
+    const next={...section,title:'次の類',pending:false,children:[{...section.children[0],id:'C-2',title:'次',units:[second]}]};
+    section.children[0].units=[first];
+    body.directory.splice(1,0,next);
+    body.state='learn';body.unit={...body.unit,id:second.id,title:second.title};
+    await route.fulfill({response,json:body});
+  });
+  await page.reload();
+  await page.locator('#directory > summary').click();
+  await page.locator('.stage').evaluateAll(stages=>stages.forEach(stage=>{stage.open=true;}));
+  await page.locator('.directory-list li',{hasText:'B-01-1'}).getByRole('button',{name:'查看'}).click();
+  await page.locator('#unit-title',{hasText:'B-01-1'}).waitFor();
+  assert.deepEqual(await page.locator('#unit-view .pager-next').allInnerTexts(),['下一页 B-01-2 →','下一页 B-01-2 →']);
+  await page.getByRole('button',{name:'← 今日安排'}).first().click();
+  await page.locator('.stage').evaluateAll(stages=>stages.forEach(stage=>{stage.open=true;}));
+  assert.equal(await page.locator('.directory-list li',{hasText:'B-01-2'}).getByRole('button').count(),1);
 }));
