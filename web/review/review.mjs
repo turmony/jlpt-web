@@ -1,4 +1,5 @@
 import {renderCoreMarkdown} from '/grammar/core-markdown.mjs';
+import {labelCoreFunctions} from '/grammar/core-content.mjs';
 import {mountPaperReview, mountPaperSheet} from '/paper-sheet.mjs';
 
 // Shows where the learner is in the grammar-network plan and runs one unit or review at a time.
@@ -324,7 +325,7 @@ function renderUnit(view) {
   // Each member's core goes, folded, right under its own connection image (the end of its ### section).
   for (const card of view.cards) {
     const details = h('details', {className: 'member-card', id: `card-${card.id}`},
-      h('summary', {textContent: `原卡核心 · ${card.id} ${card.title}`}), markdown(card.core || '（原卡没有核心一节）'));
+      h('summary', {textContent: `原卡核心 · ${card.id} ${card.title}`}), markdown(labelCoreFunctions(card.core || '（原卡没有核心一节）')));
     const heading = [...page.querySelectorAll('h3')].find(node => node.querySelector(`a[href="#card-${card.id}"]`));
     let next = heading && heading.nextElementSibling;
     while (next && !/^H[1-3]$/.test(next.tagName)) next = next.nextElementSibling;

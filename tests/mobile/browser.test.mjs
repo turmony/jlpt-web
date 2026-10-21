@@ -197,7 +197,7 @@ test('function navigation jumps inside the formatted core only and updates per c
     catalog.cards.find(card => card.id === 'N1-G-0033').core = '## 普通说明\n\n无功能分组的核心。';
     await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
     await start(page);
-    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一', '功能二', '功能三']);
+    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一 1/3', '功能二 2/3', '功能三 3/3']);
     const visibleText = await page.locator('#card-core').textContent();
     assert.equal((visibleText.match(/正文[一二三]。/g) || []).length, 90);
     assert.equal(visibleText.includes('##'), false);
@@ -224,7 +224,7 @@ test('function navigation jumps inside the formatted core only and updates per c
     await page.locator('#core-navigation button').first().click();
     assert.equal(await page.locator('#card-core').evaluate(element => element.scrollTop), 0);
     await page.locator('#next').click();
-    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一']);
+    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能']);
     assert.equal(await page.locator('#card-core').evaluate(element => element.scrollTop), 0);
     await page.locator('#next').click();
     assert.equal(await page.locator('#core-navigation').isVisible(), false);
@@ -242,8 +242,8 @@ test('core uses readable headings, paragraph spacing and grouped examples withou
     catalog.cards.find(card => card.id === 'N1-G-0031').core = '## 功能一：**含义一**\n\n\n解释第一段。\n\n\n解释第二段。\n\n### 例句\n\n1. 日本語の例文。\n\n   （例句中文翻译。）\n\n2. 第二の例文。\n\n   （第二句中文翻译。）\n\n## 功能二：含义二\n\n完整结尾。\n\n| 项目 | 内容 |\n| --- | --- |\n| 接续 | 名词＋で |\n\n```text\n## 功能三：代码内容\n\n保留代码空行\n```';
     await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
     await start(page);
-    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一', '功能二']);
-    assert.equal(await page.locator('#card-core h2').first().textContent(), '功能一：含义一');
+    assert.deepEqual(await page.locator('#core-navigation button').allTextContents(), ['功能一 1/2', '功能二 2/2']);
+    assert.equal(await page.locator('#card-core h2').first().textContent(), '功能一 1/2：含义一');
     assert.equal(await page.locator('#card-core h2 strong').textContent(), '含义一');
     assert.deepEqual(await page.locator('#card-core > p').allTextContents(), ['解释第一段。', '解释第二段。', '完整结尾。']);
     assert.deepEqual(await page.locator('#card-core li p').allTextContents(), ['日本語の例文。', '（例句中文翻译。）', '第二の例文。', '（第二句中文翻译。）']);

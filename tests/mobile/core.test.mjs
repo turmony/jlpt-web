@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectCards, createSession, createTapHandler, adjacentRanges } from '../../mobile/core.mjs';
-import { normalizeCoreMarkdown } from '../../mobile/core-content.mjs';
+import { normalizeCoreMarkdown, labelCoreFunctions } from '../../mobile/core-content.mjs';
 
 test('core display collapses surplus blank lines while preserving paragraph and translation grouping', () => {
   const source = '\n\n## 功能一：**含义一**\n\n\n解释一\n \n### 例句\n\n1. 日语例句\n\n   （中文翻译）\n\n## 功能二（接辞书形）：含义二\n\n完整结尾。\n';
@@ -11,6 +11,29 @@ test('core display collapses surplus blank lines while preserving paragraph and 
 test('Markdown normalization preserves whitespace inside code examples', () => {
   const source = '## 功能1：真实功能\n\n```text\n## 功能2：示例代码\n\n代码内容\n```\n\n结尾。';
   assert.equal(normalizeCoreMarkdown(source), source);
+});
+
+test('a single function is labelled 功能 without numbering or a fraction', () => {
+  assert.equal(labelCoreFunctions('# 核心\n\n## 功能一：是 A／不是 A\n\n正文。'), '# 核心\n\n## 功能：是 A／不是 A\n\n正文。');
+});
+
+test('several functions are numbered with their position out of the total', () => {
+  const source = '## 功能一：甲\n\n正文\n\n## 功能二（接辞书形）：乙\n\n## 功能三：丙';
+  assert.equal(labelCoreFunctions(source), '## 功能一 1/3：甲\n\n正文\n\n## 功能二 2/3（接辞书形）：乙\n\n## 功能三 3/3：丙');
+});
+
+test('function labels continue past ten and ignore headings inside code fences', () => {
+  const headings = Array.from({ length: 12 }, (_, i) => `## 功能${'一二三四五六七八九十'[i] ?? `十${'一二'[i - 10]}`}：x`);
+  const labelled = labelCoreFunctions(headings.join('\n')).split('\n');
+  assert.equal(labelled[9], '## 功能十 10/12：x');
+  assert.equal(labelled[11], '## 功能十二 12/12：x');
+  const fenced = '## 功能一：真实\n\n```text\n## 功能二：示例\n```\n';
+  assert.equal(labelCoreFunctions(fenced), '## 功能：真实\n\n```text\n## 功能二：示例\n```\n');
+});
+
+test('cores without function headings are returned unchanged', () => {
+  const source = '## 普通说明\n\n功能一是正文里的词。\n';
+  assert.equal(labelCoreFunctions(source), source);
 });
 
 const cards = Array.from({ length: 10 }, (_, i) => ({

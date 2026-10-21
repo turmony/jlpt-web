@@ -17,7 +17,7 @@ STUDY_ROOT = Path(os.environ.get('JLPT_STUDY_ROOT', '/root/projects/jlpt-study')
 GROUPS = Path('src/jlpt_notes/groups.py')
 TOPS = ('ものごとの様子', 'ものごとの関係', 'もの・こと', '人との関係', '場所・時間', '考え・感情')
 CARDS = {'N5-G-0013': '助词：动作进行时点「に」', 'N5-G-0032': '助词：动作对象「に」'}
-CORES = {'N5-G-0013': '时间词＋に，表示动作发生的时间点。', 'N5-G-0032': '「に」标出动作指向的对象。'}
+CORES = {'N5-G-0013': '时间词＋に，表示动作发生的时间点。', 'N5-G-0032': '## 功能一：对象\n\n「に」标出动作指向的对象。\n\n## 功能二：到达点\n\n「に」标出到达的地点。'}
 SENTENCE_PROMPT = '用本单元的语法翻译：三点见面吧。'
 RECALL_ITEMS = [{'card': 'N5-G-0013', 'form': 'に', 'usage': '时间点'},
                 {'card': 'N5-G-0032', 'form': 'へ', 'usage': '动作的方向'}]

@@ -62,7 +62,7 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertTrue(page.startswith('# B-01-1 に'))
         self.assertEqual(view['cards'], [
             {'id': 'N5-G-0013', 'title': '助词：动作进行时点「に」', 'core': '时间词＋に，表示动作发生的时间点。'},
-            {'id': 'N5-G-0032', 'title': '助词：动作对象「に」', 'core': '「に」标出动作指向的对象。'}])
+            {'id': 'N5-G-0032', 'title': '助词：动作对象「に」', 'core': '## 功能一：对象\n\n「に」标出动作指向的对象。\n\n## 功能二：到达点\n\n「に」标出到达的地点。'}])
         self.assertEqual(view['paper']['slug'], UNIT_PAPER)
         self.assertEqual(view['paper']['numbers'], [1, 2, 3, 4, 5])
         self.assertNotIn('## 答案填写区', view['paper']['text'])

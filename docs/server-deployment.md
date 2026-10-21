@@ -436,3 +436,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 新准备的单元不再出造句题：单元材料没有 `sentence` 时，`unit_view` 不返回 `sentence`，页面最后一步改为「四、备注」，只显示备注框，交卷体不带 `sentence`，交卷文件只写 `note` 与 `submitted_at`。单元材料仍含 `sentence` 的旧单元（含已准备的 G-012～G-014）照旧显示造句框并要求填写；校验与提交规则在学习仓库（`jlpt_notes.groups.submit_unit` 按单元材料决定是否要求造句）。仅改 `server/review.py` 与 `web/review/review.mjs`，`server/app.py` 无需改动。
 
 验证：19 项浏览器测试（新增「无造句单元只有备注框并可直接交卷」）与 61 项后端测试（1 项跳过）通过；浏览器测试读取 `server-public`，跑前须先 `node scripts/build-server.mjs`。已发布：发布目录 `/srv/jlpt/releases/20261021-no-sentence`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 均已切换并重启 `jlpt.service`；与上一版本逐文件比对，只有 `server/review.py` 与 `static/review/review.mjs` 不同，二者与源码一致。发布后公网 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。网页提交 `3857bae`。回滚：把 `/srv/jlpt/app` 切回 `20261019-compare-table/app`、`/srv/jlpt/static` 切回 `20261021-pager-current/static` 后重启服务。
+
+## 核心功能标题显示个数与分数（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-core-function-count`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。卡片“核心”里的功能标题与导航按钮改为：只有一个功能时显示“功能”，有多个功能时显示“功能一 1/3”“功能二 2/3”等；由 `mobile/core-content.mjs` 的 `labelCoreFunctions` 在渲染前按功能总数计算，资料原文与 `catalog.json` 不改，仍写“功能一”。`/grammar/` 的核心与 `/review/` 的“原卡核心”共用这一函数；`public/` 旧镜像未同步。`/grammar/` 页的 `catalog.json` 仍钉在旧版本 `7e762bb`，N5 的 118 张卡与 N4 的 20 张卡里没有“功能”标题，所以这些卡在 `/grammar/` 看不到变化，需另行刷新 catalog。
+
+验证：移动端 19 项浏览器测试（需设 `JLPT_STUDY_ROOT` 指向学习仓库，并用 `mobile/` 覆盖后的站点目录，默认的 `public/` 是旧镜像）、19 项服务端浏览器测试与 61 项后端测试（1 项跳过）通过；`tests/mobile/cache.test.mjs` 有 4 项因缺少测试图片失败，改动前同样如此。发布后与上一版本逐文件比对，只有 `grammar/app.mjs`、`grammar/core-content.mjs`、`review/review.mjs` 不同，三者与构建产物一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。回滚：把 `/srv/jlpt/static` 切回 `20261021-no-sentence/static`。

@@ -211,6 +211,7 @@ for(const [name,engine] of Object.entries({chromium,webkit})) {
     await page.locator('#card-N5-G-0013 summary').click();
     await page.locator('#card-N5-G-0013',{hasText:'时间词＋に，表示动作发生的时间点。'}).waitFor();
     await page.locator('#unit-page a[href="#card-N5-G-0032"]').click();
+    assert.deepEqual(await page.locator('#card-N5-G-0032 h2').allInnerTexts(),['功能一 1/2：对象','功能二 2/2：到达点']);
     assert.equal(await page.locator('#card-N5-G-0032').evaluate(details=>details.open),true);
     await page.locator('.option-list').first().locator('.option-block').nth(1).click();
     await page.locator('#sentence').fill('三時に会いましょう。');
