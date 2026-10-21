@@ -442,3 +442,11 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261021-core-function-count`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。卡片“核心”里的功能标题与导航按钮改为：只有一个功能时显示“功能”，有多个功能时显示“功能一 1/3”“功能二 2/3”等；由 `mobile/core-content.mjs` 的 `labelCoreFunctions` 在渲染前按功能总数计算，资料原文与 `catalog.json` 不改，仍写“功能一”。`/grammar/` 的核心与 `/review/` 的“原卡核心”共用这一函数；`public/` 旧镜像未同步。`/grammar/` 页的 `catalog.json` 仍钉在旧版本 `7e762bb`，N5 的 118 张卡与 N4 的 20 张卡里没有“功能”标题，所以这些卡在 `/grammar/` 看不到变化，需另行刷新 catalog。
 
 验证：移动端 19 项浏览器测试（需设 `JLPT_STUDY_ROOT` 指向学习仓库，并用 `mobile/` 覆盖后的站点目录，默认的 `public/` 是旧镜像）、19 项服务端浏览器测试与 61 项后端测试（1 项跳过）通过；`tests/mobile/cache.test.mjs` 有 4 项因缺少测试图片失败，改动前同样如此。发布后与上一版本逐文件比对，只有 `grammar/app.mjs`、`grammar/core-content.mjs`、`review/review.mjs` 不同，三者与构建产物一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。回滚：把 `/srv/jlpt/static` 切回 `20261021-no-sentence/static`。
+
+## 刷新目录到当前学习仓库（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-catalog-refresh`，仅切换 `/srv/jlpt/static`，app 保持不变、服务未重启。`data/catalog.json` 由旧提交 `7e762bb` 刷新为 `0d93492`（学习仓库最后一次改动卡片与图片的提交，与当时 HEAD 的卡片内容相同）：共 599 张卡，新增 N5-G-0072，133 张卡的标题与 138 张卡的核心更新；N5 此前在目录里没有图片，选 N5 区间会提示缺图片，现在 119 张全部可读；N4-G-0061～0080 的例句图指向新文件名 `-example.png`。刷新用新增的 `scripts/refresh_catalog.py --study <学习仓库> --revision <提交>`（复用 `extract_core`，卡片缺少接续图或例句图时中止），测试见 `tests/server/test_refresh_catalog.py`。
+
+新版本图片由 `scripts/setup_study.py` 的 `materialize_images` 导出到 `static/grammar/images/0d93492…/`，没有调用其 `prepare()`（它会新建 `.worktrees/web-study` 并改学习仓库的 push 地址）；导出后把与旧版内容相同的 940 张图片改为指向旧目录的硬链接，只新增 258 张（N5 238 张加 N4 改名 20 张）。旧目录 `images/7e762bb…` 与旧 catalog 保留用于回滚。`/grammar/` 与 `/review/` 的功能标题显示不再因目录过旧而缺失。`public/` 旧镜像里的 `catalog.json` 未同步。
+
+验证：63 项后端测试（1 项跳过）、19 项服务端浏览器测试（整套并发运行时曾有 1 项偶发失败，单独与整套再跑两次均通过）、20 项移动端浏览器测试通过（需设 `JLPT_STUDY_ROOT`，并在临时副本里运行 `node scripts/build.mjs` 生成含新 catalog 的站点目录，不改仓库的 `public/`）。移动端旧测试“缺少 N5 图片提示”依赖旧目录缺图，已改为用路由置空某张卡图片触发提示，并新增“N5 卡片可打开阅读”。发布前核对：目录引用的 1198 张图片全部存在；发布目录与构建产物只有 `grammar/catalog.json` 不同；发布后本机 `/review/` 未登录 303、`/api/review/today` 401，线上 `catalog.json` 与源码一致，`jlpt.service` 与 caddy 运行中。回滚：把 `/srv/jlpt/static` 切回 `20261021-core-function-count/static`。

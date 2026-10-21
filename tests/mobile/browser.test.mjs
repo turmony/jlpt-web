@@ -427,15 +427,29 @@ test('landscape image is contained and reduced motion does not overflow', async 
   await ctx.close();
 });
 
-test('missing N5 images and invalid range show clear feedback', async () => {
-  const ctx = await context(); const page = await ctx.newPage(); await ready(page);
-  await page.locator('label:has(input[value="N5"])').click();
+test('a card without screenshots and an invalid range show clear feedback', async () => {
+  const ctx = await context(); const page = await ctx.newPage();
+  const catalog = JSON.parse(await readFile(resolve(site, 'catalog.json'), 'utf8'));
+  catalog.cards.find(card => card.id === 'N1-G-0035').images.example = null;
+  await page.route('**/catalog.json', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(catalog) }));
+  await ready(page);
+  await page.locator('#start').fill('31'); await page.locator('#end').fill('40');
   await page.locator('#start-reading').click();
-  assert.match(await page.locator('#range-error').textContent(), /图片/);
-  await page.locator('label:has(input[value="N1"])').click();
+  assert.match(await page.locator('#range-error').textContent(), /0035.*图片/);
   await page.locator('#start').fill('40'); await page.locator('#end').fill('31');
   await page.locator('#start-reading').click();
   assert.match(await page.locator('#range-error').textContent(), /结束编号/);
+  await ctx.close();
+});
+
+test('N5 cards have both screenshots and open for reading', async () => {
+  const ctx = await context(); const page = await ctx.newPage(); await ready(page);
+  await page.locator('label:has(input[value="N5"])').click();
+  await page.locator('#start').fill('70'); await page.locator('#end').fill('74');
+  await page.locator('#start-reading').click();
+  await page.waitForFunction(() => document.getElementById('thumbnail-image').naturalWidth > 0);
+  assert.equal(await page.locator('#card-id').textContent(), 'N5-G-0070');
+  assert.match(await page.locator('#card-core h2').first().textContent(), /^功能/);
   await ctx.close();
 });
 

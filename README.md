@@ -50,6 +50,6 @@ npx wrangler pages deploy public --project-name jlpt-image-cards --branch main
 
 ## 更新资料版本
 
-资料仍由原仓库维护。需要更新卡片目录时，在原项目中使用其 Python 构建器读取已经推送的资料提交，再将生成的 `catalog.json` 更新到本仓库的 `data/catalog.json`，运行 `python3 scripts/update_catalog_core.py --study /absolute/path/to/jlpt-study` 补入相同提交的完整核心内容，最后执行 `node scripts/build.mjs`。没有独立“核心”章节的旧卡片会保留名称含“核心”的完整章节。构建器来源保存在 `docs/reference/mobile_site.py`，依赖和资料校验流程属于原项目。
+资料仍由原仓库维护。需要更新卡片目录时，运行 `python3 scripts/refresh_catalog.py --study /absolute/path/to/jlpt-study --revision <提交>`：它读取该提交的全部语法卡，重写 `data/catalog.json` 的卡片列表、标题、图片路径和完整核心内容（卡片缺少接续图或例句图时中止）；随后用 `scripts/setup_study.py` 的 `materialize_images` 导出该提交的图片，再执行 `node scripts/build-server.mjs`。只想更新已有卡片的核心时仍可用 `python3 scripts/update_catalog_core.py --study /absolute/path/to/jlpt-study`。没有独立“核心”章节的旧卡片会保留名称含“核心”的完整章节。构建器来源保存在 `docs/reference/mobile_site.py`，依赖和资料校验流程属于原项目。
 
 API Token、账户登录配置和未来的大模型密钥均应使用 Cloudflare Secrets 或本地忽略文件保存。
