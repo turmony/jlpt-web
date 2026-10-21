@@ -88,11 +88,10 @@
 .recall-switch[aria-checked=mixed] .recall-switch-thumb{transform:translateX(10px);background:var(--accent-text);opacity:.75}
 .recall-switch[aria-checked=true]{color:var(--accent-text)}
 .recall-rows.is-hidden{cursor:pointer}
-.recall-mask{display:block;width:var(--mask-width,70%);height:14px;border-radius:7px;background:linear-gradient(90deg,var(--raised) 0%,var(--control-line) 45%,var(--raised) 90%);background-size:220% 100%;animation:recall-shimmer 2.8s ease-in-out infinite}
+.recall-mask{display:block;width:var(--mask-width,70%);height:14px;border-radius:7px;background:var(--control-line);opacity:.7}
 .recall-text.is-revealed{animation:recall-reveal .22s ease}
-@keyframes recall-shimmer{0%{background-position:100% 0}100%{background-position:-120% 0}}
 @keyframes recall-reveal{from{opacity:0}to{opacity:1}}
-@media(prefers-reduced-motion:reduce){.recall-mask,.recall-text.is-revealed{animation:none}}
+@media(prefers-reduced-motion:reduce){.recall-text.is-revealed{animation:none}}
 .recall-form{margin:0 0 2px;font-size:18px}
 .recall-rows{margin:0;padding-left:28px}
 .recall-row{min-height:44px;padding:6px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
