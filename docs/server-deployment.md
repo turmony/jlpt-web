@@ -456,3 +456,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261021-spaced-review`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 均已切换并重启 `jlpt.service`。`/review/` 顶部（“第 N 轮 · 已学”上方）新增“今日复习”：服务端 `server/review.py` 按路径加载学习仓库的 `src/jlpt_notes/spaced_review.py`（与 `groups.py` 同样的加载方式），新增 `GET /api/review/spaced`（到期清单，按学习日期分组，附单元标题）与 `POST /api/review/spaced/submit`（`{"units": [...]}`，只接受当前到期的单元，全部通过才写入，重复提交返回 409）。记录写入学习仓库 `jlpt-notes/groups/spaced-reviews.json`，网站不提交 Git；学习仓库缺少该模块时接口返回 500 并指出路径。
 
 验证：69 项后端测试（1 项跳过）与 20 项浏览器测试通过（新增“今日复习按学习日期分组并记录勾选”）；手机宽度截图核对布局。发布后与上一版本逐文件比对，static 只有 `review/index.html`、`review/review.css`、`review/review.mjs` 不同，app 源码与仓库一致；公网 `/review/` 未登录 303、`/api/review/today` 与 `/api/review/spaced` 401，`jlpt.service` 与 caddy 运行中。未登录状态下无法核对接口内容，登录后的行为以浏览器测试为准。网页提交 `d7b1631`，学习仓库提交 `843ab5f`。回滚：把 `/srv/jlpt/app` 切回 `20261021-no-sentence/app`、`/srv/jlpt/static` 切回 `20261021-catalog-refresh/static` 后重启服务。
+
+## 关闭旧复习周期（2026-10-21）
+
+发布目录为 `/srv/jlpt/releases/20261021-cycle-off`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 均已切换并重启 `jlpt.service`。学习仓库的 `groups/plan.json` 新增可选 `review_cycle`，当前为 `"off"`：规则模块 `groups.py` 不再触发“复习已到期”，`start_unit` 不再因旧复习而拒绝新单元，`progress.days_to_review` 为 `null`（规则在学习仓库，网站按路径加载，`server/` 代码无变化）。本次网站只改 `web/review/review.mjs`：`days_to_review` 为 `null` 时隐藏“距下次复习还差…/复习已到期”那一行。
+
+验证：70 项后端测试（1 项跳过）、21 项浏览器测试通过（新增“周期开启时显示该行，关闭后隐藏”）。发布后与上一版本逐文件比对，static 只有 `review/review.mjs` 不同，server 代码一致；用线上 app 代码读取线上学习仓库得到：状态 `not_prepared`、下一单元 G-015、复习为空、`days_to_review` 为 `null`；公网 `/review/` 未登录 303、两个 `/api/review/*` 接口 401，`jlpt.service` 与 caddy 运行中。网页提交 `53b4d9c`，学习仓库提交 `0b57095`。回滚：把 `/srv/jlpt/app` 与 `/srv/jlpt/static` 切回 `20261021-spaced-review` 下对应目录后重启服务（旧页面在 `review_cycle` 为 `off` 时会多显示一行“复习已到期”，不影响使用；要恢复旧周期，把 `plan.json` 的该字段改为 `"on"`）。
