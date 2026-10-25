@@ -112,7 +112,12 @@ class ReviewModuleTests(unittest.TestCase):
             review.unit_view(self.study, 'B-01-1')
 
     def plan_spaced(self, anchors, done=None):
+        """Write the plan file; every anchored unit counts as submitted the day before its first review."""
         write_json(self.notes / 'groups/spaced-reviews.json', {'schema_version': 1, 'anchors': anchors, 'done': done or []})
+        for unit, anchor in anchors.items():
+            day = datetime.fromisoformat(anchor) - timedelta(days=1)
+            write_json(self.notes / 'groups/submissions/r1' / f'{unit}.json',
+                       {'unit_id': unit, 'submitted_at': f'{day:%Y-%m-%d}T20:00:00+08:00'})
 
     def test_spaced_today_lists_due_units_with_titles(self):
         today = datetime.now(review.load_spaced(self.study).TZ).date()
@@ -121,6 +126,19 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual(state['today'], today.isoformat())
         self.assertEqual([(group['day'], group['units']) for group in state['groups']], [(1, ['B-01-1', 'G-009'])])
         self.assertEqual(state['titles'], {'B-01-1': 'に'})
+
+    def test_an_anchor_without_a_submission_is_not_listed(self):
+        today = datetime.now(review.load_spaced(self.study).TZ).date().isoformat()
+        self.plan_spaced({'G-001': today})
+        (self.notes / 'groups/submissions/r1/G-001.json').unlink()
+        self.assertEqual(review.spaced_today(self.study)['groups'], [])
+
+    def test_today_carries_the_daily_new_units_only_when_the_plan_sets_them(self):
+        self.assertIsNone(review.today(self.study)['daily'])
+        write_json(self.notes / 'groups/plan.json', {'schema_version': 1, 'round': 1, 'daily_new': 2})
+        daily = review.today(self.study)['daily']
+        self.assertEqual((daily['limit'], daily['done_today'], daily['full']), (2, 0, False))
+        self.assertEqual([(slot['id'], slot['status']) for slot in daily['slots']], [('B-01-1', 'current'), ('B-01-2', 'unprepared')])
 
     def test_spaced_today_without_a_plan_file_is_empty(self):
         state = review.spaced_today(self.study)
@@ -310,6 +328,9 @@ class ReviewHTTPTests(unittest.TestCase):
         today = datetime.now(review.load_spaced(self.study).TZ).date().isoformat()
         write_json(self.notes / 'groups/spaced-reviews.json',
                    {'schema_version': 1, 'anchors': {'G-001': today, 'G-002': today}, 'done': []})
+        for unit in ('G-001', 'G-002'):
+            write_json(self.notes / 'groups/submissions/r1' / f'{unit}.json',
+                       {'unit_id': unit, 'submitted_at': '2026-10-01T20:00:00+08:00'})
         for request in (lambda: self.request('/api/review/spaced'), lambda: self.request('/api/review/spaced/submit', {'units': ['G-001']})):
             self.assertEqual(request().status, 401)
         self.login()

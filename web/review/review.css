@@ -19,6 +19,16 @@
 .spaced-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
 .spaced-bar .primary{min-height:44px;padding:8px 26px}
 
+/* Today's new units: the day's quota and where each stands */
+.daily{margin:20px 0 0;padding:18px}
+.daily h2{margin-bottom:6px}
+.daily>p{margin:4px 0}
+.daily-list{list-style:none;margin:8px 0 0;padding:0}
+.daily-list li{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
+.daily-list li:last-child{border-bottom:0}
+.daily-list .unit-name{flex:1;min-width:0;overflow-wrap:anywhere}
+.daily-list button{min-height:32px;padding:2px 14px;border-radius:999px;font-size:13px}
+
 /* Progress, always above the status card */
 .plan-progress{margin:20px 0 22px}
 .plan-progress p{margin:6px 0}

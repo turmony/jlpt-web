@@ -53,6 +53,7 @@ let today;
 async function refresh() {
   refreshSpaced();
   today = await api('/today');
+  renderDaily();
   renderProgress();
   renderStatus();
 }
@@ -254,6 +255,29 @@ function reviewNode(review) {
   return node;
 }
 
+// ---- Today's new units: this many a day (plan.json `daily_new`), counted from what was actually submitted ----
+const DAILY_LABEL = {learned: '今天已完成 ✓', in_progress: '进行中', current: '待学', prepared: '待学', unprepared: '尚未准备'};
+
+function renderDaily() {
+  const daily = today.daily;
+  $('daily-new').hidden = !daily;
+  if (!daily) return;
+  const waiting = ['review', 'review_not_ready'].includes(today.state);
+  $('daily-summary').textContent = waiting ? '复习已到期：先完成复习，再学新单元'
+    : daily.full ? `今天的 ${daily.limit} 个单元已学完`
+    : `每天 ${daily.limit} 个 · 今天已交卷 ${daily.done_today} 个，还差 ${daily.limit - daily.done_today} 个`;
+  const ahead = canStartAhead();
+  $('daily-list').replaceChildren(...daily.slots.map(slot => {
+    const action = unitAction(slot, ahead);
+    const label = h('span', {className: 'status-chip', textContent: DAILY_LABEL[slot.status] || slot.status});
+    label.dataset.status = slot.status;
+    return h('li', {},
+      h('span', {className: 'unit-name', textContent: `${slot.id} ${slot.title}`}),
+      label,
+      action ? h('button', {type: 'button', textContent: action === '提前学' ? '开始' : action, onclick: () => openUnit(slot.id).catch(notice)}) : null);
+  }));
+}
+
 function chip(status) {
   const node = h('span', {className: 'status-chip', textContent: STATUS[status] || status});
   node.dataset.status = status;
@@ -290,6 +314,7 @@ function renderStatus() {
 
 function showOverview() {
   $('spaced-review').hidden = false;
+  $('daily-new').hidden = !today?.daily;
   $('unit-view').hidden = true;
   $('review-view').hidden = true;
   $('plan-progress').hidden = false;
@@ -300,6 +325,7 @@ function showOverview() {
 function showFlow(id) {
   notice(null);
   $('spaced-review').hidden = true;
+  $('daily-new').hidden = true;
   $('plan-progress').hidden = true;
   $('status').hidden = true;
   $('unit-view').hidden = id !== 'unit-view';

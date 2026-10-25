@@ -67,6 +67,9 @@ test('today\'s spaced review groups due units by learning date and records the t
   const beijing=offset=>new Date(Date.now()+8*3600e3+offset*864e5).toISOString().slice(0,10);
   const plan=join(tmp,'study/jlpt-notes/groups/spaced-reviews.json');
   await writeFile(plan,JSON.stringify({schema_version:1,anchors:{'G-001':beijing(0),'G-002':beijing(0),'G-003':beijing(-2)},done:[]}));
+  const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');
+  await mkdir(folder,{recursive:true});
+  for (const [unit,offset] of [['G-001',-1],['G-002',-1],['G-003',-3]]) await writeFile(join(folder,`${unit}.json`),JSON.stringify({unit_id:unit,submitted_at:`${beijing(offset)}T20:00:00+08:00`}));
   await page.reload();
   const block=page.locator('#spaced-review');
   await block.getByText('有 3 个单元待复习').waitFor();
@@ -91,6 +94,26 @@ test('today\'s spaced review groups due units by learning date and records the t
   await page.reload();
   await block.getByText('有 1 个单元待复习').waitFor();
   assert.equal(await block.locator('.spaced-unit[aria-pressed=true]').count(),0);
+}));
+
+test('today\'s new units follow daily_new and what was actually submitted',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  const notes=join(tmp,'study/jlpt-notes/groups');
+  assert.equal(await page.locator('#daily-new').isHidden(),true);
+  await mkdir(notes,{recursive:true});
+  await writeFile(join(notes,'plan.json'),JSON.stringify({schema_version:1,round:1,review_cycle:'off',daily_new:2}));
+  await page.reload();
+  const block=page.locator('#daily-new');
+  await block.getByText('每天 2 个 · 今天已交卷 0 个，还差 2 个').waitFor();
+  const rows=block.locator('li');
+  assert.equal(await rows.count(),2);
+  assert.match(await rows.nth(0).innerText(),/B-01-1[\s\S]*待学[\s\S]*开始/);
+  assert.match(await rows.nth(1).innerText(),/B-01-2[\s\S]*尚未准备/);
+  assert.equal(await rows.nth(1).getByRole('button').count(),0);
+  await mkdir(join(notes,'submissions/r1'),{recursive:true});
+  await writeFile(join(notes,'submissions/r1/B-01-1.json'),JSON.stringify({schema_version:1,unit_id:'B-01-1',round:1,paper:'2026-10-17-b-01-1',note:'',submitted_at:new Date().toISOString()}));
+  await page.reload();
+  await block.getByText('今天已交卷 1 个，还差 1 个').waitFor();
+  assert.match(await rows.nth(0).innerText(),/B-01-1[\s\S]*今天已完成 ✓/);
 }));
 
 test('the cycle line follows the plan: shown while the 7-day review is on, hidden once it is retired',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
