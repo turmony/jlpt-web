@@ -285,6 +285,16 @@ HTTP 接口校验登录、请求来源、任务身份及运行状态；按发送
 - 手机尺寸已验证：创建账号、项目列表、git 面板、粘贴图片后 Claude 能读取图片并回复、额度显示。
 - 新建项目只能放在 `/root/projects` 下：服务设置 `WORKSPACES_ROOT=/root/projects`，同一个启动补丁去掉了 CloudCLI 对 `/root` 的整体禁止（它以 root 运行，原规则会拒绝整个 `/root/projects`）。`/root` 本身、`/root/.ssh` 以及 `/etc` 等系统目录仍被拒绝。2026-10-15 已从 CloudCLI 数据库清理已不存在的临时项目和 Codex 会话，删除前副本在 `/var/backups/cloudcli-cleanup-20261015T034156Z/`。
 
+### 云开发聊天页滚动跳动修复（2026-10-25）
+
+现象：在 iPhone/iPad 上，Claude 回答完后往回滑，内容会突然跳动，已看过的尾部消息又出现；滑到第一条提问后往下滑偶尔失效。原因：上游给每条消息设了 `content-visibility: auto`，WebKit 先按 180/240px 的估计高度排版屏幕外的消息，进入视口时换成真实高度却不修正滚动位置；回答结束后的刷新会重建消息行，使其丢失已记住的高度，所以刚答完时最明显。上游 `LazyMessageRow` 已卸载远处消息，因此 `subpath-shim.js` 直接把 `.chat-messages-pane .chat-message` 改为 `content-visibility: visible`。
+
+发布：只复制新 shim 到 `/srv/cloudcli/` 并重新执行 `patch-subpath.mjs`（与 `ExecStartPre` 相同，幂等）。`index.html` 每次从磁盘读取且不缓存，因此未重启 `cloudcli.service`，进行中的对话不受影响；`index.html` 只有 shim 的 `?v=` 哈希变化。提交 `03df302`。
+
+验证：用隔离的 CloudCLI 实例（数据库副本、3011 端口）在 WebKit iPhone 13 模拟中从底部每次上滑 200px，滑过一个长会话（约 77 步，含分页加载更早消息）。修复前可见内容累计偏移约 2.4 万 px，约 15 步超过 300px；修复后约 47px，无一步超过 300px。Chromium 修复前约 200px，本就基本正常。上线后本机 3001 返回的 shim 与提交一致，Caddy `/code/` 未登录仍 303 到登录页。“到顶后往下滑失效”在模拟中未能复现，待真机观察。测试时线上 CloudCLI 自动登记了临时项目 `cc-scroll-test`，已删除其项目和会话行，删除前数据库副本在 `/var/backups/cloudcli-db-scrolltest-20261025T150413Z.db`。
+
+回滚：把 `/var/backups/cloudcli-shim-20261025T150643Z/subpath-shim.js` 复制回 `/srv/cloudcli/subpath-shim.js`，再执行 `node /srv/cloudcli/patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli`（或回退提交后重启 `cloudcli.service`）。
+
 ### 对话页状态栏与体验优化（2026-10-14）
 
 发布目录为 `/srv/jlpt/releases/20261014-chat-status-ux/static`，仅切换 `/srv/jlpt/static`，应用代码不变、服务未重启，任务与数据库未改动。相对上一版本仅 `chat.css`、`chat.mjs`、`practice.html`、`practice.mjs`、`site.css` 变化，960 张图片为硬链接。
