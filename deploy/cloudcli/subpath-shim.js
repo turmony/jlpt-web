@@ -48,8 +48,15 @@
   }
 
   // Subscription quota pill (5-hour and weekly windows) from quota.py.
+  // Also turns off upstream's content-visibility on transcript rows: WebKit lays an
+  // off-screen row out at its 180/240px estimate and then at its real height without
+  // correcting the scroll position, so on iPhone/iPad the transcript jumps by up to
+  // thousands of pixels while scrolling up, worst right after a reply (the refresh
+  // remounts rows and they lose their remembered heights). LazyMessageRow already
+  // unmounts distant rows, so this costs little.
   const style = document.createElement('style');
   style.textContent = `
+    .chat-messages-pane .chat-message { content-visibility: visible; }
     .cc-quota { position: fixed; z-index: 60; top: calc(env(safe-area-inset-top) + 66px); right: 16px; font: 500 12px/1 system-ui, sans-serif; }
     .cc-quota button { display: flex; gap: 6px; align-items: center; min-height: 28px; padding: 0 10px; color: #3f3f46; background: rgba(255,255,255,.92); border: 1px solid #e4e4e7; border-radius: 999px; box-shadow: 0 1px 3px rgba(0,0,0,.08); cursor: pointer; font: inherit; }
     .cc-quota [data-level="warn"] { color: #b45309; }
