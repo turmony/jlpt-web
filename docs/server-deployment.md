@@ -478,3 +478,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 ## 用法遮罩条改为静态（2026-10-21）
 
 发布目录为 `/srv/jlpt/releases/20261021-usage-mask-static`，仅切换 `/srv/jlpt/static`，app 与服务不变。上一版隐藏用法时的遮罩条带缓慢微光，现改为静态纯色（`--control-line`，不透明度 .7），去掉 `recall-shimmer` 动画；开关滑动与揭开时文字淡入保持不变，`prefers-reduced-motion` 下淡入也不动。仅改 `web/review/review.css`。验证：22 项浏览器测试通过，手机宽度截图核对；发布后与上一版本比对只有 `review/review.css` 不同，且与源码一致；本机 `/review/` 未登录 303、`/api/review/today` 401，`jlpt.service` 与 caddy 运行中。网页提交 `27debfe`。回滚：把 `/srv/jlpt/static` 切回 `20261021-usage-switch/static`。
+
+## 今日学习与复习只认已交卷单元（2026-10-25）
+
+发布目录为 `/srv/jlpt/releases/20261025-daily-new`，仅切换 `/srv/jlpt/static`，app 与服务不变、未重启。`/review/` 在“今日复习”下面新增“今日学习”面板：读取 `/api/review/today` 里 `plan_state` 新增的 `daily`（规则在学习仓库 `groups.py`，网站按路径加载，学习仓库工作区改动即时生效），显示今天的新单元、已交卷的标“今天已完成 ✓”、未准备的标“尚未准备”。每天个数为学习仓库 `groups/plan.json` 的 `daily_new`（目前 2），今日名额只看实际交卷进度，不按日历推断；不写 `daily_new` 则面板隐藏。同时，学习仓库的 `spaced_review.py` 改为只列本轮已交卷的单元，复习分组的“X 月 X 日学的”用真实交卷日。
+
+验证：72 项后端测试（1 项跳过）、23 项浏览器测试通过（新增“今日学习按 daily_new 与实际交卷显示”，复习测试改为先写交卷再写复习起点）。发布后与上一版本逐文件比对，static 只有 `review/index.html`、`review/review.css`、`review/review.mjs` 不同，三者与源码一致；公网 `/review/` 未登录 303、`/api/review/today` 与 `/api/review/spaced` 401，`jlpt.service` 与 caddy 运行中；用线上规则读取线上学习仓库得到今日学习 G-015、G-016。网页提交 `03cf997`，学习仓库提交 `831cb84`。回滚：把 `/srv/jlpt/static` 切回 `20261021-usage-mask-static/static`。
