@@ -270,7 +270,7 @@ test('usages show on the first look, start as bars once the unit is entered, and
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
-test('each form of an entered unit has a 忘了 button that counts every tap, can take the last taps back and keeps the count',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+test('each form of an entered unit has a wordless can\'t-recall sticker that counts every tap, can take the last taps back and keeps the count',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   const log=async()=>{try{return JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/forgets.json'),'utf8')).events;}catch{return [];}};
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
   await page.locator('#status').getByRole('button',{name:'开始'}).click();
@@ -279,33 +279,41 @@ test('each form of an entered unit has a 忘了 button that counts every tap, ca
   assert.equal(await page.locator('#recall-list .forget').count(),0);
   await page.getByRole('button',{name:'进入对比页'}).click();
   await page.locator('#unit-page').waitFor();
+  const group=page.locator('#recall-list .recall-group');
   const forget=page.locator('#recall-list .forget');
+  const count=index=>group.nth(index).locator('.forget-count').innerText();
   assert.equal(await forget.count(),2);
-  assert.deepEqual(await forget.evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))),['に 忘了，还没记过','へ 忘了，还没记过']);
+  assert.deepEqual(await forget.evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))),['に 想不起来，已记 0 次','へ 想不起来，已记 0 次']);
+  // No words on the sticker, only a face; zero is shown too.
+  assert.doesNotMatch(await page.locator('#recall-list').innerText(),/忘/);
+  assert.deepEqual([await count(0),await count(1)],['0','0']);
+  const face=await forget.first().locator('.forget-face').innerText();
+  await forget.first().click();
+  assert.notEqual(await forget.first().locator('.forget-face').innerText(),face);
   await forget.first().click();
   await forget.first().click();
-  await forget.first().click();
-  assert.equal(await forget.first().locator('.forget-count').innerText(),'3');
-  await page.waitForFunction(()=>document.querySelectorAll('.forget-burst > *').length>0);
-  const undo=page.locator('#recall-list .recall-group').first().getByRole('button',{name:'撤销'});
+  assert.equal(await count(0),'3');
+  // Each tap throws out a sticker with the count it reached.
+  assert.equal(await page.locator('#recall-list .forget-burst > *').last().innerText(),'3');
+  const undo=group.first().getByRole('button',{name:'撤销'});
   await undo.waitFor();
   for (let wait=0;(await log()).length<3&&wait<50;wait++) await page.waitForTimeout(100);
   assert.deepEqual((await log()).map(event=>[event.unit,event.form,event.cards]),Array(3).fill(['B-01-1','に',['N5-G-0013']]));
   await undo.click();
-  assert.equal(await forget.first().locator('.forget-count').innerText(),'2');
+  assert.equal(await count(0),'2');
   for (let wait=0;(await log()).length>2&&wait<50;wait++) await page.waitForTimeout(100);
   assert.equal((await log()).length,2);
-  assert.equal(await forget.first().getAttribute('aria-label'),'に 忘了，已记 2 次');
+  assert.equal(await forget.first().getAttribute('aria-label'),'に 想不起来，已记 2 次');
   // The undo goes away by itself; the count is kept by the server.
   await undo.waitFor({state:'hidden',timeout:8000});
-  assert.equal(await forget.nth(1).locator('.forget-count').innerText(),'');
+  assert.equal(await count(1),'0');
   const box=await forget.first().boundingBox();
-  assert.ok(box.height>=44);
+  assert.ok(box.height>=44&&box.width>=44);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await page.reload();
   await page.locator('#status').getByRole('button',{name:'继续'}).click();
   await page.locator('#unit-page').waitFor();
-  assert.equal(await page.locator('#recall-list .forget').first().locator('.forget-count').innerText(),'2');
+  assert.equal(await page.locator('#recall-list .recall-group').first().locator('.forget-count').innerText(),'2');
 }));
 
 test('the comparison stacks by item on a phone, switches to per-form cards and has no sideways scroll',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{

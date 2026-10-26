@@ -97,24 +97,27 @@
 .recall-switch[aria-checked=mixed] .recall-switch-track{border-color:var(--accent)}
 .recall-switch[aria-checked=mixed] .recall-switch-thumb{transform:translateX(10px);background:var(--accent-text);opacity:.75}
 .recall-switch[aria-checked=true]{color:var(--accent-text)}
-.recall-tools{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;justify-content:flex-end}
-/* 忘了: a pill that squashes when tapped, a count whose changed digits roll in, and marks that float up and fade. */
-.forget{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border:1px solid var(--control-line);border-radius:999px;background:var(--surface);color:var(--muted);font-size:14px;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none}
-.forget:hover:not(:disabled){background:var(--raised);color:var(--ink)}
-.forget.is-counted,.forget.is-counted:hover:not(:disabled){border-color:var(--alert-line);background:var(--alert-bg);color:var(--error)}
-.forget.is-pressed{animation:forget-press .28s cubic-bezier(.3,.7,.3,1.4)}
-@keyframes forget-press{0%{transform:scale(1)}35%{transform:scale(.88,.92)}70%{transform:scale(1.06)}100%{transform:scale(1)}}
-.forget-count{display:inline-flex;font-weight:700;font-variant-numeric:tabular-nums}
-.forget-count:empty{display:none}
+.recall-tools{--forget-shadow:#7a5a14;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;justify-content:flex-end}
+/* "Can't recall" sticker: a gold block with a dark outline and a hard shadow it sinks into when tapped. The face wobbles,
+   the count beside it rolls its changed digits, and small stickers with the new count fly up and fade. */
+.forget{position:relative;display:inline-grid;place-items:center;width:44px;height:44px;padding:0;border:2px solid var(--on-accent);border-radius:12px;background:var(--accent);box-shadow:2px 2px 0 var(--forget-shadow);color:var(--on-accent);-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none;transition:transform 80ms,box-shadow 80ms,background .15s}
+.forget:hover:not(:disabled){border-color:var(--on-accent);background:var(--accent-strong)}
+.forget:active,.forget.is-pressed{box-shadow:0 0 0 var(--forget-shadow);transform:translate(2px,2px) rotate(-2deg)}
+.forget-face{display:inline-block;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;font-size:22px;line-height:1;transform-origin:50% 90%}
+.forget.is-pressed .forget-face{animation:forget-wobble .26s cubic-bezier(.34,1.56,.64,1)}
+@keyframes forget-wobble{40%{transform:scale(1.25) rotate(-12deg)}70%{transform:scale(.95) rotate(8deg)}}
+.forget-count{display:inline-flex;justify-content:flex-end;min-width:2ch;font-size:13px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;color:var(--muted);opacity:.8}
+.forget-count.is-counted{color:var(--accent-text);opacity:1}
 .forget-digit{display:inline-block}
 .forget-digit.is-changing{animation:forget-roll .26s cubic-bezier(.2,.8,.3,1)}
 @keyframes forget-roll{from{transform:translateY(70%);opacity:0}to{transform:none;opacity:1}}
 .forget-burst{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none}
-.forget-burst>span{position:absolute;left:0;top:0;font-size:var(--burst-size,18px);font-weight:700;line-height:1;white-space:nowrap;color:var(--error);transform:translate(-50%,-50%);animation:forget-float .9s cubic-bezier(.2,.7,.3,1) forwards}
-@keyframes forget-float{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}15%{opacity:1;transform:translate(-50%,-90%) scale(1.1)}100%{opacity:0;transform:translate(calc(-50% + var(--burst-x)),calc(-50% + var(--burst-y))) rotate(var(--burst-rotate)) scale(.9)}}
-.forget-undo{min-height:44px;padding:0 10px;border:0;background:none;color:var(--accent-text);font-size:14px;text-decoration:underline;text-underline-offset:3px}
-.forget-undo:hover:not(:disabled){background:none;color:var(--accent-strong)}
-@media(prefers-reduced-motion:reduce){.forget.is-pressed,.forget-digit.is-changing{animation:none}}
+.forget-burst>span{position:absolute;left:0;top:0;z-index:2;display:grid;place-items:center;min-width:28px;min-height:26px;padding:3px 7px 4px;border:2px solid var(--on-accent);border-radius:8px;background:var(--accent);box-shadow:2px 2px 0 var(--forget-shadow);color:var(--on-accent);font-size:var(--burst-size,16px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums;white-space:nowrap;will-change:transform,opacity;animation:forget-fly .85s cubic-bezier(.22,1,.36,1) forwards}
+@keyframes forget-fly{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}12%{opacity:1;transform:translate(-50%,-80%) scale(1.05)}70%{opacity:1}100%{opacity:0;transform:translate(calc(-50% + var(--burst-x)),calc(-50% + var(--burst-y))) rotate(var(--burst-rotate)) scale(.95)}}
+.forget-undo{display:inline-grid;place-items:center;width:36px;height:36px;padding:0;border:2px solid var(--control-line);border-radius:10px;background:var(--raised);box-shadow:2px 2px 0 var(--line);color:var(--ink);font-size:16px;line-height:1;transition:transform 80ms,box-shadow 80ms}
+.forget-undo:hover:not(:disabled){border-color:var(--muted);background:var(--raised)}
+.forget-undo:active{box-shadow:0 0 0 var(--line);transform:translate(2px,2px)}
+@media(prefers-reduced-motion:reduce){.forget,.forget-undo{transition:none}.forget.is-pressed .forget-face,.forget-digit.is-changing{animation:none}}
 .recall-rows.is-hidden{cursor:pointer}
 .recall-mask{display:block;width:var(--mask-width,70%);height:14px;border-radius:7px;background:var(--control-line);opacity:.7}
 .recall-text.is-revealed{animation:recall-reveal .22s ease}

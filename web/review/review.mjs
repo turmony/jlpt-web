@@ -543,57 +543,63 @@ function recallList(items, hidden, forgets) {
   return h('div', {className: 'recall'}, h('div', {className: 'recall-bar'}, all.button), list);
 }
 
-// 忘了: every tap of an entered unit's form is one timed record on the server, for statistics later. The tap counts at
-// once (rolled back if the server refuses); the last taps can be taken back while 撤销 shows, a few seconds after each.
-const FORGET_BURSTS = ['+1', '+1', '忘了', '💭', '😵'];
+// A "can't recall" sticker per form of an entered unit: every tap is one timed record on the server, for statistics later.
+// No words on it, just a face picked at random; the count sits beside it and each tap throws out a sticker with the new
+// count. The tap counts at once (rolled back if the server refuses); the last taps can be taken back while ↩ shows.
+const FORGET_FACES = ['💭', '🤯', '🫠', '😵‍💫'];
 const FORGET_UNDO_MS = 5000;
 const calm = matchMedia('(prefers-reduced-motion: reduce)');
+const random = (low, high) => Math.round(low + Math.random() * (high - low));
 
 function forgetButton(unitId, form, initial) {
   const path = `/units/${encodeURIComponent(unitId)}/forget`;
   const count = h('span', {className: 'forget-count'});
+  const face = h('span', {className: 'forget-face', textContent: FORGET_FACES[random(0, FORGET_FACES.length - 1)]});
   const burst = h('span', {className: 'forget-burst'});
-  burst.setAttribute('aria-hidden', 'true');
-  const button = h('button', {type: 'button', className: 'forget'}, h('span', {textContent: '忘了'}), count, burst);
-  const undo = h('button', {type: 'button', className: 'forget-undo', textContent: '撤销', hidden: true});
-  let total = initial, open = 0, timer;
+  for (const part of [count, face, burst]) part.setAttribute('aria-hidden', 'true');
+  const button = h('button', {type: 'button', className: 'forget'}, face, burst);
+  const undo = h('button', {type: 'button', className: 'forget-undo', textContent: '↩', hidden: true});
+  undo.setAttribute('aria-label', '撤销');
+  let total = initial, open = 0, timer, pressed;
   const events = [];
   // Requests go one after another, so an undo always takes back the newest record.
   let queue = Promise.resolve();
   const show = animate => {
-    const before = count.textContent, after = total ? String(total) : '';
+    const before = count.textContent, after = String(total);
     // Only the digits that changed roll in.
     count.replaceChildren(...[...after].map((digit, at) =>
       h('span', {className: animate && !calm.matches && (before.length !== after.length || before[at] !== digit) ? 'forget-digit is-changing' : 'forget-digit', textContent: digit})));
-    button.classList.toggle('is-counted', total > 0);
-    button.setAttribute('aria-label', total ? `${form} 忘了，已记 ${total} 次` : `${form} 忘了，还没记过`);
+    count.classList.toggle('is-counted', total > 0);
+    button.setAttribute('aria-label', `${form} 想不起来，已记 ${total} 次`);
   };
   const offerUndo = () => {
     clearTimeout(timer);
     undo.hidden = !open;
     if (open) timer = setTimeout(() => { open = 0; undo.hidden = true; }, FORGET_UNDO_MS);
   };
-  const fly = () => {
-    if (calm.matches) return;
-    const mark = h('span', {textContent: FORGET_BURSTS[Math.floor(Math.random() * FORGET_BURSTS.length)]});
-    const random = (low, high) => Math.round(low + Math.random() * (high - low));
-    mark.style.setProperty('--burst-x', `${random(-36, 28)}px`);
-    mark.style.setProperty('--burst-y', `${random(-96, -56)}px`);
-    mark.style.setProperty('--burst-rotate', `${random(-14, 14)}deg`);
-    mark.style.setProperty('--burst-size', `${random(16, 22)}px`);
-    mark.addEventListener('animationend', () => mark.remove(), {once: true});
-    burst.append(mark);
-    while (burst.childElementCount > 12) burst.firstElementChild.remove();
+  // The button sinks into its shadow and shows another face; a sticker with the new count flies off.
+  const press = () => {
+    face.textContent = FORGET_FACES.filter(next => next !== face.textContent)[random(0, FORGET_FACES.length - 2)];
+    clearTimeout(pressed);
     button.classList.remove('is-pressed');
     void button.offsetWidth;
     button.classList.add('is-pressed');
+    pressed = setTimeout(() => button.classList.remove('is-pressed'), 280);
+    if (calm.matches) return;
+    const sticker = h('span', {textContent: String(total)});
+    sticker.style.setProperty('--burst-x', `${random(-44, 20)}px`);
+    sticker.style.setProperty('--burst-y', `${random(-100, -58)}px`);
+    sticker.style.setProperty('--burst-rotate', `${random(-14, 14)}deg`);
+    sticker.style.setProperty('--burst-size', `${random(14, 18)}px`);
+    sticker.addEventListener('animationend', () => sticker.remove(), {once: true});
+    burst.append(sticker);
+    while (burst.childElementCount > 12) burst.firstElementChild.remove();
   };
-  button.addEventListener('animationend', event => { if (event.target === button) button.classList.remove('is-pressed'); });
   button.addEventListener('click', () => {
     total += 1;
     open += 1;
     show(true);
-    fly();
+    press();
     offerUndo();
     queue = queue.then(() => api(path, {form})).then(made => { events.push(made.event); }, error => {
       total -= 1;
@@ -611,7 +617,7 @@ function forgetButton(unitId, form, initial) {
     offerUndo();
     queue = queue.then(() => {
       const event = events.pop();
-      if (!event) throw new Error('这次忘了还没记上，无法撤销');
+      if (!event) throw new Error('这一次还没记上，无法撤销');
       return api(path + '/undo', {event}).catch(error => { events.push(event); throw error; });
     }).catch(error => {
       total += 1;
@@ -620,7 +626,7 @@ function forgetButton(unitId, form, initial) {
     });
   });
   show(false);
-  return [undo, button];
+  return [undo, count, button];
 }
 
 // The optional comparison of look-alike forms: stacked by item or by form on a phone, a real table when wide.
