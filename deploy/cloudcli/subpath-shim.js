@@ -47,6 +47,69 @@
     navigator.serviceWorker.register = (url, options) => register(fix(url), {...options, scope: base + '/'});
   }
 
+  // On-screen keyboard on iPhone/iPad. Upstream lifts its fixed workspace shell by
+  // innerHeight - visualViewport.height, rewritten only on visualViewport resize. Safari keeps
+  // the layout viewport's height and, racing that handler, pans the visual viewport up to reveal
+  // the composer, so the lift is counted twice (composer at the top of the screen or far above
+  // the keyboard); when the resize event is missed the lift goes stale (composer behind the
+  // keyboard, or stranded mid-screen after it closes). Pin the shell to the visual viewport
+  // instead, and re-read it after focus changes, once the keyboard animation is over.
+  // ?kbfix=0 restores upstream behaviour and ?kbdebug=1 shows the numbers; both are remembered.
+  const flag = (name, fallback) => {
+    try {
+      const value = new URLSearchParams(location.search).get(name);
+      if (value !== null) localStorage.setItem('cc-' + name, value === '0' ? '0' : '1');
+      return (localStorage.getItem('cc-' + name) ?? fallback) === '1';
+    } catch {
+      return fallback === '1';
+    }
+  };
+  const kbfix = flag('kbfix', '1');
+  const kbdebug = flag('kbdebug', '0');
+  const vv = window.visualViewport;
+  const events = [];
+  let debugPanel = null;
+  function syncViewport(event) {
+    if (!vv) return;
+    const rootStyle = document.documentElement.style;
+    // Pinch zoom shrinks the visual viewport too; leave the shell full size then.
+    if (Math.abs(vv.scale - 1) < 0.01) {
+      rootStyle.setProperty('--cc-vv-top', `${vv.offsetTop}px`);
+      rootStyle.setProperty('--cc-vv-height', `${vv.height}px`);
+    } else {
+      rootStyle.removeProperty('--cc-vv-top');
+      rootStyle.removeProperty('--cc-vv-height');
+    }
+    if (debugPanel) renderDebug(event?.type);
+  }
+  function renderDebug(type) {
+    const shell = document.querySelector('.fixed.inset-0[style*="keyboard-height"]')?.getBoundingClientRect();
+    const composer = document.querySelector('.chat-composer-shell')?.getBoundingClientRect();
+    const keyboardTop = Math.round(vv.offsetTop + vv.height);
+    const line = `L=${innerHeight} V=${Math.round(vv.height)} O=${Math.round(vv.offsetTop)} ` +
+      `K'=${document.documentElement.style.getPropertyValue('--keyboard-height') || '-'} ` +
+      `shell=${shell ? `${Math.round(shell.top)}..${Math.round(shell.bottom)}` : '-'} ` +
+      `gap=${composer ? keyboardTop - Math.round(composer.bottom) : '-'}`;
+    if (type) {
+      events.unshift(`${new Date().toTimeString().slice(3, 8)} ${type}: ${line}`);
+      events.length = Math.min(events.length, 8);
+    }
+    debugPanel.textContent = `kbfix=${kbfix ? 1 : 0} focus=${document.activeElement?.tagName || '-'}\n${line}\n\n${events.join('\n')}`;
+  }
+  if (vv) {
+    vv.addEventListener('resize', syncViewport);
+    vv.addEventListener('scroll', syncViewport);
+    window.addEventListener('resize', syncViewport);
+    // visualViewport's values stay current even when Safari skips its events.
+    for (const type of ['focusin', 'focusout']) {
+      document.addEventListener(type, event => {
+        syncViewport(event);
+        setTimeout(syncViewport, 300, {type: type + '+300'});
+        setTimeout(syncViewport, 700, {type: type + '+700'});
+      });
+    }
+  }
+
   // Subscription quota pill (5-hour and weekly windows) from quota.py.
   // Also turns off upstream's content-visibility on transcript rows: WebKit lays an
   // off-screen row out at its 180/240px estimate and then at its real height without
@@ -66,7 +129,11 @@
     .dark .cc-quota [data-level="warn"] { color: #fbbf24; }
     .dark .cc-quota [data-level="high"] { color: #f87171; }
     @media (max-width: 767px) { .cc-quota { top: calc(env(safe-area-inset-top) + 58px); right: auto; left: 12px; } .cc-quota .cc-quota-panel { right: auto; left: 0; } }
-  `;
+    .cc-kbdebug { position: fixed; z-index: 70; top: calc(var(--cc-vv-top, 0px) + 4px); left: 4px; right: 4px; max-height: 45vh; overflow: hidden; margin: 0; padding: 6px 8px; color: #fff; background: rgba(0,0,0,.72); border-radius: 6px; font: 10px/1.4 ui-monospace, monospace; white-space: pre-wrap; pointer-events: none; }
+  ` + (kbfix && vv ? `
+    .fixed.inset-0[style*="keyboard-height"] { top: var(--cc-vv-top, 0px) !important; bottom: auto !important; height: var(--cc-vv-height, 100%) !important; }
+    body.pwa-mode .fixed.inset-0[style*="keyboard-height"] { top: calc(var(--cc-vv-top, 0px) + var(--header-total-padding)) !important; height: calc(var(--cc-vv-height, 100%) - var(--header-total-padding)) !important; }
+  ` : '');
   const root = document.createElement('div');
   root.className = 'cc-quota';
   root.innerHTML = '<button type="button" aria-expanded="false" title="Claude 订阅额度">额度 …</button><div class="cc-quota-panel" hidden></div>';
@@ -119,6 +186,14 @@
   document.addEventListener('DOMContentLoaded', () => {
     document.head.append(style);
     document.body.append(root);
+    syncViewport();
+    if (kbdebug && vv) {
+      debugPanel = document.createElement('pre');
+      debugPanel.className = 'cc-kbdebug';
+      document.body.append(debugPanel);
+      renderDebug('load');
+      setInterval(renderDebug, 500);
+    }
     refresh();
     setInterval(refresh, 120000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
