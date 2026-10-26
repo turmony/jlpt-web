@@ -305,7 +305,7 @@ HTTP 接口校验登录、请求来源、任务身份及运行状态；按发送
 
 发布：与上一节相同，只复制 shim 并重新执行 `patch-subpath.mjs`，未重启 `cloudcli.service`。
 
-验证：WebKit 没有软键盘，测试在隔离实例（数据库副本、3011 端口，3012 端口代理成 `/code/`）中用 iPhone 13 模拟，替换 `visualViewport` 的 `height`/`offsetTop`/`scale` 并按 iOS 的方式派发事件。修复前 9 项中 7 项失败（上移时外壳顶部仍为 0、关键盘丢事件后外壳底部停在 328 而非 664、开键盘丢事件后停在 664 而非 328 等），修复后全部通过，包括 PWA、缩放、`kbfix=0`、`kbdebug`。不弹键盘时，修复前后外壳都是 0..664（iPhone）和 0..800（桌面 Chromium）。上线后本机 3001 返回的 shim 与提交一致，`index.html` 只有 shim 哈希变化，Caddy `/code/` 未登录仍 303。真机尚未验证。
+验证：WebKit 没有软键盘，测试在隔离实例（数据库副本、3011 端口，3012 端口代理成 `/code/`）中用 iPhone 13 模拟，替换 `visualViewport` 的 `height`/`offsetTop`/`scale` 并按 iOS 的方式派发事件。修复前 9 项中 7 项失败（上移时外壳顶部仍为 0、关键盘丢事件后外壳底部停在 328 而非 664、开键盘丢事件后停在 664 而非 328 等），修复后全部通过，包括 PWA、缩放、`kbfix=0`、`kbdebug`。不弹键盘时，修复前后外壳都是 0..664（iPhone）和 0..800（桌面 Chromium）。上线后本机 3001 返回的 shim 与提交一致，`index.html` 只有 shim 哈希变化，Caddy `/code/` 未登录仍 303。真机（2026-10-26）：竖屏正常；横屏输入框仍会被输入法挡住，用户认为可以接受，暂不处理。以后要查，先用 `?kbdebug=1` 在横屏下截图看各项数值。
 
 回滚：把 `/var/backups/cloudcli-shim-20261026T031032Z/subpath-shim.js` 复制回 `/srv/cloudcli/subpath-shim.js`，再执行 `node /srv/cloudcli/patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli`；只想临时关闭可在页面上用 `?kbfix=0`。
 
