@@ -270,6 +270,44 @@ test('usages show on the first look, start as bars once the unit is entered, and
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
+test('each form of an entered unit has a 忘了 button that counts every tap, can take the last taps back and keeps the count',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  const log=async()=>{try{return JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/forgets.json'),'utf8')).events;}catch{return [];}};
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
+  await page.locator('#recall-list').waitFor();
+  // First look: nothing learned yet, so nothing to forget.
+  assert.equal(await page.locator('#recall-list .forget').count(),0);
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page').waitFor();
+  const forget=page.locator('#recall-list .forget');
+  assert.equal(await forget.count(),2);
+  assert.deepEqual(await forget.evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))),['に 忘了，还没记过','へ 忘了，还没记过']);
+  await forget.first().click();
+  await forget.first().click();
+  await forget.first().click();
+  assert.equal(await forget.first().locator('.forget-count').innerText(),'3');
+  await page.waitForFunction(()=>document.querySelectorAll('.forget-burst > *').length>0);
+  const undo=page.locator('#recall-list .recall-group').first().getByRole('button',{name:'撤销'});
+  await undo.waitFor();
+  for (let wait=0;(await log()).length<3&&wait<50;wait++) await page.waitForTimeout(100);
+  assert.deepEqual((await log()).map(event=>[event.unit,event.form,event.cards]),Array(3).fill(['B-01-1','に',['N5-G-0013']]));
+  await undo.click();
+  assert.equal(await forget.first().locator('.forget-count').innerText(),'2');
+  for (let wait=0;(await log()).length>2&&wait<50;wait++) await page.waitForTimeout(100);
+  assert.equal((await log()).length,2);
+  assert.equal(await forget.first().getAttribute('aria-label'),'に 忘了，已记 2 次');
+  // The undo goes away by itself; the count is kept by the server.
+  await undo.waitFor({state:'hidden',timeout:8000});
+  assert.equal(await forget.nth(1).locator('.forget-count').innerText(),'');
+  const box=await forget.first().boundingBox();
+  assert.ok(box.height>=44);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await page.reload();
+  await page.locator('#status').getByRole('button',{name:'继续'}).click();
+  await page.locator('#unit-page').waitFor();
+  assert.equal(await page.locator('#recall-list .forget').first().locator('.forget-count').innerText(),'2');
+}));
+
 test('the comparison stacks by item on a phone, switches to per-form cards and has no sideways scroll',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page)=>{
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
   await page.locator('#status').getByRole('button',{name:'开始'}).click();

@@ -97,12 +97,30 @@
 .recall-switch[aria-checked=mixed] .recall-switch-track{border-color:var(--accent)}
 .recall-switch[aria-checked=mixed] .recall-switch-thumb{transform:translateX(10px);background:var(--accent-text);opacity:.75}
 .recall-switch[aria-checked=true]{color:var(--accent-text)}
+.recall-tools{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;justify-content:flex-end}
+/* 忘了: a pill that squashes when tapped, a count whose changed digits roll in, and marks that float up and fade. */
+.forget{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border:1px solid var(--control-line);border-radius:999px;background:var(--surface);color:var(--muted);font-size:14px;-webkit-tap-highlight-color:transparent;touch-action:manipulation;user-select:none;-webkit-user-select:none}
+.forget:hover:not(:disabled){background:var(--raised);color:var(--ink)}
+.forget.is-counted,.forget.is-counted:hover:not(:disabled){border-color:var(--alert-line);background:var(--alert-bg);color:var(--error)}
+.forget.is-pressed{animation:forget-press .28s cubic-bezier(.3,.7,.3,1.4)}
+@keyframes forget-press{0%{transform:scale(1)}35%{transform:scale(.88,.92)}70%{transform:scale(1.06)}100%{transform:scale(1)}}
+.forget-count{display:inline-flex;font-weight:700;font-variant-numeric:tabular-nums}
+.forget-count:empty{display:none}
+.forget-digit{display:inline-block}
+.forget-digit.is-changing{animation:forget-roll .26s cubic-bezier(.2,.8,.3,1)}
+@keyframes forget-roll{from{transform:translateY(70%);opacity:0}to{transform:none;opacity:1}}
+.forget-burst{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none}
+.forget-burst>span{position:absolute;left:0;top:0;font-size:var(--burst-size,18px);font-weight:700;line-height:1;white-space:nowrap;color:var(--error);transform:translate(-50%,-50%);animation:forget-float .9s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes forget-float{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}15%{opacity:1;transform:translate(-50%,-90%) scale(1.1)}100%{opacity:0;transform:translate(calc(-50% + var(--burst-x)),calc(-50% + var(--burst-y))) rotate(var(--burst-rotate)) scale(.9)}}
+.forget-undo{min-height:44px;padding:0 10px;border:0;background:none;color:var(--accent-text);font-size:14px;text-decoration:underline;text-underline-offset:3px}
+.forget-undo:hover:not(:disabled){background:none;color:var(--accent-strong)}
+@media(prefers-reduced-motion:reduce){.forget.is-pressed,.forget-digit.is-changing{animation:none}}
 .recall-rows.is-hidden{cursor:pointer}
 .recall-mask{display:block;width:var(--mask-width,70%);height:14px;border-radius:7px;background:var(--control-line);opacity:.7}
 .recall-text.is-revealed{animation:recall-reveal .22s ease}
 @keyframes recall-reveal{from{opacity:0}to{opacity:1}}
 @media(prefers-reduced-motion:reduce){.recall-text.is-revealed{animation:none}}
-.recall-form{margin:0 0 2px;font-size:18px}
+.recall-form{min-width:0;margin:0 0 2px;font-size:18px;overflow-wrap:anywhere}
 .recall-rows{margin:0;padding-left:28px}
 .recall-row{min-height:44px;padding:6px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}
 .recall-row::marker{color:var(--muted);font-variant-numeric:tabular-nums}

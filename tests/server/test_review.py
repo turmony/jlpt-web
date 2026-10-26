@@ -190,6 +190,61 @@ class ReviewModuleTests(unittest.TestCase):
         stored = json.loads((self.notes / 'groups/submissions/r1/B-01-1.json').read_text())
         self.assertEqual(stored, {'schema_version': 1, 'unit_id': 'B-01-1', 'round': 1, 'paper': UNIT_PAPER})
 
+    def forgets(self):
+        return json.loads((self.notes / 'groups/forgets.json').read_text())
+
+    def test_forget_needs_the_unit_entered_and_a_form_from_its_overview(self):
+        with self.assertRaises(review.Forbidden):
+            review.forget(self.study, 'B-01-1', 'に')
+        self.assertNotIn('forgets', review.unit_view(self.study, 'B-01-1'))
+        review.recall(self.study, 'B-01-1')
+        for form in ('で', '', None, ['に']):
+            with self.subTest(form=form), self.assertRaises(ValueError):
+                review.forget(self.study, 'B-01-1', form)
+        with self.assertRaises(KeyError):
+            review.forget(self.study, 'B-01-2', 'に')
+        self.assertFalse((self.notes / 'groups/forgets.json').exists())
+
+    def test_each_forget_is_one_timed_record_with_the_form_and_its_cards(self):
+        review.recall(self.study, 'B-01-1')
+        self.assertEqual(review.unit_view(self.study, 'B-01-1')['forgets'], {})
+        at = datetime(2026, 10, 26, 21, 5, 30, tzinfo=review.TZ)
+        first = review.forget(self.study, 'B-01-1', 'に', now=at)
+        second = review.forget(self.study, 'B-01-1', 'に', now=at)
+        self.assertEqual((first['count'], second['count']), (1, 2))
+        self.assertNotEqual(first['event'], second['event'])
+        review.forget(self.study, 'B-01-1', 'へ', now=at)
+        stored = self.forgets()
+        self.assertEqual(stored['schema_version'], 1)
+        self.assertEqual(stored['events'][0], {'id': first['event'], 'unit': 'B-01-1', 'form': 'に', 'cards': ['N5-G-0013'],
+                                               'at': '2026-10-26T21:05:30+08:00'})
+        self.assertEqual([event['form'] for event in stored['events']], ['に', 'に', 'へ'])
+        self.assertEqual(review.unit_view(self.study, 'B-01-1')['forgets'], {'に': 2, 'へ': 1})
+
+    def test_undo_forget_drops_only_that_record_and_only_within_two_minutes(self):
+        review.recall(self.study, 'B-01-1')
+        at = datetime(2026, 10, 26, 21, 5, 30, tzinfo=review.TZ)
+        first = review.forget(self.study, 'B-01-1', 'に', now=at)
+        second = review.forget(self.study, 'B-01-1', 'に', now=at)
+        self.assertEqual(review.undo_forget(self.study, 'B-01-1', second['event'], now=at + timedelta(minutes=2)), {'count': 1})
+        self.assertEqual([event['id'] for event in self.forgets()['events']], [first['event']])
+        with self.assertRaises(Conflict):
+            review.undo_forget(self.study, 'B-01-1', first['event'], now=at + timedelta(minutes=2, seconds=1))
+        for unit, event in (('B-01-1', second['event']), ('B-01-1', 'nope'), ('B-01-2', first['event'])):
+            with self.subTest(unit=unit, event=event), self.assertRaises(KeyError):
+                review.undo_forget(self.study, unit, event, now=at)
+        self.assertEqual(review.unit_view(self.study, 'B-01-1')['forgets'], {'に': 1})
+
+    def test_damaged_forget_log_is_a_study_data_error_with_its_path(self):
+        review.recall(self.study, 'B-01-1')
+        for text in ('{', '{"schema_version": 1}', '[]'):
+            (self.notes / 'groups/forgets.json').write_text(text)
+            with self.subTest(text=text):
+                with self.assertRaisesRegex(review.StudyDataError, 'groups/forgets.json'):
+                    review.unit_view(self.study, 'B-01-1')
+                with self.assertRaisesRegex(review.StudyDataError, 'groups/forgets.json'):
+                    review.forget(self.study, 'B-01-1', 'に')
+
     def test_legacy_recall_text_does_not_crash_view(self):
         path = self.notes / 'groups/submissions/r1/B-01-1.json'
         path.parent.mkdir(parents=True)
@@ -393,6 +448,21 @@ class ReviewHTTPTests(unittest.TestCase):
         self.assertEqual((self.submission()['sentence']['text'], self.submission()['note']), ('日本に行きます。', ''))
         self.assertEqual(self.request('/api/review/units/B-01-1/recall', {'missed': [0]}).status, 403)
         self.assertNotIn('recall', self.submission())
+
+    def test_forget_endpoints_over_http(self):
+        self.assertEqual(self.request('/api/review/units/B-01-1/forget', {'form': 'に'}).status, 401)
+        self.login()
+        self.assertEqual(self.request('/api/review/units/B-01-1/forget', {'form': 'に'}).status, 403)
+        self.request('/api/review/units/B-01-1/recall', {})
+        made = json.load(self.request('/api/review/units/B-01-1/forget', {'form': 'に'}))
+        self.assertEqual(made['count'], 1)
+        self.assertEqual(json.load(self.request('/api/review/units/B-01-1'))['forgets'], {'に': 1})
+        self.assertEqual(self.request('/api/review/units/B-01-1/forget', {'form': 'で'}).status, 400)
+        self.assertEqual(self.request('/api/review/units/B-01-1/forget', {'form': 'へ'}, origin='https://evil.example').status, 403)
+        self.assertEqual(self.request('/api/review/units/B-01-1/forget').status, 404)
+        self.assertEqual(json.load(self.request('/api/review/units/B-01-1/forget/undo', {'event': made['event']})), {'count': 0})
+        self.assertEqual(self.request('/api/review/units/B-01-1/forget/undo', {'event': made['event']}).status, 404)
+        self.assertEqual(json.loads((self.notes / 'groups/forgets.json').read_text())['events'], [])
 
     def test_recall_ignores_marks_sent_by_an_old_cached_page(self):
         self.login()

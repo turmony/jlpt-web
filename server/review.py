@@ -10,19 +10,26 @@ import json
 import re
 import sys
 import threading
+import uuid
+from collections import Counter
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, unquote
 
 from scripts.update_catalog_core import extract_core
 
 from . import papers
-from .papers import safe_file
+from .papers import atomic_write, safe_file
 from .store import Conflict
 
 NOTES = 'jlpt-notes'
 RULES = 'src/jlpt_notes/groups.py'
 SPACED = 'src/jlpt_notes/spaced_review.py'
+# Every tap of 忘了 in the usage overview, written only by this site; later statistics read it.
+FORGETS = 'groups/forgets.json'
+FORGET_UNDO = timedelta(minutes=2)
+TZ = timezone(timedelta(hours=8))
 IMAGES = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif'}
 FRONTMATTER = re.compile(r'\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)', re.S)
 # `[text](target)` or `![alt](target "title")`; nested brackets are left alone.
@@ -130,12 +137,17 @@ def _with_titles(study_root, state):
     return {**state, 'titles': titles}
 
 
+def _prepared_unit(groups, notes, unit_id):
+    unit = next((unit for unit in groups.load_catalog(notes).units if unit.id == unit_id), None)
+    if unit is None or not groups.is_prepared(notes, unit_id):
+        raise KeyError(unit_id)
+    return unit
+
+
 def unit_view(study_root, unit_id):
     notes = _notes(study_root)
     with _rules(study_root) as groups:
-        unit = next((unit for unit in groups.load_catalog(notes).units if unit.id == unit_id), None)
-        if unit is None or not groups.is_prepared(notes, unit_id):
-            raise KeyError(unit_id)
+        unit = _prepared_unit(groups, notes, unit_id)
         material = groups.unit_material(notes, unit_id)
         submission = _submission(groups, notes, unit_id) or {}
         view = {
@@ -156,6 +168,7 @@ def unit_view(study_root, unit_id):
             sentence = {'sentence': {'card': material['sentence']['card'], 'prompt': material['sentence']['prompt'],
                                      'text': written.get('text')}}
         return {**view,
+                'forgets': _forget_counts(_forget_log(notes), unit_id),
                 **({'key': key} if key is not None else {}),
                 'page': _rewrite(_body(notes, f'groups/{unit_id}.md'), 'groups'),
                 'cards': [_card(notes, card) for card in unit.members],
@@ -187,6 +200,62 @@ def recall(study_root, unit_id):
     with _write_lock, _rules(study_root) as groups:
         groups.start_unit(_notes(study_root), unit_id)
     return unit_view(study_root, unit_id)
+
+
+def forget(study_root, unit_id, form, now=None):
+    """Record one 忘了 for a form of an entered unit's usage overview, with the cards behind that form."""
+    notes = _notes(study_root)
+    with _write_lock, _rules(study_root) as groups:
+        _prepared_unit(groups, notes, unit_id)
+        if not _submission(groups, notes, unit_id):
+            raise Forbidden('先进入对比页，再标记忘了')
+        items = groups.unit_material(notes, unit_id)['recall_items']
+        cards = list(dict.fromkeys(item['card'] for item in items if item['form'] == form))
+        if not isinstance(form, str) or not cards:
+            raise ValueError('用法总览里没有这个语法形式')
+        events = _forget_log(notes)
+        event = {'id': uuid.uuid4().hex, 'unit': unit_id, 'form': form, 'cards': cards,
+                 'at': (now or datetime.now(TZ)).isoformat(timespec='seconds')}
+        _save_forget_log(notes, [*events, event])
+        return {'event': event['id'], 'count': _forget_counts([*events, event], unit_id)[form]}
+
+
+def undo_forget(study_root, unit_id, event_id, now=None):
+    """Drop one 忘了 tapped by mistake; only a record from the last two minutes can be taken back."""
+    notes = _notes(study_root)
+    with _write_lock:
+        events = _forget_log(notes)
+        event = next((event for event in events if event.get('id') == event_id and event.get('unit') == unit_id), None)
+        if event is None:
+            raise KeyError(event_id)
+        if (now or datetime.now(TZ)) - datetime.fromisoformat(event['at']) > FORGET_UNDO:
+            raise Conflict('已超过两分钟，不能撤销这次忘了')
+        events.remove(event)
+        _save_forget_log(notes, events)
+        return {'count': _forget_counts(events, unit_id).get(event['form'], 0)}
+
+
+def _forget_log(notes):
+    path = notes / FORGETS
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as error:
+        raise StudyDataError(f'忘了记录无法读取：{path}（{error}）') from error
+    events = data.get('events') if isinstance(data, dict) else None
+    if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
+        raise StudyDataError(f'忘了记录格式错误：{path}')
+    return events
+
+
+def _save_forget_log(notes, events):
+    data = {'schema_version': 1, 'events': events}
+    atomic_write(notes / FORGETS, (json.dumps(data, ensure_ascii=False, indent=2) + '\n').encode())
+
+
+def _forget_counts(events, unit_id):
+    return dict(Counter(event.get('form') for event in events if event.get('unit') == unit_id))
 
 
 def submit_unit(study_root, unit_id, answers, sentence, note):

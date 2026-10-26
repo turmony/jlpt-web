@@ -162,13 +162,17 @@ def create_server(app, address):
                 return self.reply(200, review.spaced_today(study))
             if path == '/spaced/submit' and post:
                 return self.reply(200, review.submit_spaced(study, self.json_body().get('units')))
-            match = re.fullmatch(r'/units/(B-\d{2}-\d+|G-\d{3})(/recall|/submit)?', path)
+            match = re.fullmatch(r'/units/(B-\d{2}-\d+|G-\d{3})(/recall|/submit|/forget|/forget/undo)?', path)
             if match:
                 unit_id, action = match.groups()
                 if action is None and not post:
                     return self.reply(200, review.unit_view(study, unit_id))
                 if action == '/recall' and post:
                     return self.reply(200, review.recall(study, unit_id))
+                if action == '/forget' and post:
+                    return self.reply(200, review.forget(study, unit_id, self.json_body().get('form')))
+                if action == '/forget/undo' and post:
+                    return self.reply(200, review.undo_forget(study, unit_id, self.json_body().get('event')))
                 if action == '/submit' and post:
                     body = self.json_body()
                     return self.reply(200, review.submit_unit(study, unit_id, body.get('answers'), body.get('sentence'), body.get('note')))

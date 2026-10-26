@@ -398,7 +398,7 @@ function renderUnit(view) {
   const root = $('unit-view');
   const scope = unit.position.slice(1).join(' › ');
   const compare = compareView(view.compare);
-  const usages = recallList(view.recall.items, session.started);
+  const usages = recallList(view.recall.items, session.started, session.started ? {unit: unit.id, counts: view.forgets || {}} : null);
   const recall = session.started
     ? [usages, compare]
     : [h('p', {className: 'muted', textContent: '先看一遍各语法形式与用法，再进入对比页。'}),
@@ -496,7 +496,7 @@ function usageSwitch(label, onToggle) {
 // entered they start hidden, as bars with no text in the page, so the learner recalls each usage before checking.
 // Nothing is stored about the switches.
 const MASK_WIDTHS = ['86%', '58%', '72%'];
-function recallList(items, hidden) {
+function recallList(items, hidden, forgets) {
   const list = h('div', {id: 'recall-list', className: 'recall-list'});
   const groups = [];
   const all = usageSwitch('全部', () => {
@@ -534,11 +534,93 @@ function recallList(items, hidden) {
     rows.addEventListener('click', () => { if (group.hidden) { group.set(false, true); sync(); } });
     groups.push(group);
     group.set(hidden, false);
+    const forget = forgets && forgetButton(forgets.unit, item.form, forgets.counts[item.form] || 0);
     list.append(h('section', {className: 'recall-group'},
-      h('div', {className: 'recall-head'}, h('h3', {className: 'recall-form', textContent: item.form}), toggle.button), rows));
+      h('div', {className: 'recall-head'}, h('h3', {className: 'recall-form', textContent: item.form}),
+        h('div', {className: 'recall-tools'}, ...(forget || []), toggle.button)), rows));
   });
   sync();
   return h('div', {className: 'recall'}, h('div', {className: 'recall-bar'}, all.button), list);
+}
+
+// 忘了: every tap of an entered unit's form is one timed record on the server, for statistics later. The tap counts at
+// once (rolled back if the server refuses); the last taps can be taken back while 撤销 shows, a few seconds after each.
+const FORGET_BURSTS = ['+1', '+1', '忘了', '💭', '😵'];
+const FORGET_UNDO_MS = 5000;
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+
+function forgetButton(unitId, form, initial) {
+  const path = `/units/${encodeURIComponent(unitId)}/forget`;
+  const count = h('span', {className: 'forget-count'});
+  const burst = h('span', {className: 'forget-burst'});
+  burst.setAttribute('aria-hidden', 'true');
+  const button = h('button', {type: 'button', className: 'forget'}, h('span', {textContent: '忘了'}), count, burst);
+  const undo = h('button', {type: 'button', className: 'forget-undo', textContent: '撤销', hidden: true});
+  let total = initial, open = 0, timer;
+  const events = [];
+  // Requests go one after another, so an undo always takes back the newest record.
+  let queue = Promise.resolve();
+  const show = animate => {
+    const before = count.textContent, after = total ? String(total) : '';
+    // Only the digits that changed roll in.
+    count.replaceChildren(...[...after].map((digit, at) =>
+      h('span', {className: animate && !calm.matches && (before.length !== after.length || before[at] !== digit) ? 'forget-digit is-changing' : 'forget-digit', textContent: digit})));
+    button.classList.toggle('is-counted', total > 0);
+    button.setAttribute('aria-label', total ? `${form} 忘了，已记 ${total} 次` : `${form} 忘了，还没记过`);
+  };
+  const offerUndo = () => {
+    clearTimeout(timer);
+    undo.hidden = !open;
+    if (open) timer = setTimeout(() => { open = 0; undo.hidden = true; }, FORGET_UNDO_MS);
+  };
+  const fly = () => {
+    if (calm.matches) return;
+    const mark = h('span', {textContent: FORGET_BURSTS[Math.floor(Math.random() * FORGET_BURSTS.length)]});
+    const random = (low, high) => Math.round(low + Math.random() * (high - low));
+    mark.style.setProperty('--burst-x', `${random(-36, 28)}px`);
+    mark.style.setProperty('--burst-y', `${random(-96, -56)}px`);
+    mark.style.setProperty('--burst-rotate', `${random(-14, 14)}deg`);
+    mark.style.setProperty('--burst-size', `${random(16, 22)}px`);
+    mark.addEventListener('animationend', () => mark.remove(), {once: true});
+    burst.append(mark);
+    while (burst.childElementCount > 12) burst.firstElementChild.remove();
+    button.classList.remove('is-pressed');
+    void button.offsetWidth;
+    button.classList.add('is-pressed');
+  };
+  button.addEventListener('animationend', event => { if (event.target === button) button.classList.remove('is-pressed'); });
+  button.addEventListener('click', () => {
+    total += 1;
+    open += 1;
+    show(true);
+    fly();
+    offerUndo();
+    queue = queue.then(() => api(path, {form})).then(made => { events.push(made.event); }, error => {
+      total -= 1;
+      open = Math.max(0, open - 1);
+      show(true);
+      offerUndo();
+      notice(error);
+    });
+  });
+  undo.addEventListener('click', () => {
+    if (!open) return;
+    total -= 1;
+    open -= 1;
+    show(true);
+    offerUndo();
+    queue = queue.then(() => {
+      const event = events.pop();
+      if (!event) throw new Error('这次忘了还没记上，无法撤销');
+      return api(path + '/undo', {event}).catch(error => { events.push(event); throw error; });
+    }).catch(error => {
+      total += 1;
+      show(true);
+      notice(error);
+    });
+  });
+  show(false);
+  return [undo, button];
 }
 
 // The optional comparison of look-alike forms: stacked by item or by form on a phone, a real table when wide.
