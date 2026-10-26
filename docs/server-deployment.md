@@ -295,6 +295,20 @@ HTTP 接口校验登录、请求来源、任务身份及运行状态；按发送
 
 回滚：把 `/var/backups/cloudcli-shim-20261025T150643Z/subpath-shim.js` 复制回 `/srv/cloudcli/subpath-shim.js`，再执行 `node /srv/cloudcli/patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli`（或回退提交后重启 `cloudcli.service`）。
 
+### 云开发聊天页键盘弹出时输入框错位修复（2026-10-26）
+
+现象：在 iPhone/iPad 上点聊天输入框后，有时输入框的底边跑到屏幕最上方，只露出一点；有时完整显示但和输入法之间空出一大段；有时被输入法完全挡住。
+
+原因：上游把工作区外壳设为 `fixed inset-0`，用 `bottom: var(--keyboard-height)` 给键盘让位，该值为 `innerHeight - visualViewport.height`，只在 `visualViewport` 的 `resize` 事件里更新。Safari 不支持 `interactive-widget=resizes-content`，弹键盘时不缩布局视口，还会把可视视口上移 `offsetTop` 来露出输入框，上游没有考虑这一项。输入框底边与键盘上沿的距离 = (所用值 − 真实键盘高度) + `offsetTop`：Safari 抢在 `resize` 之前上移时让位两次，竖屏中文输入法下键盘约占可视高度一半，输入框正好被推到顶上；上移一部分或所用值偏大时出现大空隙；`resize` 丢失、值仍为 0 且没有上移时被挡住。上游 issue #1456 / PR #1457 只处理了事件丢失这一半。
+
+修复：`subpath-shim.js` 用 `!important` 覆盖外壳的内联样式，`top`/`height` 跟随 `visualViewport.offsetTop`/`height`（PWA 模式另加 `--header-total-padding`，双指缩放时不跟随）；监听 `visualViewport` 的 `resize`/`scroll`、`window` 的 `resize`，并在 `focusin`/`focusout` 后 300ms、700ms 补读。上移时标题栏也留在屏幕内。开关：`/code/?kbfix=0` 恢复上游行为，`?kbdebug=1` 在顶部显示 L/V/O/K'、外壳位置、输入框到键盘的空隙 `gap` 和最近 8 次事件；两者存在浏览器本地，用 `=1`/`=0` 再切换（PWA 与 Safari 的存储互相独立）。提交 `261f19a`。
+
+发布：与上一节相同，只复制 shim 并重新执行 `patch-subpath.mjs`，未重启 `cloudcli.service`。
+
+验证：WebKit 没有软键盘，测试在隔离实例（数据库副本、3011 端口，3012 端口代理成 `/code/`）中用 iPhone 13 模拟，替换 `visualViewport` 的 `height`/`offsetTop`/`scale` 并按 iOS 的方式派发事件。修复前 9 项中 7 项失败（上移时外壳顶部仍为 0、关键盘丢事件后外壳底部停在 328 而非 664、开键盘丢事件后停在 664 而非 328 等），修复后全部通过，包括 PWA、缩放、`kbfix=0`、`kbdebug`。不弹键盘时，修复前后外壳都是 0..664（iPhone）和 0..800（桌面 Chromium）。上线后本机 3001 返回的 shim 与提交一致，`index.html` 只有 shim 哈希变化，Caddy `/code/` 未登录仍 303。真机尚未验证。
+
+回滚：把 `/var/backups/cloudcli-shim-20261026T031032Z/subpath-shim.js` 复制回 `/srv/cloudcli/subpath-shim.js`，再执行 `node /srv/cloudcli/patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli`；只想临时关闭可在页面上用 `?kbfix=0`。
+
 ### 对话页状态栏与体验优化（2026-10-14）
 
 发布目录为 `/srv/jlpt/releases/20261014-chat-status-ux/static`，仅切换 `/srv/jlpt/static`，应用代码不变、服务未重启，任务与数据库未改动。相对上一版本仅 `chat.css`、`chat.mjs`、`practice.html`、`practice.mjs`、`site.css` 变化，960 张图片为硬链接。
