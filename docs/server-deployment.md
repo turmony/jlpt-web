@@ -514,3 +514,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261026-forget`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 均已切换并重启 `jlpt.service`。进入对比页后，用法总览每个语法形式旁有“忘了”按钮（首次查看新单元时不显示）：每点一次，`POST /api/review/units/<单元>/forget`（`{"form": ...}`，只接受已进入对比页的单元、用法总览里有的形式）向学习仓库 `jlpt-notes/groups/forgets.json` 追加一条 `{id, unit, form, cards, at}`，`cards` 为该形式在 `recall_items` 里对应的全部卡号（形式与卡不是一一对应），`at` 为东八区时间；该文件只由网站写入，网站不提交 Git，以后统计常忘语法时读取它。`unit_view` 在已进入的单元上返回 `forgets`（形式 → 累计次数）。误点可在约 5 秒内点“撤销”，`POST .../forget/undo`（`{"event": id}`）只删除该条，服务端只认两分钟内的记录（过期 409、不存在 404）。动画参照 codex-resets.com 的 thanks：按钮压扁回弹、变化的数字滚入、随机飘出“+1／忘了／💭／😵”；系统开启减少动画时只改数字。
 
 验证：77 项后端测试（含真实 Caddy 与资料校验器）、24 项浏览器测试通过（新增“忘了”按钮的计数、撤销、写入与重新打开后保留）。发布后 static 与构建产物一致（只有 `review/review.css`、`review/review.mjs` 变化），app 只有 `server/app.py`、`server/review.py` 与文档、测试变化；本机与公网 `/review/` 未登录 303、`/api/review/today` 与新的 forget 接口 401，`jlpt.service` 与 caddy 运行中；用线上代码读取线上学习仓库，G-014 已进入对比页、`forgets` 为空。未在线上真实点按（不往学习记录里写测试数据）。网页提交 `87f11f6`。回滚：把 `/srv/jlpt/app` 切回 `20261021-cycle-off/app`、`/srv/jlpt/static` 切回 `20261025-daily-new/static` 后重启服务（`forgets.json` 留着不影响旧版本）。
+
+## “想不起来”按钮改为贴纸风（2026-10-26）
+
+发布目录为 `/srv/jlpt/releases/20261026-forget-sticker`，仅切换 `/srv/jlpt/static`，app 与服务不变、未重启。按用户选择改为参考站的贴纸风：金底、深色描边、深金色硬投影的方块按钮，按下沉进投影并微歪；按钮不写文字，只放从 💭🤯🫠😵‍💫 中随机的表情，每次点击换一个并晃动；按钮左侧始终显示当前次数（0 也显示），变化的数位滚入；飞出的小贴纸显示点击后的次数；撤销改为 ↩ 小贴纸（读屏名“撤销”）。按钮的读屏名为“<形式> 想不起来，已记 N 次”。接口与 `forgets.json` 不变。
+
+验证：77 项后端测试（含真实 Caddy 与资料校验器）、24 项浏览器测试通过（按钮测试改为检查无文字、0 也显示、换表情、贴纸显示当前次数）。发布后 static 与构建产物一致，与上一版本只有 `review/review.css`、`review/review.mjs` 不同；本机与公网 `/review/` 未登录 303，`jlpt.service` 与 caddy 运行中。网页提交 `1e7ef40`。回滚：把 `/srv/jlpt/static` 切回 `20261026-forget/static`。
