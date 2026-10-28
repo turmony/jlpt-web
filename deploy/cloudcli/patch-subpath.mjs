@@ -7,7 +7,7 @@ import {resolve, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 
-const VERIFIED = ['1.37.4', '1.37.5'];
+const VERIFIED = ['1.37.4', '1.37.5', '1.37.6'];
 const app = resolve(process.argv[2] || '/srv/cloudcli/node_modules/@cloudcli-ai/cloudcli');
 const dist = resolve(app, 'dist');
 const {version} = JSON.parse(await readFile(resolve(app, 'package.json'), 'utf8'));

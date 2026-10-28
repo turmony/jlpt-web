@@ -274,11 +274,11 @@ HTTP 接口校验登录、请求来源、任务身份及运行状态；按发送
 
 ### 云端 Claude Code（CloudCLI，2026-10-14）
 
-`/code/` 现在是 [CloudCLI](https://github.com/siteboon/claudecodeui) 1.37.5（AGPL-3.0，2026-10-19 由 1.37.4 升级），用于手机或平板操作服务器上的 Claude Code：粘贴图片和上传附件、历史会话（读取 `~/.claude/projects`）、文件树和 git 面板（暂存、提交、切换分支）。它使用 `claude /login` 的 Pro 订阅登录，服务里清除了 `ANTHROPIC_API_KEY`，避免改为按 token 计费。
+`/code/` 现在是 [CloudCLI](https://github.com/siteboon/claudecodeui) 1.37.6（AGPL-3.0，2026-10-28 由 1.37.5 升级），用于手机或平板操作服务器上的 Claude Code：粘贴图片和上传附件、历史会话（读取 `~/.claude/projects`）、文件树和 git 面板（暂存、提交、切换分支）。它使用 `claude /login` 的 Pro 订阅登录，服务里清除了 `ANTHROPIC_API_KEY`，避免改为按 token 计费。
 
 - 程序安装在 `/srv/cloudcli`（约 0.93 GB，已删去用不到的 Codex 原生二进制），服务为 `cloudcli.service`，监听 `127.0.0.1:3001`，`MemoryHigh=1G`、`MemoryMax=1400M`。数据库在 `/root/.cloudcli`。
 - 访问需先通过网站登录（Caddy `forward_auth`），再登录 CloudCLI 自己的单用户账号。首个访问者会创建该账号。
-- CloudCLI 只支持挂在根路径。`deploy/cloudcli/patch-subpath.mjs` 在每次服务启动前修改其前端，并注入 `subpath-shim.js`：设置路由前缀，把 API、WebSocket、service worker 的根路径改为 `/code/...`。`<img>` 等无法改写的根路径请求，由 Caddy 按 `Referer` 含 `/code/` 转给 CloudCLI。补丁里每处替换都必须恰好匹配 1 次，打包结构变了就会抛错、服务拒绝启动；`VERIFIED` 列出已核对的版本（1.37.4、1.37.5），其他版本只告警。
+- CloudCLI 只支持挂在根路径。`deploy/cloudcli/patch-subpath.mjs` 在每次服务启动前修改其前端，并注入 `subpath-shim.js`：设置路由前缀，把 API、WebSocket、service worker 的根路径改为 `/code/...`。`<img>` 等无法改写的根路径请求，由 Caddy 按 `Referer` 含 `/code/` 转给 CloudCLI。补丁里每处替换都必须恰好匹配 1 次，打包结构变了就会抛错、服务拒绝启动；`VERIFIED` 列出已核对的版本（1.37.4、1.37.5、1.37.6），其他版本只告警。
 - 升级用 `deploy/cloudcli/upgrade.sh <版本>`：先在 `/srv/cloudcli-next` 安装、删去 `@openai/codex-linux-x64`（370 MB，`codex`、`codex-sdk` 两个 JS 包启动时会被导入，必须保留）并对其打补丁，补丁失败则线上不受影响；再 `upgrade.sh <版本> --swap` 换目录并重启，健康检查失败自动换回并恢复数据库副本（`/var/backups/cloudcli-db-*`）。旧版留在 `/srv/cloudcli.prev`，确认 `/code/` 正常后手工删除。安装需约 1.3 GB 加 0.9 GB 的临时 npm 缓存（`/tmp/npm-cache-up`，脚本退出时清理），可用空间低于 2.5 GB 时脚本拒绝执行。`package.json` 精确锁定版本，不要在 `/srv/cloudcli` 里直接 `npm install`。
 - 页面右上角（手机为标题栏下方）显示订阅额度：5 小时和每周窗口的已用百分比，点开可看重置时间。数据来自 `cloudcli-quota.service`（`deploy/cloudcli/quota.py`，`127.0.0.1:3003`），读取 Claude 官方 OAuth usage 接口，缓存 60 秒，不刷新令牌。
 - 部署文件在 `deploy/cloudcli/`，对应安装位置：`/srv/cloudcli/`（补丁、shim、quota.py）、`/etc/systemd/system/`（两个服务）、`/etc/caddy/cloudcli.caddy` 和 `cloudcli-proxy.caddy`（Caddy 2.6 的 import 参数写作 `{args.0}`）。Caddyfile 修改前的副本在 `/var/backups/add-cloudcli-*`。
@@ -520,3 +520,11 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 发布目录为 `/srv/jlpt/releases/20261026-forget-sticker`，仅切换 `/srv/jlpt/static`，app 与服务不变、未重启。按用户选择改为参考站的贴纸风：金底、深色描边、深金色硬投影的方块按钮，按下沉进投影并微歪；按钮不写文字，只放从 💭🤯🫠😵‍💫 中随机的表情，每次点击换一个并晃动；按钮左侧始终显示当前次数（0 也显示），变化的数位滚入；飞出的小贴纸显示点击后的次数；撤销改为 ↩ 小贴纸（读屏名“撤销”）。按钮的读屏名为“<形式> 想不起来，已记 N 次”。接口与 `forgets.json` 不变。
 
 验证：77 项后端测试（含真实 Caddy 与资料校验器）、24 项浏览器测试通过（按钮测试改为检查无文字、0 也显示、换表情、贴纸显示当前次数）。发布后 static 与构建产物一致，与上一版本只有 `review/review.css`、`review/review.mjs` 不同；本机与公网 `/review/` 未登录 303，`jlpt.service` 与 caddy 运行中。网页提交 `1e7ef40`。回滚：把 `/srv/jlpt/static` 切回 `20261026-forget/static`。
+
+## CloudCLI 升至 1.37.6（2026-10-28）
+
+用 `deploy/cloudcli/upgrade.sh 1.37.6` 暂存、`--swap` 切换。升级前先清掉 `/root/.npm` 的 npm 下载缓存（约 880 MB，可重新生成），空闲空间才够脚本要求的 2.5 GB。
+
+对照 1.37.5 的包：依赖不变，数据库没有表结构改动；前端键盘外壳（`fixed inset-0` + `bottom: var(--keyboard-height, 0px)`，只在 `visualViewport` 的 `resize` 里更新）与 `.chat-composer-shell` 都没变，所以 2026-10-26 的键盘错位修复仍然适用，横屏仍被挡住的问题照旧。补丁的各处替换在新包上都恰好匹配 1 次，连续两遍通过。新版增加了输入框里的权限模式提示、排队追加消息、CLI 版本显示，以及文件查看器可读工作区根（`/root/projects`）下任意文件（写入范围不变）。
+
+验证：`/health` 返回 1.37.6，服务端 3001 的 shim 与仓库文件一致，`index.html` 和 bundle 带新哈希，`/root` 放行与模型名称标签生效，Caddy `/code/` 未登录返回 303，日志无报错。按用户要求，上线后删除了 `/srv/cloudcli.prev` 和本次的数据库备份，因此没有现成的回滚副本；要回退需重新 `upgrade.sh 1.37.5` 并 `--swap`（数据库未做结构迁移，不影响）。真机上的输入框表现尚未确认。
