@@ -1,0 +1,44 @@
+.news-page{max-width:760px;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(48px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.news-page .topbar a[aria-current="page"]{border-color:var(--accent);color:var(--accent-text)}
+
+/* Header: title left, model picker right */
+.news-header{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0 4px}
+.news-header h1{margin:0;font-size:clamp(24px,6vw,30px)}
+.news-model{max-width:60%;min-height:44px;padding:6px 14px;border-radius:999px;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.news-model[aria-expanded="true"]{border-color:var(--accent)}
+.news-model-panel{position:absolute;z-index:5;top:100%;right:0;width:min(320px,100%);padding:8px;border:1px solid var(--control-line);border-radius:var(--radius);background:var(--surface);box-shadow:0 12px 32px var(--shadow)}
+.news-model-list{list-style:none;margin:0;padding:0}
+.news-model-list button{display:block;width:100%;min-height:44px;text-align:left;border-color:transparent;overflow-wrap:anywhere}
+.news-model-list button[aria-current="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.news-model-problem:not(:empty){padding:6px 6px 2px}
+
+/* Categories */
+.news-cats{display:flex;gap:8px;overflow-x:auto;padding:12px 0;margin:0 -2px;scrollbar-width:none}
+.news-cats::-webkit-scrollbar{display:none}
+.news-cats button{flex:0 0 auto;min-height:40px;padding:4px 16px;border-radius:999px;font-size:14px}
+.news-cats button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text)}
+
+/* List */
+.news-stale{margin:4px 0 8px;padding:8px 12px;border:1px solid var(--alert-line);border-radius:var(--radius-small);background:var(--alert-bg);color:var(--error);font-size:14px}
+.news-items{list-style:none;margin:0;padding:0}
+.news-item{display:flex;align-items:baseline;gap:14px;border-bottom:1px solid var(--line)}
+.news-title{flex:1;min-width:0;padding:12px 0;color:var(--ink);text-decoration:none;line-height:1.6;overflow-wrap:anywhere}
+.news-title:active{color:var(--accent-text)}
+.news-time{flex:0 0 auto;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.news-progress{margin:12px 0;color:var(--muted);font-size:14px}
+
+/* Paste a link */
+.news-paste{margin-top:28px}
+.news-paste label{margin-bottom:6px;color:var(--muted);font-size:14px}
+.news-paste-row{display:flex;gap:10px}
+.news-paste-row input{flex:1;min-width:0;min-height:44px;font-size:16px}
+.news-paste-row button{flex:0 0 auto;min-height:44px;padding:8px 22px}
+
+/* One-line error with details on tap (shared with the reader page) */
+.news-error{margin:10px 0;color:var(--error);font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.news-error button{display:inline;padding:0;border:0;border-radius:0;background:none;color:inherit;font:inherit;text-align:left;text-decoration:underline;text-underline-offset:3px;min-height:32px}
+.news-error button:hover:not(:disabled){background:none}
+.news-error .news-error-retry{color:var(--accent-text);font-weight:600}
+.news-error-detail{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;margin:6px 0 0;padding:10px 12px;border:1px solid var(--alert-line);border-radius:var(--radius-small);background:var(--alert-bg);color:var(--ink)}
+.news-error-detail dt{color:var(--muted)}
+.news-error-detail dd{margin:0}

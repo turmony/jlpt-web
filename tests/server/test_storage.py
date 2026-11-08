@@ -81,4 +81,4 @@ class StaticStorageTests(unittest.TestCase):
             self.assertFalse((deployed / 'grammar/image-proxy.mjs').exists())
             self.assertTrue((deployed / 'grammar/core-markdown.mjs').is_file())
             page = (deployed / 'grammar/index.html').read_text()
-            self.assertIn('<a href="/papers.html">做题</a><a href="/code/">云开发</a>', page)
+            self.assertIn('<a href="/papers.html">做题</a><a href="/news/">新闻</a><a href="/code/">云开发</a>', page)

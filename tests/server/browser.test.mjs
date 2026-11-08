@@ -8,9 +8,9 @@ import {join} from 'node:path';
 const require=createRequire(new URL('../../mobile/package.json',import.meta.url));
 const {chromium,webkit,devices}=require('playwright');
 
-async function withSite(engine,options,run) {
+async function withSite(engine,options,run,env={}) {
   const tmp=await mkdtemp(join(tmpdir(),'jlpt-site-'));
-  const server=spawn('python3',['-m','tests.server.browser_fixture',tmp],{stdio:['ignore','pipe','pipe']});
+  const server=spawn('python3',['-m','tests.server.browser_fixture',tmp],{stdio:['ignore','pipe','pipe'],env:{...process.env,...env}});
   let browser;
   try {
     const url=await new Promise((resolve,reject)=>{server.stdout.once('data',data=>resolve(data.toString().trim()));server.stderr.once('data',data=>reject(new Error(data.toString())));});
@@ -481,4 +481,189 @@ test('the last unit of a category can page forward to the next category\'s first
   await page.getByRole('button',{name:'← 今日安排'}).first().click();
   await page.locator('.stage').evaluateAll(stages=>stages.forEach(stage=>{stage.open=true;}));
   assert.equal(await page.locator('.directory-list li',{hasText:'B-01-2'}).getByRole('button').count(),1);
+}));
+
+// ---- News reader (WebKit, iPad and iPhone). The fixture serves fake Yahoo pages and a FakeHub; see browser_fixture.py. ----
+// hub: a FakeHub script (list) or {script,models}; select: model id stored as the header selection.
+async function withNews(device,run,{hub,select}={}) {
+  const scratch=await mkdtemp(join(tmpdir(),'jlpt-news-hub-'));
+  const env={};
+  if(hub) {env.NEWS_HUB_SCRIPT=join(scratch,'hub.json');await writeFile(env.NEWS_HUB_SCRIPT,JSON.stringify(hub));}
+  if(select) env.NEWS_SELECTED_MODEL=select;
+  try {await withSite(webkit,{...devices[device],locale:'zh-CN',timezoneId:'Asia/Tokyo'},run,env);}
+  finally {await rm(scratch,{recursive:true,force:true});}
+}
+const NEWS_DEVICES=['iPad Pro 11','iPhone 13'];
+const failure=(stage,stage_label,reason,extra={})=>({error:{stage,stage_label,location:null,reason,retryable:true,request_id:'n-20261108-a3f9',time:'15:42:07',...extra}});
+
+for(const device of NEWS_DEVICES) {
+  test(`news list shows feeds and opens an article on ${device}`,()=>withNews(device,async(page,url)=>{
+    await page.goto(url+'/news/');
+    const items=page.locator('.news-item');
+    await items.first().waitFor();
+    assert.deepEqual(await page.locator('.news-cats button').allInnerTexts(),['主要','国内','国际','经济','娱乐','体育','IT','科学']);
+    assert.equal(await page.getByRole('button',{name:'主要'}).getAttribute('aria-pressed'),'true');
+    assert.deepEqual(await page.locator('.news-title').allInnerTexts(),['top-picksの見出し一','top-picksの見出し二']);
+    assert.deepEqual(await page.locator('.news-time').allInnerTexts(),['15:51','15:40']);
+    await page.getByRole('button',{name:'国际'}).click();
+    await page.locator('.news-title',{hasText:'worldの見出し一'}).waitFor();
+    assert.equal(await page.getByRole('button',{name:'国际'}).getAttribute('aria-pressed'),'true');
+    assert.equal(await page.locator('.news-title',{hasText:'top-picks'}).count(),0);
+    await page.route('**/news/read.html**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>stub</title>'}));
+    await page.locator('.news-title',{hasText:'worldの見出し二'}).click();
+    await page.waitForURL(url+'/news/read.html?url='+encodeURIComponent('https://news.yahoo.co.jp/pickup/2'));
+  }));
+
+  test(`news list pasted link opens the reader on ${device}`,()=>withNews(device,async(page,url)=>{
+    await page.goto(url+'/news/');
+    await page.locator('.news-item').first().waitFor();
+    await page.route('**/news/read.html**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>stub</title>'}));
+    const link='https://news.yahoo.co.jp/articles/0123456789abcdef?x=1&y=2';
+    await page.getByLabel('粘贴雅虎新闻链接').fill('  '+link+'  ');
+    await page.getByRole('button',{name:'打开'}).click();
+    await page.waitForURL(url+'/news/read.html?url='+encodeURIComponent(link));
+  }));
+
+  test(`header switches model and persists on ${device}`,()=>withNews(device,async(page,url)=>{
+    await page.goto(url+'/news/');
+    const label=page.locator('.news-model');
+    await label.getByText('模型：未选择').waitFor();
+    await label.click();
+    assert.deepEqual(await page.locator('.news-model-list button').allInnerTexts(),['Auto','DeepSeek-V4-Flash','DeepSeek-V4-Pro']);
+    await page.locator('.news-model-list button',{hasText:'DeepSeek-V4-Flash'}).click();
+    await label.getByText('模型：DeepSeek-V4-Flash').waitFor();
+    assert.equal(await page.locator('.news-model-list').isHidden(),true);
+    await page.reload();
+    await page.locator('.news-model',{hasText:'模型：DeepSeek-V4-Flash'}).waitFor();
+    await page.locator('.news-model').click();
+    assert.equal(await page.locator('.news-model-list button[aria-current=true]').innerText(),'DeepSeek-V4-Flash');
+  }));
+
+  test(`header shows the error line when the chosen model is unavailable on ${device}`,()=>withNews(device,async(page,url)=>{
+    await page.route('**/api/news/settings',route=>route.fulfill({status:502,json:failure('model','模型生成','当前模型不可用，请重新选择',{retryable:false,location:'保存模型'})}));
+    await page.goto(url+'/news/');
+    await page.locator('.news-model',{hasText:'模型：未选择'}).click();
+    await page.locator('.news-model-list button',{hasText:'Auto'}).click();
+    const line=page.locator('.news-header .news-error');
+    assert.equal(await line.locator('.news-error-line').innerText(),'模型生成失败（保存模型）：当前模型不可用，请重新选择');
+    assert.equal(await line.getByRole('button',{name:'重试'}).count(),0);
+    assert.equal(await page.locator('.news-model').innerText(),'模型：未选择');
+    // No automatic switch: the picker is still open so another model can be chosen.
+    assert.equal(await page.locator('.news-model-list').isVisible(),true);
+  }));
+
+  test(`stale feed shows notice on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await page.goto(url+'/news/');
+    await page.locator('.news-item').first().waitFor();
+    assert.equal(await page.locator('.news-stale').count(),0);
+    // The cached list is 12.5 minutes old and Yahoo is down: the old list comes back with a notice.
+    await writeFile(join(tmp,'news-rss-fail'),'');await writeFile(join(tmp,'news-clock-offset'),'750');
+    await page.reload();
+    await page.locator('.news-item').first().waitFor();
+    assert.equal(await page.locator('.news-stale').innerText(),'更新失败，显示的是 12 分钟前的列表');
+    assert.deepEqual(await page.locator('.news-title').allInnerTexts(),['top-picksの見出し一','top-picksの見出し二']);
+  }));
+
+  test(`feed failure shows one error line that opens its details and retries on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await writeFile(join(tmp,'news-rss-fail'),'');
+    await page.goto(url+'/news/');
+    const line=page.locator('.news-error-line');
+    await line.waitFor();
+    assert.match(await line.innerText(),/^抓取雅虎失败（新闻列表）：连接雅虎失败：simulated RSS outage$/);
+    assert.equal(await page.locator('.news-error').innerText(),await line.innerText()+'　重试');
+    assert.equal(await page.locator('.news-error-detail').isHidden(),true);
+    await line.click();
+    const terms=await page.locator('.news-error-detail dt').allInnerTexts();
+    assert.deepEqual(terms,['环节','位置','原因','能否重试','请求编号','时间']);
+    const values=await page.locator('.news-error-detail dd').allInnerTexts();
+    assert.deepEqual(values.slice(0,4),['抓取雅虎','新闻列表','连接雅虎失败：simulated RSS outage','能']);
+    assert.match(values[4],/^n-\d{8}-[0-9a-f]{4}$/);
+    assert.match(values[5],/^\d\d:\d\d:\d\d$/);
+    await line.click();
+    assert.equal(await page.locator('.news-error-detail').isHidden(),true);
+    await rm(join(tmp,'news-rss-fail'));
+    await page.getByRole('button',{name:'重试'}).click();
+    await page.locator('.news-title',{hasText:'top-picksの見出し一'}).waitFor();
+    assert.equal(await page.locator('.news-error').count(),0);
+  }));
+}
+
+test('an unreachable server is reported as a web-to-server error',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.route('**/api/news/feeds**',route=>route.abort());
+  await page.goto(url+'/news/');
+  const line=page.locator('.news-error-line');
+  assert.equal(await line.innerText(),'网页→服务器失败（/api/news/feeds）：网络连接失败');
+  await line.click();
+  assert.equal((await page.locator('.news-error-detail dd').allInnerTexts())[3],'能');
+}));
+
+test('a reply that is not the agreed format is reported as a web-to-server error',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.route('**/api/news/feeds**',route=>route.fulfill({status:200,contentType:'text/html',body:'<html>proxy</html>'}));
+  await page.goto(url+'/news/');
+  assert.equal(await page.locator('.news-error-line').innerText(),'网页→服务器失败（/api/news/feeds）：服务器回应格式不对');
+}));
+
+test('a 401 from the news api returns to the login page',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.route('**/api/news/feeds**',route=>route.fulfill({status:401,json:{error:'请先登录'}}));
+  await page.goto(url+'/news/');
+  await page.waitForURL(url+'/login.html');
+}));
+
+test('nav links to news from the review, papers and grammar pages',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
+  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).getAttribute('href'),'/news/');
+  await page.goto(url+'/papers.html');
+  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).getAttribute('href'),'/news/');
+  await page.goto(url+'/grammar/');await page.locator('#start-reading:not([disabled])').waitFor();
+  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).getAttribute('href'),'/news/');
+  await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).click();
+  await page.waitForURL(url+'/news/');
+  assert.equal(await page.locator('.news-header h1').innerText(),'新闻');
+}));
+
+test('the news api module parses chunked event streams and reports interrupted ones',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.goto(url+'/news/');
+  await page.locator('.news-item').first().waitFor();
+  const sse=events=>({status:200,headers:{'content-type':'text/event-stream'},body:events});
+  const run=(body,abortAfter)=>page.evaluate(async([path,abortAfter])=>{
+    const {streamSSE}=await import('/news/api.mjs');
+    const seen=[];const controller=new AbortController();
+    if(abortAfter===0) controller.abort();
+    await streamSSE(path,{url:'x'},{signal:controller.signal,onEvent:(name,data)=>{seen.push([name,data]);if(abortAfter===seen.length) controller.abort();}});
+    return seen;
+  },[body,abortAfter]);
+  // Comments (: ping) are ignored; payloads with multi-byte text and CRLF are parsed.
+  await page.route('**/api/news/open',route=>route.fulfill(sse(': ping\n\nevent: progress\ndata: {"stage":"yahoo","text":"正在抓取雅虎…"}\n\n: ping\n\nevent: article\ndata: {"id":"a1","title":"題"}\n\n')));
+  assert.deepEqual(await run('/api/news/open'),[['progress',{stage:'yahoo',text:'正在抓取雅虎…'}],['article',{id:'a1',title:'題'}]]);
+  // No terminal event: the stream is reported as interrupted (retryable).
+  await page.unroute('**/api/news/open');
+  await page.route('**/api/news/open',route=>route.fulfill(sse('event: progress\ndata: {"stage":"yahoo","text":"a"}\n\n')));
+  const cut=await run('/api/news/open');
+  assert.equal(cut.length,2);
+  assert.equal(cut[1][0],'error');
+  assert.deepEqual({...cut[1][1],time:'-'},{stage:'stream',stage_label:'推送到网页',location:'',reason:'回答中断',retryable:true,request_id:'',time:'-'});
+  // An error event is the terminal event and carries the server's dict untouched.
+  const dict=failure('model','模型生成','排队中，请稍后重试').error;
+  await page.unroute('**/api/news/open');
+  await page.route('**/api/news/open',route=>route.fulfill(sse('event: error\ndata: '+JSON.stringify(dict)+'\n\n')));
+  assert.deepEqual(await run('/api/news/open'),[['error',dict]]);
+  // A 400 JSON reply before streaming becomes the same error event.
+  const bad=failure('client','网页→服务器','链接不是雅虎新闻',{retryable:false}).error;
+  await page.unroute('**/api/news/open');
+  await page.route('**/api/news/open',route=>route.fulfill({status:400,json:{error:bad}}));
+  assert.deepEqual(await run('/api/news/open'),[['error',bad]]);
+  // Aborting produces no error event, and events after the abort are dropped.
+  await page.unroute('**/api/news/open');
+  await page.route('**/api/news/open',route=>route.fulfill(sse('event: progress\ndata: {"text":"1"}\n\nevent: progress\ndata: {"text":"2"}\n\n')));
+  assert.deepEqual(await run('/api/news/open',1),[['progress',{text:'1'}]]);
+  assert.deepEqual(await run('/api/news/open',0),[]);
+  // Chunk boundaries may fall anywhere, even inside a multi-byte character or a line ending.
+  const split=await page.evaluate(async()=>{
+    const {sseParser}=await import('/news/api.mjs');
+    const seen=[];const parser=sseParser((name,data)=>seen.push([name,data]));
+    const bytes=new TextEncoder().encode('event: delta\r\ndata: {"text":"日本語"}\r\n\r\nevent: done\ndata: {}\n\n');
+    const decoder=new TextDecoder();
+    for(let i=0;i<bytes.length;i+=3) parser.push(decoder.decode(bytes.slice(i,i+3),{stream:true}));
+    return seen;
+  });
+  assert.deepEqual(split,[['delta',{text:'日本語'}],['done',{}]]);
 }));
