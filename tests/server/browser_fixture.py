@@ -159,6 +159,36 @@ def fixture_sentences(text, start_id):
     return [{'id': start_id + i, 'tokens': fixture_tokenize(s)} for i, s in enumerate(split_sentences(text))]
 
 
+class _Recorded(list):
+    """FakeHub's request list, mirrored to a JSON file after every append."""
+    def __init__(self, path):
+        super().__init__()
+        self.path = path
+
+    def append(self, item):
+        super().append(item)
+        part = self.path.with_suffix('.part')
+        part.write_text(json.dumps(self, ensure_ascii=False), 'utf-8')
+        part.replace(self.path)
+
+
+class RecordingHub(FakeHub):
+    """FakeHub whose requests and disconnect count are visible to the browser tests as files."""
+    def __init__(self, base, script=None, models=None):
+        self._disconnects_file = base / 'news-hub-disconnects'
+        super().__init__(script, models)
+        self.requests = _Recorded(base / 'news-hub-requests.json')
+
+    @property
+    def disconnects(self):
+        return getattr(self, '_disconnects', 0)
+
+    @disconnects.setter
+    def disconnects(self, value):
+        self._disconnects = value
+        self._disconnects_file.write_text(str(value))
+
+
 def news_wiring(base):
     """Fake Yahoo + FakeHub for the /news/ pages; nothing here touches the network.
 
@@ -172,13 +202,16 @@ def news_wiring(base):
       news-hold-page2   fetching page 2 of READER_URL waits while this file exists (progress stays visible)
       news-page3-fail   page 3 of READER_URL answers 503 (a partial article with a missing page)
     READER_URL is a three-page article (see READER_PAGES); its two images are served by a fake
-    image host. Tokenizing uses fixture_sentences instead of fugashi."""
+    image host. Tokenizing uses fixture_sentences instead of fugashi.
+    What the FakeHub saw is written to the state dir for the browser tests to read:
+      news-hub-requests.json  every chat request body, in arrival order (rewritten on each request)
+      news-hub-disconnects    the number of chat requests whose client (the news server) hung up early"""
     spec = {}
     if os.environ.get('NEWS_HUB_SCRIPT'):
         spec = json.loads(Path(os.environ['NEWS_HUB_SCRIPT']).read_text('utf-8'))
     if isinstance(spec, list):
         spec = {'script': spec}
-    hub_server = FakeHub(spec.get('script'), spec.get('models'))
+    hub_server = RecordingHub(base, spec.get('script'), spec.get('models'))
     rss = load('rss').decode('utf-8')
     mapping = {PICKUP_URL: (200, load('pickup')), ARTICLE_URL: (200, load('single')),
                READER_URL: (200, READER_PAGES[1]), READER_URL + '?page=2': (200, READER_PAGES[2]),

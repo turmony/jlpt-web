@@ -767,6 +767,11 @@ async function pointer(page,type,[x,y]) {
 // A point inside an element's first line box: fx/fy are fractions of it (0.5,0.5 is the centre).
 async function at(locator,fx=0.5,fy=0.5) {
   await locator.scrollIntoViewIfNeeded();
+  // On a phone the analysis sheet covers the lower part of the screen: a covered target is scrolled up above it.
+  await locator.evaluate(node=>{
+    const box=node.getClientRects()[0];
+    if(!node.contains(document.elementFromPoint(box.left+box.width/2,box.top+box.height/2))) {node.scrollIntoView({block:'start'});window.scrollBy(0,-80);}
+  });
   return locator.evaluate((node,[fx,fy])=>{const box=node.getClientRects()[0];return [box.left+box.width*fx,box.top+box.height*fy];},[fx,fy]);
 }
 async function tap(page,locator) {const point=await at(locator);await pointer(page,'pointerdown',point);await page.waitForTimeout(40);await pointer(page,'pointerup',point);}
@@ -1108,3 +1113,329 @@ test('a reader link that is not a Yahoo article shows the server\'s error line',
   await page.goto(url+'/news/read.html');
   assert.equal(await page.locator('.news-error-line').innerText(),'网页→服务器失败：缺少文章链接');
 }));
+
+// ---- Analysis panel and follow-up questions. The FakeHub answers analyses with the spec §5 XML in pieces and
+// questions with plain text; what it received is read back from news-hub-requests.json in the state dir. ----
+// items: [form, level, brief, related=false, {connection, usage, confusable}]
+function analysisChunks({selection,translation,items=[]}) {
+  const out=['<analysis>'];
+  if(selection) out.push(`<selection><reading>${selection[0]}</reading><role>${selection[1]}</role><meaning>${selection[2]}</meaning></selection>`);
+  if(translation) out.push(`<translation>${translation}</translation>`);
+  out.push('<grammar>');
+  for(const [form,level,brief,related=false,more={}] of items) out.push(`<item related="${related}"><form>${form}</form><level>${level}</level><brief>${brief}</brief>`
+    +`<connection>${more.connection??'接续说明'}</connection><usage>${more.usage??'用法说明'}</usage>${more.confusable?`<confusable>${more.confusable}</confusable>`:''}</item>`);
+  out.push('</grammar></analysis>');
+  return out;
+}
+const analyzeStep=(spec,delay=0)=>['chunks',analysisChunks(spec),delay];
+const S1_TEXT='台風は強い勢力で島に接近するおそれがあります。';
+const S2_TEXT='気象庁は早めの準備を呼びかけました。';
+const S1_WHOLE={translation:'台风可能以强劲的势力接近岛屿。',items:[['〜は','N5','提示主题'],['〜で','N5','表示状态、方式'],
+  ['〜おそれがある','N3','有…的可能（多指坏事）',false,{connection:'动词辞书形＋おそれがある',usage:'表示台风有接近岛屿的可能',confusable:'〜かもしれない 不限于坏事'}]]};
+const S1_PART={selection:['つよいせいりょくで','修饰「接近する」，说明台风以什么状态接近。','以强劲的势力'],translation:'台风可能以强劲的势力接近岛屿。',
+  items:[['〜は','N5','提示主题'],['〜で','N5','表示状态',true],['〜おそれがある','N3','有…的可能'],['い形容词＋名词','N5','形容词直接修饰名词',true]]};
+const panel=page=>page.locator('#news-panel');
+const analysisDone=page=>page.locator('#news-panel[data-analysis="done"]').waitFor();
+const headings=page=>panel(page).locator('.news-panel-body > section:not([hidden]) > h3').allInnerTexts();
+const forms=page=>panel(page).locator('.news-grammar-form').allInnerTexts();
+const rounds=page=>panel(page).locator('.news-chat-round').evaluateAll(list=>list.map(round=>[round.querySelector('.news-chat-q').textContent,round.querySelector('.news-chat-a').textContent]));
+async function hubRequests(tmp) {try {return JSON.parse(await readFile(join(tmp,'news-hub-requests.json'),'utf8'));} catch {return [];}}
+async function hubDisconnects(tmp) {try {return Number(await readFile(join(tmp,'news-hub-disconnects'),'utf8'));} catch {return 0;}}
+// Waits (up to 10 s) until the FakeHub has seen `count` requests dropped by the news server.
+async function waitDisconnects(tmp,count) {
+  for(const end=Date.now()+10000;Date.now()<end;await new Promise(resolve=>setTimeout(resolve,100))) if(await hubDisconnects(tmp)>=count) return true;
+  return false;
+}
+// Bodies the page POSTs to /api/news/<name>, in order.
+function recordApi(page,name) {const bodies=[];page.on('request',request=>{if(request.url().endsWith('/api/news/'+name)) bodies.push(request.postDataJSON());});return bodies;}
+// Long-press a sentence after scrolling it near the top (a bottom sheet may cover the lower half of the screen).
+async function pressSentence(page,s,i=0) {
+  const target=tok(page,s,i);
+  await target.evaluate(node=>{node.scrollIntoView({block:'start'});window.scrollBy(0,-60);});
+  await longPress(page,target);
+  await panel(page).waitFor();
+}
+async function askQuestion(page,question) {
+  await panel(page).locator('.news-ask-input').fill(question);
+  await panel(page).locator('.news-ask-send').click();
+}
+async function askAndWait(page,question) {
+  const done=await panel(page).locator('.news-chat-round:not(.is-pending)').count();
+  await askQuestion(page,question);
+  await page.waitForFunction(n=>document.querySelectorAll('#news-panel .news-chat-round:not(.is-pending)').length===n,done+1);
+}
+
+for(const device of NEWS_DEVICES) {
+  test(`sentence only shows 原文/译文/语法 without selection block on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await openReader(page,url);
+    const analyses=recordApi(page,'analyze');
+    assert.equal(await panel(page).isHidden(),true);
+    await pressSentence(page,1);
+    await analysisDone(page);
+    assert.deepEqual(await headings(page),['原文','译文','语法']);
+    assert.equal(await panel(page).locator('.news-panel-sentence').innerText(),S1_TEXT);
+    assert.equal(await panel(page).locator('.news-panel-part').count(),0);
+    assert.equal(await panel(page).locator('.news-panel-selection').count(),0);
+    assert.equal(await panel(page).locator('.news-translation').innerText(),'台风可能以强劲的势力接近岛屿。');
+    assert.deepEqual(await forms(page),['〜は','〜で','〜おそれがある']);
+    assert.deepEqual(await panel(page).locator('.news-grammar-level').allInnerTexts(),['N5','N5','N3']);
+    assert.deepEqual(await panel(page).locator('.news-grammar-brief').allInnerTexts(),['提示主题','表示状态、方式','有…的可能（多指坏事）']);
+    assert.equal(await panel(page).locator('.news-grammar-detail:not([hidden])').count(),0);
+    assert.equal(await panel(page).locator('.news-panel-status').innerText(),'');
+    assert.equal(await panel(page).locator('.news-ask-input').getAttribute('placeholder'),'想问什么…');
+    // Nothing else to press: no read-aloud or quick-question buttons.
+    assert.deepEqual(await panel(page).locator('button').evaluateAll(list=>list.map(b=>b.className.split(' ')[0])),
+      ['news-panel-close','news-grammar-row','news-grammar-row','news-grammar-row','news-ask-send']);
+    assert.doesNotMatch(await panel(page).innerText(),/🔊/);
+    assert.deepEqual(analyses,[{article:READER_ID,sentence:1,start:null,end:null}]);
+    assert.match(JSON.stringify((await hubRequests(tmp))[0].messages),new RegExp(S1_TEXT));
+    assert.equal(await page.locator('.news-sentence.is-selected').getAttribute('data-sid'),'1');
+    await panel(page).locator('.news-panel-close').click();
+    assert.equal(await panel(page).isHidden(),true);
+    assert.equal(await page.locator('.news-sentence.is-selected').count(),0);
+  },{hub:[analyzeStep(S1_WHOLE)],select:'Auto'}));
+
+  test(`part selection adds selection block and puts related grammar first on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    const analyses=recordApi(page,'analyze');
+    await pressSentence(page,1);
+    await analysisDone(page);
+    await drag(page,await at(tok(page,1,2),0.3),await at(tok(page,1,4),0.5));
+    assert.deepEqual(await partIndices(page),range(1,2,4));
+    await panel(page).locator('.news-selection-reading').waitFor();
+    await analysisDone(page);
+    assert.deepEqual(await panel(page).locator('.news-panel-body > section:not([hidden])').evaluateAll(list=>list.map(s=>s.classList[1])),
+      ['news-panel-original','news-panel-selection','news-panel-translation','news-panel-grammar']);
+    assert.equal(await panel(page).locator('.news-panel-sentence').innerText(),S1_TEXT);
+    assert.equal(await panel(page).locator('.news-panel-part').innerText(),'強い勢力で');
+    const colors=await page.evaluate(()=>[getComputedStyle(document.querySelector('.news-panel-part')).backgroundColor,getComputedStyle(document.querySelector('.news-token.is-part')).backgroundColor]);
+    assert.equal(colors[0],colors[1]);
+    assert.equal(await panel(page).locator('.news-selection-text').innerText(),'強い勢力で');
+    assert.equal(await panel(page).locator('.news-selection-reading').innerText(),'つよいせいりょくで');
+    assert.equal(await panel(page).locator('.news-selection-role').innerText(),'修饰「接近する」，说明台风以什么状态接近。');
+    assert.equal(await panel(page).locator('.news-selection-meaning').innerText(),'本句中：以强劲的势力');
+    // Related items first, even when one arrives after unrelated ones.
+    assert.deepEqual(await forms(page),['〜で','い形容词＋名词','〜は','〜おそれがある']);
+    assert.deepEqual(analyses,[{article:READER_ID,sentence:1,start:null,end:null},{article:READER_ID,sentence:1,start:2,end:4}]);
+  },{hub:[analyzeStep(S1_WHOLE),analyzeStep(S1_PART)],select:'Auto'}));
+
+  test(`grammar row expands and links to grammar card on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    await pressSentence(page,1);
+    await analysisDone(page);
+    const items=panel(page).locator('.news-grammar-item');
+    const row=items.nth(2).locator('.news-grammar-row');
+    assert.equal(await row.getAttribute('aria-expanded'),'false');
+    await row.click();
+    assert.equal(await row.getAttribute('aria-expanded'),'true');
+    assert.deepEqual(await items.nth(2).locator('.news-grammar-detail p').allInnerTexts(),
+      ['接续：动词辞书形＋おそれがある','本句用法：表示台风有接近岛屿的可能','易混淆：〜かもしれない 不限于坏事']);
+    await items.nth(0).locator('.news-grammar-row').click();
+    assert.deepEqual(await items.nth(0).locator('.news-grammar-detail p').allInnerTexts(),['接续：接续说明','本句用法：用法说明']);
+    await row.click();
+    assert.equal(await items.nth(2).locator('.news-grammar-detail').isHidden(),true);
+    assert.equal(await items.nth(0).locator('.news-grammar-card').count(),0);
+    const link=items.nth(2).locator('.news-grammar-card');
+    assert.equal(await link.innerText(),'语法卡');
+    assert.equal(await link.getAttribute('href'),'/grammar/#N3/5-5');
+    await link.click();
+    await page.waitForURL(url+'/grammar/#N3/5-5');
+  },{hub:[analyzeStep(S1_WHOLE)],select:'Auto'}));
+
+  test(`follow-up keeps context within sentence and sends history on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await openReader(page,url);
+    const asks=recordApi(page,'ask');
+    await pressSentence(page,1);
+    await analysisDone(page);
+    const q1='可以换成「強い勢力に」吗？',a1='不行。に 会变成「变成强劲势力」的意思。';
+    await askQuestion(page,q1);
+    const pending=panel(page).locator('.news-chat-round.is-pending');
+    await pending.locator('.news-chat-a',{hasText:'不行。'}).waitFor();
+    assert.equal(await pending.locator('.news-chat-q').innerText(),'我：'+q1);
+    assert.equal(await panel(page).locator('.news-ask-send').isDisabled(),true);
+    assert.equal(await panel(page).locator('.news-ask-input').inputValue(),'');
+    await page.waitForFunction(()=>document.querySelectorAll('#news-panel .news-chat-round:not(.is-pending)').length===1);
+    assert.deepEqual(await rounds(page),[['我：'+q1,'答：'+a1]]);
+    assert.deepEqual(await headings(page),['原文','译文','语法','追问']);
+    assert.equal(await panel(page).locator('.news-ask-send').isDisabled(),false);
+    const q2='那「で」呢？';
+    await askAndWait(page,q2);
+    assert.deepEqual(await rounds(page),[['我：'+q1,'答：'+a1],['我：'+q2,'答：で 表示状态。']]);
+    const analysis=analysisChunks(S1_WHOLE).join('');
+    assert.deepEqual(asks[0],{article:READER_ID,sentence:1,start:null,end:null,analysis,history:[],question:q1});
+    assert.deepEqual(asks[1],{article:READER_ID,sentence:1,start:null,end:null,analysis,history:[{q:q1,a:a1}],question:q2});
+    const third=(await hubRequests(tmp))[2].messages;
+    assert.match(third[0].content,/已给出的分析/);
+    assert.ok(third[0].content.includes(analysis));
+    assert.deepEqual(third.slice(1),[{role:'user',content:q1},{role:'assistant',content:a1},{role:'user',content:q2}]);
+    // A long conversation sends only the last 6 rounds.
+    for(let n=3;n<=7;n++) await askAndWait(page,`问题${n}`);
+    await askAndWait(page,'问题8');
+    assert.equal((await rounds(page)).length,8);
+    assert.deepEqual(asks[7].history.map(item=>item.q),[q2,'问题3','问题4','问题5','问题6','问题7']);
+  },{hub:[analyzeStep(S1_WHOLE),['chunks',['不行。','に 会变成「变成强劲势力」的意思。'],1.0],['chunks',['で 表示状态。'],0],['chunks',['好的。'],0]],select:'Auto'}));
+
+  test(`switching sentence while streaming discards the old stream on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await openReader(page,url);
+    await pressSentence(page,1);
+    await panel(page).locator('.news-translation',{hasText:'第一句的译文'}).waitFor();
+    await pressSentence(page,2);
+    await panel(page).locator('.news-translation',{hasText:'第二句的译文'}).waitFor();
+    await analysisDone(page);
+    assert.equal(await panel(page).locator('.news-panel-sentence').innerText(),S2_TEXT);
+    // The server stops reading the abandoned analysis once it notices the page has gone; nothing of it is drawn.
+    assert.ok(await waitDisconnects(tmp,1),'the server stops reading the abandoned analysis');
+    await page.waitForTimeout(1000);
+    assert.deepEqual(await forms(page),['〜を']);
+    assert.doesNotMatch(await panel(page).innerText(),/第一句/);
+    // An answer still streaming is dropped too, and the conversation starts over.
+    await askQuestion(page,'这里的を是什么？');
+    await panel(page).locator('.news-chat-a',{hasText:'旧回答一'}).waitFor();
+    await pressSentence(page,1);
+    await panel(page).locator('.news-translation',{hasText:'第一句又一次'}).waitFor();
+    assert.equal(await panel(page).locator('.news-chat-round').count(),0);
+    assert.deepEqual(await headings(page),['原文','译文']);
+    assert.ok(await waitDisconnects(tmp,2),'the server stops reading the abandoned answer');
+    await page.waitForTimeout(1000);
+    assert.doesNotMatch(await panel(page).innerText(),/旧回答/);
+    assert.equal(await panel(page).locator('.news-panel-sentence').innerText(),S1_TEXT);
+  },{hub:[analyzeStep({translation:'第一句的译文',items:[['〜は','N5','第一句语法'],['〜で','N5','第一句语法'],['〜おそれがある','N3','第一句语法']]},0.8),
+    analyzeStep({translation:'第二句的译文',items:[['〜を','N5','第二句语法']]}),
+    ['chunks',['旧回答一','旧回答二','旧回答三','旧回答四','旧回答五'],1.0],analyzeStep({translation:'第一句又一次'})],select:'Auto'}));
+
+  test(`changing part keeps follow-ups on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    const analyses=recordApi(page,'analyze'),asks=recordApi(page,'ask');
+    await pressSentence(page,1);
+    await analysisDone(page);
+    await askAndWait(page,'问题一');
+    await drag(page,await at(tok(page,1,2),0.3),await at(tok(page,1,4),0.5));
+    await panel(page).locator('.news-selection-reading').waitFor();
+    await analysisDone(page);
+    assert.equal(await panel(page).locator('.news-panel-part').innerText(),'強い勢力で');
+    assert.deepEqual(await rounds(page),[['我：问题一','答：答一']]);
+    await askAndWait(page,'问题二');
+    assert.deepEqual(await rounds(page),[['我：问题一','答：答一'],['我：问题二','答：答二']]);
+    assert.deepEqual(asks[1],{article:READER_ID,sentence:1,start:2,end:4,analysis:analysisChunks(S1_PART).join(''),history:[{q:'问题一',a:'答一'}],question:'问题二'});
+    // The word card's 「在本句中的作用」 on another sentence: a new sentence (conversation cleared), analysed as a part directly.
+    await tap(page,tok(page,2,4));
+    await card(page).locator('.news-card-meaning',{hasText:'准备'}).waitFor();
+    await card(page).locator('.news-card-role').click();
+    await panel(page).locator('.news-panel-part',{hasText:'準備'}).waitFor();
+    await analysisDone(page);
+    assert.equal(await panel(page).locator('.news-panel-sentence').innerText(),S2_TEXT);
+    assert.equal(await panel(page).locator('.news-chat-round').count(),0);
+    assert.deepEqual(await partIndices(page),['2:4']);
+    assert.deepEqual(analyses.map(body=>[body.sentence,body.start,body.end]),[[1,null,null],[1,2,4],[2,4,4]]);
+  },{hub:[analyzeStep(S1_WHOLE),['chunks',['答一'],0],analyzeStep(S1_PART),['chunks',['答二'],0],
+    ['chunks',['<gloss><meaning>准备</meaning></gloss>'],0],
+    analyzeStep({selection:['じゅんび','作「を」的宾语','准备'],translation:'气象厅呼吁尽早做好准备。',items:[['〜を','N5','宾语',true]]})],select:'Auto'}));
+
+  test(`model error shows stage line; format leftovers shown under 其他内容 on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    const asks=recordApi(page,'ask');
+    const status=panel(page).locator('.news-panel-status');
+    // No model chosen: one error line, nothing to retry, no automatic model switch.
+    await pressSentence(page,1);
+    await status.locator('.news-error-line').waitFor();
+    assert.equal(await status.innerText(),'模型生成失败（句子分析（第 2 句））：请先在页头选择模型');
+    assert.deepEqual(await headings(page),['原文']);
+    await page.locator('.news-model').click();
+    await page.locator('.news-model-list button',{hasText:'Auto'}).click();
+    await page.locator('.news-model',{hasText:'模型：Auto'}).waitFor();
+    // Pressing the same sentence again analyses again; the model is reported unavailable.
+    await pressSentence(page,1);
+    await status.locator('.news-error-line',{hasText:'当前模型不可用'}).waitFor();
+    assert.equal(await status.innerText(),'模型生成失败（句子分析（第 2 句））：当前模型不可用，请重新选择');
+    await pressSentence(page,1);
+    await status.locator('.news-error-line',{hasText:'模型排队中'}).waitFor();
+    assert.equal(await status.innerText(),'模型生成失败（句子分析（第 2 句））：模型排队中，请稍后重试　重试');
+    await status.locator('.news-error-retry').click();
+    await analysisDone(page);
+    assert.deepEqual(await headings(page),['原文','译文','其他内容']);
+    assert.equal(await panel(page).locator('.news-translation').innerText(),'台风可能接近岛屿。');
+    assert.match(await panel(page).locator('.news-extra-text').innerText(),/^说明：这句话是新闻。\n<item related="false"><form>〜は/);
+    assert.equal(await status.innerText(),'');
+    // Nothing matches the template: the raw reply under 其他内容, then the format error line.
+    await pressSentence(page,2);
+    await status.locator('.news-error-line').waitFor();
+    assert.deepEqual(await headings(page),['原文','其他内容']);
+    assert.equal(await panel(page).locator('.news-extra-text').innerText(),'完全不是模板的回答');
+    assert.equal(await status.innerText(),'解析回复失败（句子分析（第 3 句））：回复不符合分析模板　重试');
+    assert.deepEqual(await panel(page).locator('.news-panel-body > section:not([hidden]), .news-panel-body > .news-panel-status').evaluateAll(list=>list.map(n=>n.classList[n.classList.length-1])),
+      ['news-panel-original','news-panel-extra','news-panel-status']);
+    // A question that fails shows the line where the answer goes; 重试 sends the same question again.
+    await askQuestion(page,'这句是什么意思？');
+    const round=panel(page).locator('.news-chat-round');
+    await round.locator('.news-error-line').waitFor();
+    assert.equal(await round.locator('.news-error-line').innerText(),'模型生成失败（追问（第 3 句））：模型排队中，请稍后重试');
+    assert.equal(await round.locator('.news-chat-q').innerText(),'我：这句是什么意思？');
+    await round.locator('.news-error-retry').click();
+    await round.locator('.news-error-line',{hasText:'回答中断'}).waitFor();
+    assert.equal(await round.locator('.news-chat-a').innerText(),'答：答到一半');
+    assert.equal(await round.locator('.news-error-line').innerText(),'推送到网页失败（追问（第 3 句））：回答中断');
+    await round.locator('.news-error-retry').click();
+    await page.waitForFunction(()=>document.querySelectorAll('#news-panel .news-chat-round:not(.is-pending)').length===1);
+    assert.deepEqual(await rounds(page),[['我：这句是什么意思？','答：完整回答']]);
+    assert.equal(await panel(page).locator('.news-chat .news-error').count(),0);
+    assert.deepEqual(asks.map(body=>[body.question,body.history.length]),[['这句是什么意思？',0],['这句是什么意思？',0],['这句是什么意思？',0]]);
+  },{hub:[['status',404,{error:{message:'model not found'}}],['status',429,'busy'],
+    ['chunks',['<analysis><translation>台风可能接近岛屿。</translation>','说明：这句话是新闻。<item related="false"><form>〜は</form><level>N5</level><brief>提示主题</brief>'],0],
+    ['chunks',['完全不是模板的回答'],0],['status',429,'busy'],['cut_after',['答到一半'],0],['chunks',['完整回答'],0]]}));
+}
+
+for(const [device,mode] of [['iPad Pro 11 landscape','right'],['iPad Pro 11','sheet'],['iPhone 13','sheet']]) {
+  test(`iPad landscape panel on right; iPhone bottom sheet on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    const viewport=page.viewportSize();
+    await pressSentence(page,1);
+    await analysisDone(page);
+    const box=await panel(page).boundingBox();
+    if(mode==='right') {
+      assert.ok(Math.abs(box.width-viewport.width*0.4)<=2,`width ${box.width}`);
+      assert.ok(Math.abs(box.x+box.width-viewport.width)<=1);
+      assert.equal(box.y,0);
+      assert.ok(Math.abs(box.height-viewport.height)<=1);
+      assert.equal(await panel(page).locator('.news-panel-handle').isVisible(),false);
+      const body=await page.locator('.news-body').boundingBox();
+      assert.ok(body.x+body.width<=box.x+1,'the article stays to the left of the panel');
+      // The article can still be scrolled and tapped.
+      await tap(page,tok(page,1,3));
+      await card(page).locator('.news-card-meaning',{hasText:'势力'}).waitFor();
+      const before=await page.evaluate(()=>scrollY);
+      await page.evaluate(()=>window.scrollBy(0,400));
+      assert.ok(await page.evaluate(()=>scrollY)>before);
+      assert.equal((await panel(page).boundingBox()).y,0);
+      await pressSentence(page,2);
+      await panel(page).locator('.news-panel-sentence',{hasText:S2_TEXT}).waitFor();
+      return;
+    }
+    assert.equal(box.x,0);
+    assert.ok(Math.abs(box.width-viewport.width)<=1);
+    assert.ok(Math.abs(box.y+box.height-viewport.height)<=1,'docked to the bottom');
+    assert.ok(box.height>viewport.height*0.4&&box.height<viewport.height*0.7,`height ${box.height}`);
+    const sentence=await page.locator('.news-sentence[data-sid="1"]').boundingBox();
+    assert.ok(sentence.y>=0&&sentence.y+sentence.height<=box.y,'the selected sentence stays above the sheet');
+    const handle=panel(page).locator('.news-panel-handle');
+    const grab=async()=>{const b=await handle.boundingBox();return [b.x+b.width*0.3,b.y+b.height/2];};
+    // Drag up: full screen.
+    let from=await grab();
+    await drag(page,from,[from[0],20]);
+    await page.waitForFunction(()=>document.querySelector('#news-panel').classList.contains('is-full'));
+    const full=await panel(page).boundingBox();
+    assert.ok(full.y<=1&&Math.abs(full.height-viewport.height)<=1,`full ${JSON.stringify(full)}`);
+    // Drag down a little: back to half height; a longer drag down closes it.
+    from=await grab();
+    await drag(page,from,[from[0],from[1]+200]);
+    await page.waitForFunction(()=>!document.querySelector('#news-panel').classList.contains('is-full'));
+    assert.ok(Math.abs((await panel(page).boundingBox()).height-box.height)<=2);
+    from=await grab();
+    await drag(page,from,[from[0],from[1]+160]);
+    await panel(page).waitFor({state:'hidden'});
+    assert.equal(await page.locator('.news-sentence.is-selected').count(),0);
+    await pressSentence(page,1);
+    await panel(page).locator('.news-panel-close').click();
+    await panel(page).waitFor({state:'hidden'});
+    assert.equal(await page.locator('.news-sentence.is-selected').count(),0);
+  },{hub:mode==='right'?[analyzeStep(S1_WHOLE),GLOSS_HUB[0],analyzeStep({translation:'第二句的译文'})]:[analyzeStep(S1_WHOLE)],select:'Auto'}));
+}
