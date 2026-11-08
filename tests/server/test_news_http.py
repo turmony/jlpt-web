@@ -295,6 +295,19 @@ class OpenTests(NewsHTTPBase):
         self.svc.store.now = lambda: later
         self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/0').status, 404)
 
+    def test_missing_image_404_is_logged_like_other_errors(self):
+        self.use()
+        self.login()
+        self.open_article()
+        path = f'/api/news/image/{ARTICLE_ID}/2'
+        resp = self.request(path)
+        self.assertEqual(resp.status, 404)
+        err = json.loads(resp.read())['error']
+        self.assertEqual((err['stage'], err['reason']), ('image', '图片不存在或已过期'))
+        line = next((l for l in self.stderr.getvalue().splitlines() if err['request_id'] in l), None)
+        self.assertEqual(err['location'], '第 3 张')
+        self.assertEqual(line, ' '.join([err['request_id'], 'image', '图片不存在或已过期', '第 3 张', path]))
+
     def test_pickup_multi_page_and_missing_page(self):
         self.use(multi(**{A + '?page=3': (503, b'')}))
         self.login()

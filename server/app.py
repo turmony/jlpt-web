@@ -219,10 +219,12 @@ def create_server(app, address):
                     return self.sse(lambda emit: svc.ask(*args, emit=emit))
                 match = re.fullmatch(r'/image/([0-9a-f]{8,64})/(\d{1,4})', path)
                 if match and not post:
+                    index = int(match[2])
                     try:
-                        data, mime = svc.image(match[1], int(match[2]))
+                        data, mime = svc.image(match[1], index)
                     except KeyError:
-                        error = NewsError('image', '图片不存在或已过期', retryable=False)
+                        error = NewsError('image', '图片不存在或已过期', '第 %d 张' % (index + 1), retryable=False)
+                        svc.log_error(error, self.path)
                         return self.reply(404, {'error': error.to_dict()})
                     return self.reply(200, data, mime, headers={'Cache-Control': 'private, max-age=604800'})
             except NewsError as error:
