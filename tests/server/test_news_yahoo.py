@@ -3,7 +3,7 @@ import urllib.request
 from unittest import mock
 
 from server.news_errors import STAGES, NewsError, new_request_id
-from server.news_yahoo import FEEDS, Yahoo, http_fetch, validate_url
+from server.news_yahoo import FEEDS, OffNewsTopic, Yahoo, http_fetch, validate_url
 from tests.server.news_fixture import ARTICLE_URL as A, PICKUP_URL as P, fake_fetch, fake_open, load
 
 
@@ -121,6 +121,7 @@ class YahooTests(unittest.TestCase):
             e = cm.exception
             self.assertEqual((e.stage, e.location, e.retryable), ('parse', '话题页', False))
             self.assertIn(host, e.reason)
+            self.assertIsInstance(e, OffNewsTopic)
 
     def test_validate_url_accepts_and_normalizes(self):
         self.assertEqual(validate_url(' https://news.yahoo.co.jp/pickup/123?x=1#y '), 'https://news.yahoo.co.jp/pickup/123')

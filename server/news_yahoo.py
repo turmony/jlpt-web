@@ -207,6 +207,14 @@ def parse_page(state, page_url, location=None):
     }
 
 
+class OffNewsTopic(NewsError):
+    """A topic whose article link leaves Yahoo News (e.g. SNS posts on search.yahoo.co.jp).
+    Expected, final, and not a sign that the page changed; the probe skips these by type."""
+    def __init__(self, host):
+        super().__init__('parse', '这条话题指向雅虎新闻以外的页面（%s），阅读器只能打开雅虎新闻文章'
+                         % (host or '未知地址'), '话题页', retryable=False)
+
+
 class Yahoo:
     def __init__(self, fetch=http_fetch, sleep=time.sleep, open_image=open_image):
         self._fetch = fetch
@@ -299,8 +307,7 @@ class Yahoo:
                 host = urllib.parse.urlsplit(article).hostname if isinstance(article, str) else None
             except ValueError:
                 host = None
-            raise NewsError('parse', '这条话题指向雅虎新闻以外的页面（%s），阅读器只能打开雅虎新闻文章'
-                            % (host or '未知地址'), '话题页', retryable=False)
+            raise OffNewsTopic(host)
 
     def open(self, url, progress):
         url = validate_url(url)
