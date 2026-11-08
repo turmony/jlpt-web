@@ -1384,6 +1384,72 @@ for(const device of NEWS_DEVICES) {
     ['chunks',['完全不是模板的回答'],0],['status',429,'busy'],['cut_after',['答到一半'],0],['chunks',['完整回答'],0]]}));
 }
 
+for(const device of NEWS_DEVICES) {
+  test(`a question asked during the analysis waits and carries the final analysis on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await openReader(page,url);
+    const asks=recordApi(page,'ask');
+    const waiting=async question=>{
+      await askQuestion(page,question);
+      const round=panel(page).locator('.news-chat-round.is-pending');
+      assert.equal(await round.locator('.news-chat-q').innerText(),'我：'+question);
+      assert.equal(await round.locator('.news-progress').innerText(),'分析完成后发送…');
+      assert.equal(await panel(page).locator('.news-ask-send').isDisabled(),true);
+    };
+    // First analysis of the sentence, still streaming.
+    await pressSentence(page,1);
+    await panel(page).locator('.news-translation').waitFor();
+    assert.equal(await page.locator('#news-panel').getAttribute('data-analysis'),'running');
+    await waiting('问题一');
+    await page.waitForTimeout(500);
+    assert.equal(asks.length,0,'nothing is sent before the analysis is done');
+    await page.waitForFunction(()=>document.querySelectorAll('#news-panel .news-chat-round:not(.is-pending)').length===1);
+    assert.deepEqual(await rounds(page),[['我：问题一','答：答一']]);
+    assert.equal(asks[0].analysis,analysisChunks(S1_WHOLE).join(''));
+    assert.ok((await hubRequests(tmp))[1].messages[0].content.includes(analysisChunks(S1_WHOLE).join('')));
+    // After a part change the conversation is kept and the question waits for the part's analysis.
+    await drag(page,await at(tok(page,1,2),0.3),await at(tok(page,1,4),0.5));
+    await panel(page).locator('.news-panel-part',{hasText:'強い勢力で'}).waitFor();
+    assert.equal(await page.locator('#news-panel').getAttribute('data-analysis'),'running');
+    await waiting('问题二');
+    assert.equal(asks.length,1);
+    await page.waitForFunction(()=>document.querySelectorAll('#news-panel .news-chat-round:not(.is-pending)').length===2);
+    assert.deepEqual(asks[1],{article:READER_ID,sentence:1,start:2,end:4,analysis:analysisChunks(S1_PART).join(''),history:[{q:'问题一',a:'答一'}],question:'问题二'});
+  },{hub:[analyzeStep(S1_WHOLE,0.5),['chunks',['答一'],0],analyzeStep(S1_PART,0.5),['chunks',['答二'],0]],select:'Auto'}));
+
+  test(`closing the panel mid-analysis stops the stream and reopening starts empty on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await openReader(page,url);
+    await pressSentence(page,1);
+    await analysisDone(page);
+    await askAndWait(page,'问题一');
+    await drag(page,await at(tok(page,1,2),0.3),await at(tok(page,1,4),0.5));
+    await panel(page).locator('.news-selection-reading').waitFor();
+    assert.equal(await page.locator('#news-panel').getAttribute('data-analysis'),'running');
+    await panel(page).locator('.news-panel-close').click();
+    await panel(page).waitFor({state:'hidden'});
+    assert.equal(await page.locator('.news-sentence.is-selected').count(),0);
+    assert.ok(await waitDisconnects(tmp,1),'the server stops reading the closed analysis');
+    await pressSentence(page,1);
+    await analysisDone(page);
+    assert.equal(await panel(page).locator('.news-panel-part').count(),0);
+    assert.equal(await panel(page).locator('.news-chat-round').count(),0);
+    assert.deepEqual(await headings(page),['原文','译文','语法']);
+    assert.equal(await panel(page).locator('.news-ask-input').inputValue(),'');
+  },{hub:[analyzeStep(S1_WHOLE),['chunks',['答一'],0],analyzeStep(S1_PART,0.8),analyzeStep(S1_WHOLE)],select:'Auto'}));
+}
+
+test('a long answer is cut to the server limit when it is sent back as history',()=>withNews('iPhone 13',async(page,url)=>{
+  await openReader(page,url);
+  const asks=recordApi(page,'ask');
+  await pressSentence(page,1);
+  await analysisDone(page);
+  await askAndWait(page,'问题一');
+  assert.equal((await rounds(page))[0][1].length,'答：'.length+4500);
+  await askAndWait(page,'问题二');
+  assert.deepEqual(await rounds(page).then(list=>list[1]),['我：问题二','答：好的。']);
+  assert.equal(asks[1].history[0].a,'あ'.repeat(4000));
+  assert.equal(await panel(page).locator('.news-chat .news-error').count(),0);
+},{hub:[analyzeStep(S1_WHOLE),['chunks',['あ'.repeat(4500)],0],['chunks',['好的。'],0]],select:'Auto'}));
+
 for(const [device,mode] of [['iPad Pro 11 landscape','right'],['iPad Pro 11','sheet'],['iPhone 13','sheet']]) {
   test(`iPad landscape panel on right; iPhone bottom sheet on ${device}`,()=>withNews(device,async(page,url)=>{
     await openReader(page,url);

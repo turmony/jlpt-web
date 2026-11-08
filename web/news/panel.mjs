@@ -14,11 +14,17 @@ import {clearSelection, currentArticle, sentenceById} from '/news/reader.mjs';
 //   another part, same sentence -> new analysis, history kept
 //   close (button, drag down)  -> everything cleared, streams aborted, the reader's selection removed
 // Every new analysis aborts the analysis and the answer in progress; a new question aborts the previous
-// answer. Each stream also carries its own number and draws nothing once it is not the current one.
+// answer. The sentence and the analysis always go with a question: one asked while the analysis is still
+// running waits on screen and is sent when the analysis ends (with its analysis_text, or with none if
+// it failed). Each stream also carries its own number and draws nothing once it is not the current one.
 //
 // Layout (news.css): a fixed right column on wide landscape screens, otherwise a bottom sheet whose
 // handle drags it up to full screen or down to close.
 export const MAX_ROUNDS = 6;
+// The server's limits (server/news.py MAX_HISTORY_TEXT, MAX_ANALYSIS): longer texts are cut here, so one
+// long answer cannot get every later question rejected.
+const MAX_HISTORY_TEXT = 4000;
+const MAX_ANALYSIS = 20000;
 const WIDE = matchMedia('(min-width: 900px) and (orientation: landscape)');
 const CARD_LINK = /^\/grammar\/#N[1-5]\/\d+-\d+$/;
 
@@ -77,6 +83,7 @@ let analyzing = null;  // its AbortController
 let askRun = 0;        // number of the current answer stream
 let asking = null;     // its AbortController
 let pending = null;    // the round element of a question not yet answered (or failed)
+let queued = null;     // a question waiting for the running analysis to end
 
 // ---- Analysis ----
 function originalBlock(sentence, start, end) {
@@ -179,11 +186,13 @@ function analyze() {
       status.replaceChildren();
       setAnalysis('done');
       analyzing = null;
+      sendQueued();
     },
     error(data) {
       status.replaceChildren(errorLine(data, retryAnalysis));
       setAnalysis('failed');
       analyzing = null;
+      sendQueued();
     },
   };
   streamSSE('/api/news/analyze', {article: articleId, sentence: sentenceId, start, end}, {
@@ -229,6 +238,7 @@ function renderChat() {
 function stopAsking() {
   asking?.abort();
   asking = null;
+  queued = null;
   askRun++;
   pending?.remove();
   pending = null;
@@ -236,13 +246,37 @@ function stopAsking() {
   if (state) chat.hidden = !state.history.length;
 }
 
+// Shows the question at once; it is sent when the running analysis ends (sendQueued).
+function queue(question) {
+  stopAsking();
+  const {round, answer} = roundNode(question);
+  round.classList.add('is-pending');
+  answer.hidden = true;
+  const slot = node('div', 'news-chat-slot');
+  slot.append(progressLine('分析完成后发送…'));
+  round.append(slot);
+  pending = round;
+  queued = question;
+  chatList.append(round);
+  chat.hidden = false;
+  send.disabled = true;
+  round.scrollIntoView({block: 'nearest'});
+}
+
+function sendQueued() {
+  if (queued !== null && state) ask(queued);
+}
+
+const cut = (text, limit) => text.length > limit ? text.slice(0, limit) : text;
+
 function ask(question) {
   stopAsking(); // also drops a failed round still on screen: what is shown is what the model is sent
   const run = askRun;
   const controller = asking = new AbortController();
   const live = () => run === askRun && !controller.signal.aborted;
-  const {articleId, sentenceId, start, end, analysisText} = state;
-  const history = state.history.slice(-MAX_ROUNDS);
+  const {articleId, sentenceId, start, end} = state;
+  const analysisText = cut(state.analysisText, MAX_ANALYSIS);
+  const history = state.history.slice(-MAX_ROUNDS).map(({q, a}) => ({q: cut(q, MAX_HISTORY_TEXT), a: cut(a, MAX_HISTORY_TEXT)}));
   const {round, answer, text} = roundNode(question);
   round.classList.add('is-pending');
   const slot = node('div', 'news-chat-slot');
@@ -292,9 +326,10 @@ function ask(question) {
 form.addEventListener('submit', event => {
   event.preventDefault();
   const question = input.value.trim();
-  if (!state || !question || asking) return;
+  if (!state || !question || asking || queued !== null) return;
   input.value = '';
-  ask(question);
+  if (state.analysis === 'running') queue(question);
+  else ask(question);
 });
 
 // ---- Opening and closing ----
