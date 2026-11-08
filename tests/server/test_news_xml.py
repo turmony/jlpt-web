@@ -127,6 +127,29 @@ class AnalysisParserTests(unittest.TestCase):
         self.assertIn('<form>〜た</form>', ev[-1][1]['text'])
         self.assertNotIn('<grammar>', ev[-1][1]['text'])
 
+    def test_unterminated_item_does_not_swallow_next_items(self):
+        text = ('<analysis><grammar><item related="true"><form>A</form><level>N5</level>'
+                '<item><form>B</form></item><item><form>C</form></item></grammar></analysis>')
+        for step in (None, 1, 3, 7):
+            ev = parse_all(text, step)
+            self.assertEqual([e[0] for e in ev], ['grammar', 'grammar', 'extra'], step)
+            self.assertEqual([e[1]['form'] for e in ev[:2]], ['B', 'C'], step)
+            self.assertIn('<form>A</form>', ev[2][1]['text'])
+            self.assertIn('<level>N5</level>', ev[2][1]['text'])
+            self.assertNotIn('<form>B</form>', ev[2][1]['text'])
+
+    def test_unterminated_selection_and_translation_do_not_swallow_next(self):
+        text = ('<selection><reading>r</reading><translation>T1</translation>'
+                '<selection><reading>s</reading></selection>')
+        for step in (None, 2):
+            ev = parse_all(text, step)
+            self.assertEqual([e[0] for e in ev], ['translation', 'selection', 'extra'], step)
+            self.assertEqual(ev[1][1]['reading'], 's')
+            self.assertIn('<reading>r</reading>', ev[2][1]['text'])
+        ev = parse_all('<translation>half<item><form>B</form></item>', 4)
+        self.assertEqual([e[0] for e in ev], ['grammar', 'extra'])
+        self.assertIn('half', ev[1][1]['text'])
+
     def test_empty_stream_yields_nothing(self):
         self.assertEqual(parse_all(''), [])
         self.assertEqual(parse_all('  \n'), [])

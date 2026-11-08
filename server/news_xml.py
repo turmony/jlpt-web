@@ -59,6 +59,17 @@ class AnalysisParser:
             if best is None:
                 break
             kind, m = best
+            # A nested opener inside the match means this section never closed: keep
+            # its raw text for extra and rescan from the nested opener.
+            head = _OPENERS.match(self._buf, m.start())
+            nested = _OPENERS.search(self._buf, head.end(), m.end())
+            if nested:
+                self._note_extra(self._buf[:m.start()])
+                raw = _WRAPPERS.sub('', _FENCE.sub('', self._buf[m.start():nested.start()])).strip()
+                if raw:
+                    self._extra.append(raw)
+                self._buf = self._buf[nested.start():]
+                continue
             self._note_extra(self._buf[:m.start()])
             self._buf = self._buf[m.end():]
             if kind == 'selection':
