@@ -86,6 +86,27 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(json.loads(config_path.read_text())['llm']['api_key'], secret)
             self.assertNotIn(secret, result.stdout + result.stderr)
 
+    def test_configure_server_empty_llm_key_keeps_the_stored_key(self):
+        # install.sh reruns this script on every deploy; an exported-but-empty JLPT_LLM_API_KEY
+        # (or an empty --llm-api-key) must not wipe the key that is already configured.
+        secret = 'sk-keep-SECRET-1357913579'
+        with tempfile.TemporaryDirectory() as tmp:
+            result, config_path = self._configure(tmp, '--llm-base-url', 'http://127.0.0.1:8790', '--llm-api-key', secret)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for extra, env in [((), {'JLPT_LLM_API_KEY': ''}),
+                               (('--llm-base-url', 'http://127.0.0.1:8791'), {'JLPT_LLM_API_KEY': ''}),
+                               (('--llm-api-key', ''), {}),
+                               (('--llm-api-key=',), {'JLPT_LLM_API_KEY': ''})]:
+                result, config_path = self._configure(tmp, *extra, env=env)
+                self.assertEqual(result.returncode, 0, (extra, result.stderr))
+                self.assertEqual(json.loads(config_path.read_text())['llm']['api_key'], secret, extra)
+
+    def test_configure_server_empty_llm_key_without_url_is_not_an_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, config_path = self._configure(tmp, env={'JLPT_LLM_API_KEY': ''})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn('llm', json.loads(config_path.read_text()))
+
     def test_configure_server_rejects_bad_llm_options_without_echoing_key(self):
         secret = 'sk-bad-SECRET-5555555555'
         with tempfile.TemporaryDirectory() as tmp:

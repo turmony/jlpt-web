@@ -23,7 +23,9 @@ if __name__ == '__main__':
     if unknown:
         names = sorted({item.split('=', 1)[0] for item in unknown if item.startswith('-')})
         parser.error('未知参数：' + ' '.join(names) if names else '多余的位置参数')
-    llm_key = args.llm_api_key if args.llm_api_key is not None else os.environ.get('JLPT_LLM_API_KEY')
+    # An empty key counts as not given: install.sh reruns this on every deploy, and an empty
+    # JLPT_LLM_API_KEY or --llm-api-key must not wipe the key already stored.
+    llm_key = args.llm_api_key or os.environ.get('JLPT_LLM_API_KEY') or None
     origin = urlsplit(args.origin)
     if origin.scheme != 'https' or not origin.netloc or origin.path not in ('', '/'):
         parser.error('origin 必须是 HTTPS 网站来源')
