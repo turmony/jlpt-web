@@ -212,6 +212,10 @@ class PageRuleTests(unittest.TestCase):
         from server import news_yahoo
         self.assertEqual((news_yahoo.MAX_PAGES, news_yahoo.PAGE_RETRY_DELAY, news_yahoo.OPEN_BUDGET), (6, 1.5, 30))
 
+    def test_exactly_seven_pages_names_the_single_page_left_out(self):
+        art, _calls, _ = self.open(article_pages(7, upto=6))
+        self.assertEqual([e['location'] for e in art['errors']], ['第 7 页 / 共 7 页'])
+
     def test_more_than_six_pages_fetches_six_and_records_one_cap_error(self):
         art, calls, _ = self.open(article_pages(8))
         self.assertEqual(calls, [page(n) for n in range(1, 7)])
@@ -238,8 +242,27 @@ class PageRuleTests(unittest.TestCase):
         self.assertLess(peak, 2 * 1024 * 1024)
         self.assertEqual(calls, [page(n) for n in range(1, 7)])
         self.assertEqual(art['pages'], {'total': total, 'fetched': 6, 'missing': []})
+        # An absurd count is shown as 999+ so the error line stays short.
         self.assertEqual([(e['location'], e['reason']) for e in art['errors']],
-                         [('第 7–1000000000 页 / 共 1000000000 页', '这篇文章共 1000000000 页，只显示前 6 页，其余请看原文')])
+                         [('第 7–999+ 页 / 共 999+ 页', '这篇文章共 999+ 页，只显示前 6 页，其余请看原文')])
+
+    def test_page_counts_up_to_999_are_shown_as_is(self):
+        art, _calls, _ = self.open(article_pages(999, upto=6))
+        self.assertEqual(art['errors'][0]['location'], '第 7–999 页 / 共 999 页')
+        mapping = article_pages(1000, upto=6)
+        mapping[page(3)] = (404, b'')
+        art, _calls, _ = self.open(mapping)
+        self.assertEqual([e['location'] for e in art['errors']], ['第 3 页 / 共 999+ 页', '第 7–999+ 页 / 共 999+ 页'])
+
+    def test_unusable_page_count_means_one_page(self):
+        for bad in (float('inf'), float('nan'), 'abc', -5, 0, None, 2.5, True, [3], {'n': 3}):
+            art, calls, _ = self.open({A: (200, article_page(1, bad))})
+            self.assertEqual(calls, [A], bad)
+            self.assertEqual(art['pages'], {'total': 1, 'fetched': 1, 'missing': []}, bad)
+            self.assertEqual((art['errors'], self.texts(art)), ([], ['第1頁の本文。']), bad)
+        for good, total in ((3.0, 3), ('3', 3)):
+            art, _calls, _ = self.open(article_pages(3) | {A: (200, article_page(1, good))})
+            self.assertEqual(art['pages']['total'], total, good)
 
     def test_failed_page_is_retried_once_after_a_pause(self):
         mapping = article_pages(6)

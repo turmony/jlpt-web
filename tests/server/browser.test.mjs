@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const require=createRequire(new URL('../../mobile/package.json',import.meta.url));
+// The content key the server gives each image (sha1 of its source URL, first 16 hex digits).
+const imageKey=src=>createHash('sha1').update(src).digest('hex').slice(0,16);
 const {chromium,webkit,devices}=require('playwright');
 
 async function withSite(engine,options,run,env={}) {
@@ -808,14 +811,14 @@ for(const device of NEWS_DEVICES) {
     // Every token is its own span, numbered per sentence; ids run through captions too.
     assert.deepEqual(await page.locator('.news-sentence[data-sid="1"] .news-token').allInnerTexts(),['台風','は','強い','勢力','で','島','に','接近','する','おそれ','が','あり','ます','。']);
     const photo=page.locator('.news-figure img');
-    assert.equal(await photo.getAttribute('src'),`/api/news/image/${READER_ID}/0`);
+    assert.equal(await photo.getAttribute('src'),`/api/news/image/${READER_ID}/0?v=${imageKey('https://newsatcl-pctr.c.yimg.jp/t/reader/photo1.jpg')}`);
     await page.waitForFunction(()=>document.querySelector('.news-figure img').naturalWidth>0);
     assert.equal(await page.locator('.news-figure figcaption .news-sentence').innerText(),'港に並ぶ船。');
     assert.equal(await page.locator('.news-figure figcaption .news-sentence').getAttribute('data-sid'),'3');
     assert.equal(await page.locator('.news-figure .news-credit').innerText(),'テスト提供');
     const videos=page.locator('.news-video');
     assert.equal(await videos.count(),2);
-    assert.equal(await videos.nth(0).locator('img').getAttribute('src'),`/api/news/image/${READER_ID}/1`);
+    assert.equal(await videos.nth(0).locator('img').getAttribute('src'),`/api/news/image/${READER_ID}/1?v=${imageKey('https://newsatcl-pctr.c.yimg.jp/t/reader/poster1.jpg')}`);
     await page.waitForFunction(()=>document.querySelector('.news-video img').naturalWidth>0);
     assert.equal(await videos.nth(0).locator('.news-video-placeholder').count(),0);
     assert.equal(await videos.nth(1).locator('img').count(),0);
@@ -1110,6 +1113,27 @@ test('page errors: a range of missing pages offers 重试, the page cap does not
   assert.equal(await errors.nth(1).getByRole('button',{name:'重试'}).count(),0);
   // Both come after the fetched text.
   assert.equal(await page.locator('.news-body').evaluate(body=>[...body.children].map(node=>node.className.split(' ')[0]).join(',')),'news-para,news-para,news-error,news-error');
+}));
+
+test('after 重试 refills a page, an index that now holds another image gets a new URL',()=>withNews('iPhone 13',async(page,url)=>{
+  const sentence=(id,text)=>({id,tokens:[{s:text,r:'',l:text,p:'名詞',t:true},{s:'。',r:'',l:'。',p:'補助記号',t:false}]});
+  const image=(index,key,id)=>({type:'image',index,key,ok:true,credit:'',caption_sentences:[sentence(id,'写真'+key.slice(0,1))]});
+  const base={id:READER_ID,url:READER_URL,title:'題',media:'媒体',published:'2026-11-08T15:30:00+09:00',author:''};
+  const gone={stage:'yahoo',stage_label:'抓取雅虎',location:'第 2 页 / 共 3 页',reason:'雅虎返回 503',retryable:true,request_id:'n-20261108-0003',time:'15:42:07'};
+  const a='a'.repeat(16),b='b'.repeat(16),c='c'.repeat(16);
+  const answers=[
+    {...base,pages:{total:3,fetched:2,missing:[2]},errors:[gone],blocks:[image(0,a,0),image(1,c,1)]},
+    {...base,pages:{total:3,fetched:3,missing:[]},errors:[],blocks:[image(0,a,0),image(1,b,1),image(2,c,2)]}];
+  await page.route('**/api/news/open',route=>route.fulfill({status:200,headers:{'content-type':'text/event-stream'},body:'event: article\ndata: '+JSON.stringify(answers.shift())+'\n\n'}));
+  const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==','base64');
+  await page.route('**/api/news/image/**',route=>route.fulfill({status:200,headers:{'content-type':'image/png'},body:png}));
+  await page.goto(readerPage(url));
+  await page.locator('.news-article-title').waitFor();
+  const srcs=()=>page.locator('.news-figure img').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('src')));
+  assert.deepEqual(await srcs(),[`/api/news/image/${READER_ID}/0?v=${a}`,`/api/news/image/${READER_ID}/1?v=${c}`]);
+  await page.locator('.news-body').getByRole('button',{name:'重试'}).click();
+  await page.locator('.news-figure img').nth(2).waitFor();
+  assert.deepEqual(await srcs(),[`/api/news/image/${READER_ID}/0?v=${a}`,`/api/news/image/${READER_ID}/1?v=${b}`,`/api/news/image/${READER_ID}/2?v=${c}`]);
 }));
 
 test('links taken from the article only go to Yahoo News over https',()=>withNews('iPhone 13',async(page,url)=>{

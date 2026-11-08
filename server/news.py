@@ -30,6 +30,7 @@ PING_GAP = 0.5
 MAX_QUESTION = 500
 MAX_HISTORY_TEXT = 4000
 MAX_ANALYSIS = 20000
+KEY_SHOWN = 16              # hex digits of an image's file key given to the page (cache-busting only)
 
 R_EXPIRED = '文章缓存已过期，请重新打开'
 R_NO_MODEL = '请先在页头选择模型'
@@ -303,12 +304,12 @@ class NewsService:
                 key = image_key(src) if isinstance(src, str) else None
                 if key in reuse:
                     keys[index] = key
-                    done()
+                    done(key)
                     continue
                 self._progress(emit, 'image', '正在下载图片（第 %d / %d 张）…' % (index + 1, len(images)))
                 try:
                     keys[index] = self._download(raw['id'], index, src)
-                    done()
+                    done(keys[index])
                 except NewsError as error:
                     failed()
                     self.log_error(error, url)
@@ -343,9 +344,11 @@ class NewsService:
 
     def _blocks(self, raw_blocks):
         """Tokenized blocks (sentence ids run through the whole article) and the images to fetch,
-        [(src, on_success, on_failure)] in local image index order. Article images and video
-        posters share one index space: image blocks carry `index`/`ok`, a video's `cover` is its
-        poster's index (null when there is none or it failed)."""
+        [(src, on_success(file key), on_failure)] in local image index order. Article images and
+        video posters share one index space: image blocks carry `index`/`ok`, a video's `cover` is
+        its poster's index (null when there is none or it failed). `key` / `cover_key` name the
+        image's content (a prefix of its file key, null when it failed): the page puts it in the
+        image URL, because an index can point at another image after a refill."""
         blocks, images, next_id = [], [], 0
         for n, raw in enumerate(raw_blocks, 1):
             kind = raw.get('type')
@@ -355,15 +358,17 @@ class NewsService:
             elif kind == 'image':
                 sentences = self._sentences(raw.get('caption'), next_id, n)
                 block = {'type': 'image', 'index': len(images), 'caption_sentences': sentences,
-                         'credit': raw.get('credit') or '', 'ok': False}
-                images.append((raw.get('src'), lambda b=block: b.update(ok=True), lambda: None))
+                         'credit': raw.get('credit') or '', 'ok': False, 'key': None}
+                images.append((raw.get('src'), lambda key, b=block: b.update(ok=True, key=key[:KEY_SHOWN]),
+                               lambda: None))
                 blocks.append(block)
             elif kind == 'video':
                 sentences = []
-                block = {'type': 'video', 'url': raw.get('url') or '', 'cover': None}
+                block = {'type': 'video', 'url': raw.get('url') or '', 'cover': None, 'cover_key': None}
                 if raw.get('cover'):
                     block['cover'] = len(images)
-                    images.append((raw['cover'], lambda: None, lambda b=block: b.update(cover=None)))
+                    images.append((raw['cover'], lambda key, b=block: b.update(cover_key=key[:KEY_SHOWN]),
+                                   lambda b=block: b.update(cover=None)))
                 blocks.append(block)
             else:
                 sentences = []

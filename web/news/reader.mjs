@@ -98,7 +98,9 @@ function sentenceNodes(list) {
 }
 
 const textOf = list => (list || []).map(sentence => sentence.tokens.map(token => token.s).join('')).join('');
-const imageUrl = index => `/api/news/image/${encodeURIComponent(article.id)}/${index}`;
+// `key` names the image's content: after a 重试 refills a missing page, index n can be another
+// picture, and the browser keeps /api/news/image/<id>/<n> for 7 days.
+const imageUrl = (index, key) => `/api/news/image/${encodeURIComponent(article.id)}/${index}${key ? `?v=${encodeURIComponent(key)}` : ''}`;
 
 function picture(src, alt, onFail) {
   const img = node('img');
@@ -146,7 +148,7 @@ function blockNode(block, error) {
   if (block.type === 'image') {
     const figure = node('figure', 'news-figure');
     const missing = () => node('div', 'news-image-missing', '图片没能显示');
-    figure.append(block.ok ? picture(imageUrl(block.index), textOf(block.caption_sentences), missing) : missing(), ...problem);
+    figure.append(block.ok ? picture(imageUrl(block.index, block.key), textOf(block.caption_sentences), missing) : missing(), ...problem);
     if ((block.caption_sentences || []).length || block.credit) {
       const caption = node('figcaption');
       caption.append(...sentenceNodes(block.caption_sentences));
@@ -158,7 +160,7 @@ function blockNode(block, error) {
   if (block.type === 'video') {
     const figure = node('figure', 'news-video');
     const placeholder = () => node('div', 'news-video-placeholder', '视频');
-    figure.append(block.cover != null ? picture(imageUrl(block.cover), '视频封面', placeholder) : placeholder(), ...problem);
+    figure.append(block.cover != null ? picture(imageUrl(block.cover, block.cover_key), '视频封面', placeholder) : placeholder(), ...problem);
     const caption = node('figcaption');
     caption.append(outLink(block.url || article.url, '在雅虎观看'));
     figure.append(caption);

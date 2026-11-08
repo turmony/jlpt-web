@@ -1,6 +1,7 @@
 """Fetch and normalize Yahoo! JAPAN News (RSS, topic pages, multi-page articles)."""
 import email.utils
 import json
+import math
 import re
 import time
 import urllib.error
@@ -18,6 +19,7 @@ PAGE_GAP = 0.5
 MAX_PAGES = 6              # pages shown; the rest are one error line (2026-11-08, user-approved)
 PAGE_RETRY_DELAY = 1.5     # a failed page is tried once more after this pause
 OPEN_BUDGET = 30           # seconds one article open may spend fetching pages
+TOTAL_SHOWN_MAX = 999      # a larger page count is written 「999+」 in error lines
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
 FEEDS = {
@@ -190,6 +192,18 @@ def _rich_extras(rich, page_url):
     return extras
 
 
+def _page_count(value):
+    """maxPage as a page count; anything unusable (missing, non-finite, fractional, < 1, not a
+    number) means a single page, since page 1 itself is fine."""
+    if isinstance(value, str) and value.isascii() and value.isdigit() and len(value) <= 18:
+        value = int(value)
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        value = int(value)
+    if type(value) is not int or value < 1:
+        return 1
+    return value
+
+
 def parse_page(state, page_url, location=None):
     detail = state.get('articleDetail') if isinstance(state, dict) else None
     if not isinstance(detail, dict) or not isinstance(detail.get('paragraphs'), list):
@@ -212,7 +226,7 @@ def parse_page(state, page_url, location=None):
         'published': detail.get('createDateTime') or '',
         'author': author or '',
         'current': detail.get('currentPage') or 1,
-        'max': detail.get('maxPage') or 1,
+        'max': _page_count(detail.get('maxPage')),
         'blocks': blocks,
     }
 
@@ -236,8 +250,12 @@ def _pages_text(pages):
     return '、'.join('%d' % a if a == b else '%d–%d' % (a, b) for a, b in runs)
 
 
+def _total_text(total):
+    return '%d' % total if total <= TOTAL_SHOWN_MAX else '%d+' % TOTAL_SHOWN_MAX
+
+
 def _page_location(pages, total):
-    return '第 %s 页 / 共 %d 页' % (_pages_text(pages), total)
+    return '第 %s 页 / 共 %s 页' % (_pages_text(pages), _total_text(total))
 
 
 class _PageFailed(Exception):
@@ -388,7 +406,7 @@ class Yahoo:
             if 1 not in pages:
                 raise NewsError('parse', '缓存里没有第 1 页', '第 1 页')
             meta = {key: known[key] for key in ('id', 'url', 'title', 'media', 'published', 'author')}
-            total = max(1, int(known['pages']['total']))
+            total = _page_count(known['pages']['total'])
         else:
             url = validate_url(url)
             if '/pickup/' in url:
@@ -396,7 +414,7 @@ class Yahoo:
             article_id = _ARTICLE_PATH.fullmatch(urllib.parse.urlsplit(url).path).group(1)
             progress('yahoo', '正在抓取雅虎…')
             first = self._first_page(url)
-            total = max(1, int(first['max']))
+            total = first['max']
             pages = {1: list(first['blocks'])}
             meta = {'id': article_id, 'url': url, 'title': first['title'], 'media': first['media'],
                     'published': first['published'], 'author': first['author']}
@@ -444,10 +462,11 @@ class Yahoo:
             pages[n] = list(page['blocks'])
 
         if total > MAX_PAGES:
+            # 「第 7 页」 when exactly one page is left out, else 「第 7–X 页」 (X written 999+ when absurd).
+            rest = '%d' % (MAX_PAGES + 1) if total == MAX_PAGES + 1 else '%d–%s' % (MAX_PAGES + 1, _total_text(total))
             errors.append(NewsError(
-                'yahoo', '这篇文章共 %d 页，只显示前 %d 页，其余请看原文' % (total, MAX_PAGES),
-                '第 %s 页 / 共 %d 页' % (MAX_PAGES + 1 if total == MAX_PAGES + 1 else '%d–%d' % (MAX_PAGES + 1, total),
-                                     total), retryable=False).to_dict())
+                'yahoo', '这篇文章共 %s 页，只显示前 %d 页，其余请看原文' % (_total_text(total), MAX_PAGES),
+                '第 %s 页 / 共 %s 页' % (rest, _total_text(total)), retryable=False).to_dict())
         order = sorted(pages)
         art = dict(meta)
         art.update(pages={'total': total, 'fetched': len(order),

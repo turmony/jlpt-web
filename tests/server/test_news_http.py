@@ -19,6 +19,7 @@ from server.auth import Auth
 from server.llm import Hub
 from server.news import NewsService, match_card, start_cleanup
 from server.news_text import TokenizerUnavailable, split_sentences
+from server.news_store import image_key
 from server.news_yahoo import Yahoo
 from tests.server.fake_hub import FakeHub
 from tests.server.news_fixture import (ARTICLE_ID, ARTICLE_URL as A, PICKUP_URL as P, article_pages,
@@ -217,11 +218,11 @@ class OpenTests(NewsHTTPBase):
         self.assertEqual(ids, list(range(len(ids))))
         self.assertEqual(len(ids), 4)
         image = art['blocks'][-1]
-        self.assertEqual(image, {'type': 'image', 'index': 1, 'credit': 'テスト提供', 'ok': True,
+        self.assertEqual(image, {'type': 'image', 'index': 1, 'credit': 'テスト提供', 'ok': True, 'key': image_key(IMG)[:16],
                                  'caption_sentences': image['caption_sentences']})
         self.assertEqual(''.join(t['s'] for t in image['caption_sentences'][0]['tokens']), '画像：テスト')
         self.assertEqual(art['blocks'][2], {'type': 'video', 'url': 'https://news.yahoo.co.jp/video/test/1.m3u8',
-                                            'cover': 0})
+                                            'cover': 0, 'cover_key': image_key(POSTER)[:16]})
         self.assertEqual(art['errors'], [])
         self.assertEqual(self.svc.store.load_article(ARTICLE_ID)['blocks'], art['blocks'])
 
@@ -251,6 +252,7 @@ class OpenTests(NewsHTTPBase):
         self.login()
         art = self.open_article()
         self.assertFalse(art['blocks'][-1]['ok'])
+        self.assertIsNone(art['blocks'][-1]['key'])
         err = art['errors'][0]
         self.assertEqual((err['stage'], err['location']), ('image', '第 2 张'))
         self.assertRegex(err['request_id'], r'^n-\d{8}-[0-9a-f]{4}$')
@@ -262,6 +264,7 @@ class OpenTests(NewsHTTPBase):
         self.login()
         art = self.open_article()
         self.assertIsNone(art['blocks'][2]['cover'])
+        self.assertIsNone(art['blocks'][2]['cover_key'])
         self.assertEqual([(e['stage'], e['location']) for e in art['errors']], [('image', '第 1 张')])
         self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/0').status, 404)
         self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/1').status, 200)
@@ -353,6 +356,8 @@ class OpenTests(NewsHTTPBase):
         self.assertEqual(first['pages'], {'total': 3, 'fetched': 2, 'missing': [2]})
         self.assertEqual([(e['stage'], e['location']) for e in first['errors']], [('yahoo', '第 2 页 / 共 3 页')])
         self.assertEqual([b['index'] for b in first['blocks'] if b['type'] == 'image'], [0, 1])
+        before = {b['index']: b['key'] for b in first['blocks'] if b['type'] == 'image'}
+        self.assertEqual(before, {0: image_key(img[1])[:16], 1: image_key(img[3])[:16]})
         self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/1').read(), data[3])
 
         # 重试: page 2 is back; the old image URLs have expired since.
@@ -374,8 +379,13 @@ class OpenTests(NewsHTTPBase):
         self.assertEqual(ids, list(range(6)))
         images = [b for b in art['blocks'] if b['type'] == 'image']
         self.assertEqual([(b['index'], b['ok']) for b in images], [(0, True), (1, True), (2, True)])
+        # Each image names its content, so the page's URL for a shifted index changes too
+        # (the browser caches /api/news/image/<id>/<n> for 7 days).
+        self.assertEqual([b['key'] for b in images], [image_key(img[n])[:16] for n in (1, 2, 3)])
+        self.assertEqual(images[0]['key'], before[0])
+        self.assertNotEqual(images[1]['key'], before[1])
         for index, n in ((0, 1), (1, 2), (2, 3)):
-            resp = self.request(f'/api/news/image/{ARTICLE_ID}/{index}')
+            resp = self.request(f'/api/news/image/{ARTICLE_ID}/{index}?v={images[index]["key"]}')
             self.assertEqual((resp.status, resp.read()), (200, data[n]), index)
         self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/3').status, 404)
         self.assertEqual(self.svc.store.load_article(ARTICLE_ID)['blocks'], art['blocks'])
