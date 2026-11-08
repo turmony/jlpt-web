@@ -631,7 +631,7 @@ test('the news api module parses chunked event streams and reports interrupted o
     await streamSSE(path,{url:'x'},{signal:controller.signal,onEvent:(name,data)=>{seen.push([name,data]);if(abortAfter===seen.length) controller.abort();}});
     return seen;
   },[body,abortAfter]);
-  // Comments (: ping) are ignored; payloads with multi-byte text and CRLF are parsed.
+  // Comments (: ping) are ignored and multi-byte text survives (one-chunk body; real chunking is tested below).
   await page.route('**/api/news/open',route=>route.fulfill(sse(': ping\n\nevent: progress\ndata: {"stage":"yahoo","text":"正在抓取雅虎…"}\n\n: ping\n\nevent: article\ndata: {"id":"a1","title":"題"}\n\n')));
   assert.deepEqual(await run('/api/news/open'),[['progress',{stage:'yahoo',text:'正在抓取雅虎…'}],['article',{id:'a1',title:'題'}]]);
   // No terminal event: the stream is reported as interrupted (retryable).
@@ -666,4 +666,72 @@ test('the news api module parses chunked event streams and reports interrupted o
     return seen;
   });
   assert.deepEqual(split,[['delta',{text:'日本語'}],['done',{}]]);
+}));
+
+// These drive streamSSE's own read loop: window.fetch is replaced by one answering with a ReadableStream
+// that enqueues controlled Uint8Array pieces with delays, as the browser does for a live response.
+const STREAM_HELPERS=`
+  window.__fakeStream=(pieces,{honourAbort=true,hang=false}={})=>{
+    window.fetch=(path,init)=>{
+      let cancelled=false;
+      const stream=new ReadableStream({
+        async start(controller){
+          init.signal?.addEventListener('abort',()=>{if(honourAbort) controller.error(new DOMException('aborted','AbortError'));});
+          for(const piece of pieces){
+            if(typeof piece==='number') await new Promise(r=>setTimeout(r,piece)); else if(!cancelled) controller.enqueue(piece);
+          }
+          if(!hang&&!cancelled) controller.close();
+        },
+        cancel(){cancelled=true;},
+      });
+      return Promise.resolve(new Response(stream,{status:200,headers:{'content-type':'text/event-stream'}}));
+    };
+  };`;
+const inPage=(page,fn,arg)=>page.evaluate(`(async()=>{${STREAM_HELPERS}
+  const {streamSSE}=await import('/news/api.mjs');
+  const settle=(promise,ms=2000)=>Promise.race([promise.then(()=>'settled',error=>'rejected: '+error.message),new Promise(r=>setTimeout(()=>r('hung'),ms))]);
+  return (${fn.toString()})(${JSON.stringify(arg??null)});})()`);
+
+test('streamSSE reassembles frames from byte pieces split inside multibyte characters and CRLF',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.goto(url+'/news/');
+  const seen=await inPage(page,async()=>{
+    const bytes=new TextEncoder().encode(': ping\r\n\r\nevent: delta\r\ndata: {"text":"日本語"}\r\n\r\n: ping\r\n\r\nevent: delta\r\ndata: {"text":"ニュース"}\r\n\r\nevent: done\r\ndata: {}\r\n\r\n');
+    const pieces=[];
+    for(let i=0;i<bytes.length;i++){pieces.push(bytes.slice(i,i+1));if(i%7===0) pieces.push(1);}
+    window.__fakeStream(pieces);
+    const seen=[];
+    await streamSSE('/api/news/ask',{},{onEvent:(name,data)=>seen.push([name,data])});
+    return seen;
+  });
+  assert.deepEqual(seen,[['delta',{text:'日本語'}],['delta',{text:'ニュース'}],['done',{}]]);
+}));
+
+test('streamSSE ends quietly when aborted while a read is pending',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.goto(url+'/news/');
+  for(const honourAbort of [true,false]) {
+    const result=await inPage(page,async honourAbort=>{
+      const first=new TextEncoder().encode('event: progress\ndata: {"text":"1"}\n\n');
+      window.__fakeStream([first],{honourAbort,hang:true}); // then the read waits forever
+      const seen=[];const controller=new AbortController();
+      const done=streamSSE('/api/news/open',{},{signal:controller.signal,onEvent:(name,data)=>{seen.push([name,data]);setTimeout(()=>controller.abort(),30);}});
+      return {outcome:await settle(done),seen};
+    },honourAbort);
+    assert.deepEqual(result,{outcome:'settled',seen:[['progress',{text:'1'}]]},`honourAbort=${honourAbort}`);
+  }
+}));
+
+test('streamSSE rejects when the page handler throws and does not report an interrupted stream',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.goto(url+'/news/');
+  const result=await inPage(page,async()=>{
+    const enc=text=>new TextEncoder().encode(text);
+    const out={};
+    for(const [label,body] of [['non-terminal','event: progress\ndata: {"text":"1"}\n\nevent: progress\ndata: {"text":"2"}\n\nevent: done\ndata: {}\n\n'],['terminal','event: done\ndata: {}\n\n']]){
+      window.__fakeStream([enc(body)]);
+      const seen=[];
+      const outcome=await settle(streamSSE('/api/news/open',{},{onEvent:name=>{seen.push(name);throw new Error('handler bug');}}));
+      out[label]={outcome,seen};
+    }
+    return out;
+  });
+  assert.deepEqual(result,{'non-terminal':{outcome:'rejected: handler bug',seen:['progress']},terminal:{outcome:'rejected: handler bug',seen:['done']}});
 }));

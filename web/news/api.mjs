@@ -103,6 +103,8 @@ const TERMINAL = new Set(['article', 'done', 'error']);
 // POST `body` to an SSE endpoint. Resolves when the stream has ended. Exactly one of article, done
 // or error is the last event; a stream that ends without one is reported as stage 'stream'.
 // Aborting through `signal` ends quietly: no error event, and nothing is delivered after it.
+// An exception thrown by `onEvent` is a page bug, not a stream failure: it rejects the returned
+// promise (after the stream is cancelled) and is never turned into an error event.
 export async function streamSSE(path, body, {signal, onEvent}) {
   let finished = false;
   const emit = (name, data) => {
@@ -123,16 +125,25 @@ export async function streamSSE(path, body, {signal, onEvent}) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const parser = sseParser(emit);
+  // Cancelling resolves a pending read, so an abort ends the loop even between chunks.
+  const stop = () => { reader.cancel().catch(() => {}); };
+  signal?.addEventListener('abort', stop);
   try {
     while (!finished && !signal?.aborted) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      parser.push(decoder.decode(value, {stream: true}));
+      let chunk;
+      try {
+        chunk = await reader.read();
+      } catch {
+        break; // dropped connection or abort: handled below
+      }
+      if (chunk.done) break;
+      // Not wrapped: an exception thrown by the caller's onEvent rejects the returned promise.
+      parser.push(decoder.decode(chunk.value, {stream: true}));
     }
-  } catch {
-    // Dropped connection or abort; handled below.
+  } finally {
+    signal?.removeEventListener('abort', stop);
+    reader.cancel().catch(() => {});
   }
-  try { await reader.cancel(); } catch {}
   if (!finished && !signal?.aborted) emit('error', streamInfo());
 }
 
