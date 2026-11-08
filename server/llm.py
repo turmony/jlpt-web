@@ -21,7 +21,7 @@ R_BAD_KEY = 'API Key 无效'
 R_QUEUE = '模型排队中，请稍后重试'
 R_UNAVAILABLE = '当前模型不可用，请重新选择'
 R_NO_OUTPUT = '模型没有返回内容'
-R_CUT = '回答中断'
+R_CUT = 'qoder2api-hub 中途断开'
 
 
 def _fmt_seconds(s):

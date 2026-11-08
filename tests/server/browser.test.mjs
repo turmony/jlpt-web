@@ -1371,9 +1371,9 @@ for(const device of NEWS_DEVICES) {
     assert.equal(await round.locator('.news-error-line').innerText(),'模型生成失败（追问（第 3 句））：模型排队中，请稍后重试');
     assert.equal(await round.locator('.news-chat-q').innerText(),'我：这句是什么意思？');
     await round.locator('.news-error-retry').click();
-    await round.locator('.news-error-line',{hasText:'回答中断'}).waitFor();
+    await round.locator('.news-error-line',{hasText:'qoder2api-hub 中途断开'}).waitFor();
     assert.equal(await round.locator('.news-chat-a').innerText(),'答：答到一半');
-    assert.equal(await round.locator('.news-error-line').innerText(),'推送到网页失败（追问（第 3 句））：回答中断');
+    assert.equal(await round.locator('.news-error-line').innerText(),'推送到网页失败（追问（第 3 句））：qoder2api-hub 中途断开');
     await round.locator('.news-error-retry').click();
     await page.waitForFunction(()=>document.querySelectorAll('#news-panel .news-chat-round:not(.is-pending)').length===1);
     assert.deepEqual(await rounds(page),[['我：这句是什么意思？','答：完整回答']]);

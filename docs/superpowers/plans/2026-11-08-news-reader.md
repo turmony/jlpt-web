@@ -185,7 +185,7 @@ def test_request_id_format(self):
   - `Hub.stream(model: str, messages: list[dict], effort: str | None) -> Iterator[str]`：`POST /v1/chat/completions`，`{"model", "messages", "stream": true}`，`effort` 非空时加 `"reasoning_effort": effort`；逐个产出 `choices[0].delta.content` 文本；生成器被 `close()` 时关闭上游连接。
   - `Hub.complete(model, messages, effort) -> str`：拼接 `stream` 结果（查词用）。
   - `NewsService` 调用前用 `Hub.models()` 查出所选模型的 `effort`；所选模型不在列表中时报 `model`「当前模型不可用，请重新选择」。
-  - 错误映射：连接失败、401 → `gateway`（原因分别为「qoder2api-hub 未运行或无法连接」「API Key 无效」）；429、正文含 `10605` → `model`「模型排队中，请稍后重试」；400/404 且正文提到模型 → `model`「当前模型不可用，请重新选择」（`retryable=False`）；其他 HTTP 错误 → `model`「模型返回 {status}：{前 200 字}」；首个文本 30 秒未到或总计超 120 秒 → `model`「模型 30 秒内没有输出」/「回答超过 2 分钟」；已开始输出后连接断开 → `stream`「回答中断」。
+  - 错误映射：连接失败、401 → `gateway`（原因分别为「qoder2api-hub 未运行或无法连接」「API Key 无效」）；429、正文含 `10605` → `model`「模型排队中，请稍后重试」；400/404 且正文提到模型 → `model`「当前模型不可用，请重新选择」（`retryable=False`）；其他 HTTP 错误 → `model`「模型返回 {status}：{前 200 字}」；首个输出（正文或思考内容，hub 的 `: ping` 不算）30 秒未到或总计超 120 秒 → `model`「模型 30 秒内没有输出」/「回答超过 2 分钟」；已开始输出后 hub 连接断开 → `stream`「qoder2api-hub 中途断开」（与网页自身断网的「回答中断」区分）。
 - `tests/server/fake_hub.py`：`FakeHub(script)` 起在随机端口的 HTTP 服务，`script` 为按请求顺序的行为列表：`('chunks', ['<a>', 'b</a>'], delay)`、`('status', 429, body)`、`('silent', seconds)`、`('cut_after', ['部分'])`；记录收到的请求体到 `requests`。
 
 - [ ] **Step 1: 写失败测试** — 每种映射一个测试，断言 `stage` 与 `reason`；`test_stream_yields_chunks_in_order`；`test_request_body_uses_lowest_supported_effort`（模型档位 `['high','max']` 时请求体 `reasoning_effort == 'high'`；无档位的模型请求体不含该字段；检查 `FakeHub.requests`）；`test_closing_generator_closes_upstream`（关闭后 FakeHub 记录到连接断开）。超时测试用 `first_timeout=0.3`。

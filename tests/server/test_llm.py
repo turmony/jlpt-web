@@ -146,7 +146,7 @@ class ErrorMappingTests(HubTestCase):
             for piece in hub.stream('m', MSG, None):
                 got.append(piece)
         self.assertEqual(got, ['部分'])
-        self.assertErr(ctx, 'stream', '回答中断')
+        self.assertErr(ctx, 'stream', 'qoder2api-hub 中途断开')
 
     def test_cut_before_any_text_is_model_error(self):
         fake, hub = self.hub([('cut_after', [])])

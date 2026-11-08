@@ -717,6 +717,8 @@ class StageErrorTests(NewsHTTPBase):
         self.fake.close()
         errors.append(('gateway', self.sse('/api/news/analyze', self.analyze_body(1))[-1][1]))
 
+        # The hub cut off mid-answer: told apart from the browser's own network drop (回答中断).
+        self.assertEqual([e['reason'] for s, e in errors if s == 'stream'], ['qoder2api-hub 中途断开'])
         for stage, err in errors:
             self.assertEqual(err['stage'], stage, err)
             self.assertRegex(err['request_id'], r'^n-\d{8}-[0-9a-f]{4}$')
