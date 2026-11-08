@@ -15,6 +15,7 @@ from .news_store import IMAGE_MAX
 HOST = 'news.yahoo.co.jp'
 TIMEOUT = 10
 PAGE_GAP = 0.5
+MAX_PAGES = 20             # a bogus maxPage must not start hundreds of spaced fetches
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
 FEEDS = {
@@ -323,7 +324,7 @@ class Yahoo:
                'published': first['published'], 'author': first['author'],
                'pages': {'total': total, 'fetched': 1, 'missing': []},
                'blocks': list(first['blocks']), 'errors': []}
-        for n in range(2, total + 1):
+        for n in range(2, min(total, MAX_PAGES) + 1):
             loc = '第 %d 页 / 共 %d 页' % (n, total)
             progress('yahoo', '正在抓取雅虎（第 %d / %d 页）…' % (n, total))
             self._sleep(PAGE_GAP)
@@ -335,4 +336,9 @@ class Yahoo:
                 continue
             art['pages']['fetched'] += 1
             art['blocks'].extend(page['blocks'])
+        if total > MAX_PAGES:
+            art['pages']['missing'].extend(range(MAX_PAGES + 1, total + 1))
+            art['errors'].append(NewsError(
+                'yahoo', '页数过多，只抓取前 %d 页' % MAX_PAGES,
+                '第 %d 页起 / 共 %d 页' % (MAX_PAGES + 1, total), retryable=False).to_dict())
         return art

@@ -170,6 +170,29 @@ class YahooTests(unittest.TestCase):
         Yahoo(fetch=fake_fetch(multi()), sleep=slept.append).open(P, progress=quiet)
         self.assertEqual(slept, [0.5, 0.5])
 
+    def test_page_count_is_capped_and_the_rest_recorded_missing(self):
+        from server.news_yahoo import MAX_PAGES
+        self.assertEqual(MAX_PAGES, 20)
+        first = load('multi_p1').replace(b'"maxPage": 3', b'"maxPage": 500')
+        mapping = {A: (200, first)}
+        for n in range(2, 501):
+            mapping[A + '?page=%d' % n] = (200, load('multi_p2'))
+        fetched = []
+        base = fake_fetch(mapping)
+
+        def fetch(url):
+            fetched.append(url)
+            return base(url)
+        slept = []
+        art = Yahoo(fetch=fetch, sleep=slept.append).open(A, progress=quiet)
+        self.assertEqual(fetched, [A] + [A + '?page=%d' % n for n in range(2, 21)])
+        self.assertEqual(len(slept), 19)
+        self.assertEqual(art['pages'], {'total': 500, 'fetched': 20, 'missing': list(range(21, 501))})
+        self.assertEqual(len(art['errors']), 1)
+        err = art['errors'][0]
+        self.assertEqual((err['stage'], err['reason'], err['location'], err['retryable']),
+                         ('yahoo', '页数过多，只抓取前 20 页', '第 21 页起 / 共 500 页', False))
+
     def test_request_id_format(self):
         self.assertRegex(new_request_id(), r'^n-\d{8}-[0-9a-f]{4}$')
 
