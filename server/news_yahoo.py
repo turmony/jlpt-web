@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 from datetime import timezone
 
 from .news_errors import NewsError
+from .news_store import IMAGE_MAX
 
 HOST = 'news.yahoo.co.jp'
 TIMEOUT = 10
@@ -26,6 +27,8 @@ _ARTICLE_PATH = re.compile(r'/articles/([0-9a-f]{8,64})')
 _KNOWN_TAGS = {'yjrf-article', 'yjrf-paragraph', 'figure', 'figcaption', 'yjrf-img',
                'p', 'h2', 'a', 'br', 'strong', 'em', 'span'}
 _NO_RETRY = {403, 404, 410}
+_REDIRECTS = {301, 302, 303, 307, 308}
+MAX_REDIRECTS = 5
 
 
 def validate_url(url):
@@ -62,6 +65,35 @@ def http_fetch(url):
             return resp.status, resp.read()
     except urllib.error.HTTPError as e:
         return e.code, b''
+
+
+def image_host_ok(url):
+    """https on news.yahoo.co.jp or *.yimg.jp, with no port or credentials."""
+    try:
+        u = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+        port = u.port if u else None
+    except ValueError:
+        return False
+    if not u or u.scheme != 'https' or port is not None or u.username or u.password:
+        return False
+    host = u.hostname or ''
+    return u.netloc == host and (host == HOST or host.endswith('.yimg.jp'))
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Hand 3xx answers back to Yahoo.image, which checks each hop itself."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def open_image(url):
+    """GET url without following redirects -> a response (HTTPError for non-2xx), unread."""
+    opener = urllib.request.build_opener(_NoRedirect())
+    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Referer': 'https://%s/' % HOST})
+    try:
+        return opener.open(req, timeout=TIMEOUT)
+    except urllib.error.HTTPError as e:
+        return e
 
 
 def extract_state(html, location=None):
@@ -176,9 +208,43 @@ def parse_page(state, page_url, location=None):
 
 
 class Yahoo:
-    def __init__(self, fetch=http_fetch, sleep=time.sleep):
+    def __init__(self, fetch=http_fetch, sleep=time.sleep, open_image=open_image):
         self._fetch = fetch
         self._sleep = sleep
+        self._open_image = open_image
+
+    def image(self, url, location):
+        """Bytes of an article image. Only https news.yahoo.co.jp / *.yimg.jp, redirects only
+        within those hosts, at most IMAGE_MAX bytes read. Failures are NewsError('image')."""
+        for _hop in range(MAX_REDIRECTS + 1):
+            if not image_host_ok(url):
+                raise NewsError('image', '图片地址不是雅虎的', location, retryable=False)
+            try:
+                resp = self._open_image(url)
+            except Exception as e:
+                raise NewsError('image', '下载图片失败：%s' % (e or type(e).__name__), location)
+            try:
+                status = getattr(resp, 'status', None) or getattr(resp, 'code', None)
+                if status in _REDIRECTS:
+                    target = resp.headers.get('Location') if resp.headers else None
+                    if not target:
+                        raise NewsError('image', '图片跳转缺少地址', location)
+                    url = urllib.parse.urljoin(url, target)
+                    continue
+                if status != 200:
+                    raise NewsError('image', '图片返回 %s' % status, location, retryable=status not in _NO_RETRY)
+                try:
+                    data = resp.read(IMAGE_MAX + 1)
+                except Exception as e:
+                    raise NewsError('image', '下载图片失败：%s' % (e or type(e).__name__), location)
+                if len(data) > IMAGE_MAX:
+                    raise NewsError('image', '图片超过 5 MB', location, retryable=False)
+                return data
+            finally:
+                close = getattr(resp, 'close', None)
+                if close:
+                    close()
+        raise NewsError('image', '图片跳转次数过多', location)
 
     def fetch(self, url, location=None):
         try:

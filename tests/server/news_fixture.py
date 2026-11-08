@@ -34,3 +34,37 @@ def fake_fetch(mapping):
         return value
     fetch.calls = []
     return fetch
+
+
+class FakeResponse:
+    """Enough of an HTTP response for Yahoo.image: status, headers, read(n), close()."""
+    def __init__(self, status, body, headers=None, reads=None):
+        self.status = status
+        self.headers = dict(headers or {})
+        self._body = body
+        self._reads = reads if reads is not None else []
+
+    def read(self, n=-1):
+        self._reads.append(n)
+        data = self._body if n is None or n < 0 else self._body[:n]
+        self._body = self._body[len(data):]
+        return data
+
+    def close(self):
+        pass
+
+
+def fake_open(mapping):
+    """An open_image(url) for Yahoo: values are bytes, (status, bytes), (status, bytes, headers)
+    or an Exception to raise. Unmapped URLs answer 404. Records `calls` and `reads` (read sizes)."""
+    def open_image(url):
+        open_image.calls.append(url)
+        value = mapping.get(url, (404, b''))
+        if isinstance(value, Exception):
+            raise value
+        if isinstance(value, bytes):
+            value = (200, value)
+        return FakeResponse(value[0], value[1], value[2] if len(value) > 2 else None, open_image.reads)
+    open_image.calls = []
+    open_image.reads = []
+    return open_image

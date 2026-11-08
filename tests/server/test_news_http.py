@@ -20,13 +20,15 @@ from server.news import NewsService, match_card, start_cleanup
 from server.news_text import TokenizerUnavailable, split_sentences
 from server.news_yahoo import Yahoo
 from tests.server.fake_hub import FakeHub
-from tests.server.news_fixture import ARTICLE_ID, ARTICLE_URL as A, PICKUP_URL as P, fake_fetch, load
+from tests.server.news_fixture import ARTICLE_ID, ARTICLE_URL as A, PICKUP_URL as P, fake_fetch, fake_open, load
 
 HAVE_FUGASHI = importlib.util.find_spec('fugashi') is not None
 ORIGIN = 'http://test.local'
 KEY = 'sk-news-secret-999'
 PASSWORD_HASH = Auth.hash_password('secret')
 IMG = 'https://newsatcl-pctr.c.yimg.jp/t/test/photo1.jpg?exp=10800'
+POSTER = 'https://newsatcl-pctr.c.yimg.jp/t/test/poster1.jpg'
+PNG = b'\x89PNG\r\n\x1a\n' + b'\x00' * 32
 JPEG = b'\xff\xd8\xff\xe0' + b'\x00' * 64
 RSS = 'https://news.yahoo.co.jp/rss/topics/domestic.xml'
 CATALOG = {'cards': [
@@ -90,7 +92,7 @@ class NewsHTTPBase(unittest.TestCase):
 
     # -- wiring --------------------------------------------------------------
     def use(self, mapping=None, script=None, models=None, select='DeepSeek-Flash', hub=True, **hub_kw):
-        self.mapping = dict(mapping if mapping is not None else {A: (200, load('video')), IMG: (200, JPEG)})
+        self.mapping = dict(mapping if mapping is not None else {A: (200, load('video')), IMG: (200, JPEG), POSTER: (200, PNG)})
         self.fake = None
         h = None
         if hub:
@@ -99,7 +101,7 @@ class NewsHTTPBase(unittest.TestCase):
             kw = {'first_timeout': 0.5, 'total_timeout': 2}
             kw.update(hub_kw)
             h = Hub(self.fake.base_url, KEY, **kw)
-        yahoo = Yahoo(fetch=fake_fetch(self.mapping), sleep=lambda s: None)
+        yahoo = Yahoo(fetch=fake_fetch(self.mapping), sleep=lambda s: None, open_image=fake_open(self.mapping))
         self.svc = NewsService(self.config, Path(self.config['state']), yahoo=yahoo, hub=h)
         self.app.news = self.svc
         if select:
@@ -213,18 +215,22 @@ class OpenTests(NewsHTTPBase):
         self.assertEqual(ids, list(range(len(ids))))
         self.assertEqual(len(ids), 4)
         image = art['blocks'][-1]
-        self.assertEqual(image, {'type': 'image', 'index': 0, 'credit': 'テスト提供', 'ok': True,
+        self.assertEqual(image, {'type': 'image', 'index': 1, 'credit': 'テスト提供', 'ok': True,
                                  'caption_sentences': image['caption_sentences']})
         self.assertEqual(''.join(t['s'] for t in image['caption_sentences'][0]['tokens']), '画像：テスト')
-        self.assertEqual(art['blocks'][2]['url'], 'https://news.yahoo.co.jp/video/test/1.m3u8')
+        self.assertEqual(art['blocks'][2], {'type': 'video', 'url': 'https://news.yahoo.co.jp/video/test/1.m3u8',
+                                            'cover': 0})
         self.assertEqual(art['errors'], [])
         self.assertEqual(self.svc.store.load_article(ARTICLE_ID)['blocks'], art['blocks'])
 
-        resp = self.request(f'/api/news/image/{ARTICLE_ID}/0')
+        resp = self.request(f'/api/news/image/{ARTICLE_ID}/1')
         self.assertEqual(resp.status, 200)
         self.assertEqual(resp.headers['Content-Type'], 'image/jpeg')
         self.assertEqual(resp.headers['Cache-Control'], 'private, max-age=604800')
         self.assertEqual(resp.read(), JPEG)
+        # The video poster is downloaded like any image and served by its index.
+        resp = self.request(f'/api/news/image/{ARTICLE_ID}/0')
+        self.assertEqual((resp.status, resp.headers['Content-Type'], resp.read()), (200, 'image/png', PNG))
 
     def test_sse_headers(self):
         self.use()
@@ -239,28 +245,50 @@ class OpenTests(NewsHTTPBase):
         resp.read()
 
     def test_failed_image_is_recorded_and_not_served(self):
-        self.use({A: (200, load('video')), IMG: (503, b'')})
+        self.use({A: (200, load('video')), IMG: (503, b''), POSTER: (200, PNG)})
         self.login()
         art = self.open_article()
         self.assertFalse(art['blocks'][-1]['ok'])
         err = art['errors'][0]
-        self.assertEqual((err['stage'], err['location']), ('image', '第 1 张'))
+        self.assertEqual((err['stage'], err['location']), ('image', '第 2 张'))
         self.assertRegex(err['request_id'], r'^n-\d{8}-[0-9a-f]{4}$')
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/1').status, 404)
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/0').status, 200)
+
+    def test_failed_video_cover_is_null(self):
+        self.use({A: (200, load('video')), IMG: (200, JPEG), POSTER: (404, b'')})
+        self.login()
+        art = self.open_article()
+        self.assertIsNone(art['blocks'][2]['cover'])
+        self.assertEqual([(e['stage'], e['location']) for e in art['errors']], [('image', '第 1 张')])
         self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/0').status, 404)
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/1').status, 200)
+
+    def test_off_host_image_is_refused_without_fetching(self):
+        self.use()
+        raw = Yahoo(fetch=fake_fetch({A: (200, load('video'))}), sleep=lambda s: None).open(A, lambda *a: None)
+        raw['blocks'][-1]['src'] = 'https://evil.example/photo.jpg'
+        raw['blocks'][2]['cover'] = 'https://newsatcl-pctr.c.yimg.jp.evil.com/p.jpg'
+        self.login()
+        with mock.patch.object(self.svc.yahoo, 'open', return_value=raw):
+            art = self.open_article()
+        self.assertEqual([(e['stage'], e['location']) for e in art['errors']],
+                         [('image', '第 1 张'), ('image', '第 2 张')])
+        self.assertEqual(self.svc.yahoo._open_image.calls, [])
 
     def test_non_image_bytes_are_refused(self):
-        self.use({A: (200, load('video')), IMG: (200, b'<html><script>alert(1)</script>')})
+        self.use({A: (200, load('video')), IMG: (200, b'<html><script>alert(1)</script>'), POSTER: (200, PNG)})
         self.login()
         art = self.open_article()
         self.assertFalse(art['blocks'][-1]['ok'])
         self.assertEqual(art['errors'][0]['stage'], 'image')
-        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/0').status, 404)
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/1').status, 404)
 
     def test_image_route_validates_and_requires_live_article(self):
         self.use()
         self.login()
         self.open_article()
-        for path in ('/api/news/image/zz/0', f'/api/news/image/{ARTICLE_ID}/1', f'/api/news/image/{ARTICLE_ID}/-1',
+        for path in ('/api/news/image/zz/0', f'/api/news/image/{ARTICLE_ID}/2', f'/api/news/image/{ARTICLE_ID}/-1',
                      '/api/news/image/ab12cd34/0'):
             self.assertEqual(self.request(path).status, 404, path)
         later = time.time() + 8 * 86400
@@ -353,7 +381,9 @@ class FeedTests(NewsHTTPBase):
         self.assertIsNone(self.json('/api/news/feeds?cat=domestic')['stale_minutes'])
         start = time.time()
         self.svc.clock = lambda: start + 12 * 60 + 5
+        logged = self.stderr.getvalue()
         stale = self.json('/api/news/feeds?cat=domestic')
+        self.assertEqual(len(self.stderr.getvalue().splitlines()) - len(logged.splitlines()), 1)
         self.assertEqual(stale['items'], first['items'])
         self.assertIsInstance(stale['stale_minutes'], int)
         self.assertEqual(stale['stale_minutes'], 12)
@@ -363,7 +393,7 @@ class FeedTests(NewsHTTPBase):
         self.login()
         err = self.json('/api/news/feeds?cat=domestic', status=502)['error']
         self.assertEqual((err['stage'], err['location']), ('yahoo', '新闻列表'))
-        self.assertIn(err['request_id'], self.stderr.getvalue())
+        self.assertEqual(self.stderr.getvalue().count(err['request_id']), 1)  # logged once
         self.assertEqual(self.json('/api/news/feeds?cat=nope', status=400)['error']['stage'], 'client')
         self.assertEqual(self.json('/api/news/feeds', status=400)['error']['stage'], 'client')
 
@@ -607,7 +637,7 @@ class StageErrorTests(NewsHTTPBase):
         with mock.patch('server.news.to_sentences', side_effect=TokenizerUnavailable('ImportError: fugashi')):
             errors.append(('tokenize', self.sse('/api/news/open', {'url': A})[-1][1]))
         # Image download failed.
-        self.use({A: (200, load('video')), IMG: TimeoutError('timed out')})
+        self.use({A: (200, load('video')), IMG: TimeoutError('timed out'), POSTER: (200, PNG)})
         errors.append(('image', self.open_article()['errors'][0]))
 
         # Model-side failures, all through sentence analysis.

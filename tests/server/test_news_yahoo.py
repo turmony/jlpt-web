@@ -1,9 +1,10 @@
 import unittest
 import urllib.request
+from unittest import mock
 
 from server.news_errors import STAGES, NewsError, new_request_id
 from server.news_yahoo import FEEDS, Yahoo, http_fetch, validate_url
-from tests.server.news_fixture import ARTICLE_URL as A, PICKUP_URL as P, fake_fetch, load
+from tests.server.news_fixture import ARTICLE_URL as A, PICKUP_URL as P, fake_fetch, fake_open, load
 
 
 def no_sleep(s):
@@ -189,6 +190,87 @@ class RedirectTests(unittest.TestCase):
                 h.redirect_request(req, None, 302, 'Found', {}, bad)
         ok = h.redirect_request(req, None, 302, 'Found', {}, 'https://news.yahoo.co.jp/articles/cd')
         self.assertEqual(ok.full_url, 'https://news.yahoo.co.jp/articles/cd')
+
+
+JPEG = b'\xff\xd8\xff\xe0' + b'\x00' * 16
+PHOTO = 'https://newsatcl-pctr.c.yimg.jp/t/a.jpg'
+LIMIT = 5 * 1024 * 1024
+
+
+class ImageFetchTests(unittest.TestCase):
+    def yahoo(self, mapping):
+        opener = fake_open(mapping)
+        return Yahoo(fetch=fake_fetch({}), sleep=no_sleep, open_image=opener), opener
+
+    def assertImageError(self, ctx, reason=None):
+        self.assertEqual((ctx.exception.stage, ctx.exception.location), ('image', '第 1 张'))
+        if reason:
+            self.assertEqual(ctx.exception.reason, reason)
+
+    def test_fetches_yimg_and_yahoo_hosts(self):
+        y, opener = self.yahoo({PHOTO: JPEG, 'https://news.yahoo.co.jp/p.jpg': JPEG})
+        self.assertEqual(y.image(PHOTO, '第 1 张'), JPEG)
+        self.assertEqual(y.image('https://news.yahoo.co.jp/p.jpg', '第 1 张'), JPEG)
+        self.assertEqual(opener.reads, [LIMIT + 1, LIMIT + 1])
+
+    def test_off_host_src_refused_without_fetching(self):
+        y, opener = self.yahoo({})
+        for bad in ('https://evil.example/a.jpg', 'http://newsatcl-pctr.c.yimg.jp/a.jpg',
+                    'https://newsatcl-pctr.c.yimg.jp.evil.com/a.jpg', 'https://yimg.jp.evil/a.jpg',
+                    'https://user@s.yimg.jp/a.jpg', 'https://s.yimg.jp:8443/a.jpg', '', None,
+                    'https://news.yahoo.co.jp.evil.com/a.jpg'):
+            with self.assertRaises(NewsError, msg=bad) as ctx:
+                y.image(bad, '第 1 张')
+            self.assertImageError(ctx)
+        self.assertEqual(opener.calls, [])
+
+    def test_oversize_body_stops_reading_at_limit(self):
+        y, opener = self.yahoo({PHOTO: b'\xff\xd8\xff' + b'x' * (LIMIT + 4096)})
+        with self.assertRaises(NewsError) as ctx:
+            y.image(PHOTO, '第 1 张')
+        self.assertImageError(ctx, '图片超过 5 MB')
+        self.assertEqual(opener.reads, [LIMIT + 1])
+
+    def test_redirects_followed_only_within_allowed_hosts(self):
+        moved = 'https://s.yimg.jp/b.jpg'
+        y, opener = self.yahoo({PHOTO: (302, b'', {'Location': moved}), moved: JPEG})
+        self.assertEqual(y.image(PHOTO, '第 1 张'), JPEG)
+        self.assertEqual(opener.calls, [PHOTO, moved])
+        y, opener = self.yahoo({PHOTO: (301, b'', {'Location': '/c.jpg'}),
+                                'https://newsatcl-pctr.c.yimg.jp/c.jpg': JPEG})
+        self.assertEqual(y.image(PHOTO, '第 1 张'), JPEG)
+        for bad in ('https://evil.example/b.jpg', 'http://s.yimg.jp/b.jpg'):
+            y, opener = self.yahoo({PHOTO: (302, b'', {'Location': bad}), bad: JPEG})
+            with self.assertRaises(NewsError, msg=bad) as ctx:
+                y.image(PHOTO, '第 1 张')
+            self.assertImageError(ctx)
+            self.assertEqual(opener.calls, [PHOTO])
+
+    def test_redirect_loop_and_errors(self):
+        y, _ = self.yahoo({PHOTO: (302, b'', {'Location': PHOTO})})
+        with self.assertRaises(NewsError) as ctx:
+            y.image(PHOTO, '第 1 张')
+        self.assertImageError(ctx)
+        y, _ = self.yahoo({PHOTO: (404, b'')})
+        with self.assertRaises(NewsError) as ctx:
+            y.image(PHOTO, '第 1 张')
+        self.assertImageError(ctx, '图片返回 404')
+        self.assertFalse(ctx.exception.retryable)
+        y, _ = self.yahoo({PHOTO: TimeoutError('timed out')})
+        with self.assertRaises(NewsError) as ctx:
+            y.image(PHOTO, '第 1 张')
+        self.assertImageError(ctx)
+        self.assertTrue(ctx.exception.retryable)
+
+    def test_default_opener_uses_timeout_and_never_redirects_itself(self):
+        from server.news_yahoo import TIMEOUT, _NoRedirect, open_image
+        self.assertIsNone(_NoRedirect().redirect_request(
+            urllib.request.Request(PHOTO), None, 302, 'Found', {}, 'https://evil.example/'))
+        opener = mock.Mock()
+        with mock.patch('server.news_yahoo.urllib.request.build_opener', return_value=opener) as build:
+            open_image(PHOTO)
+        self.assertTrue(any(isinstance(h, _NoRedirect) for h in build.call_args.args))
+        self.assertEqual(opener.open.call_args.kwargs['timeout'], TIMEOUT)
 
 
 if __name__ == '__main__':

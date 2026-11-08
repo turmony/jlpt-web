@@ -13,7 +13,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from .llm import Hub, R_UNAVAILABLE
 from .news_errors import NewsError
@@ -31,7 +30,6 @@ PING_GAP = 0.5
 MAX_QUESTION = 500
 MAX_HISTORY_TEXT = 4000
 MAX_ANALYSIS = 20000
-IMAGE_HOSTS = ('.yimg.jp', '.yahoo.co.jp')
 
 R_EXPIRED = '文章缓存已过期，请重新打开'
 R_NO_MODEL = '请先在页头选择模型'
@@ -188,10 +186,10 @@ class NewsService:
         try:
             items = self.yahoo.feed(slug)
         except NewsError as error:
+            if not cached:
+                raise  # logged once by the route that reports it
             self.log_error(error, 'https://%s/rss/topics/%s.xml' % (HOST, slug))
-            if cached:
-                return {'items': cached[1], 'stale_minutes': int(max(0, now - cached[0]) // 60)}
-            raise
+            return {'items': cached[1], 'stale_minutes': int(max(0, now - cached[0]) // 60)}
         with self._lock:
             self._feeds[slug] = (now, items)
         return {'items': items, 'stale_minutes': None}
@@ -237,12 +235,13 @@ class NewsService:
             blocks, images = self._blocks(raw['blocks'])
 
             step = 'image'
-            for n, (block, src) in enumerate(images):
-                self._progress(emit, 'image', '正在下载图片（第 %d / %d 张）…' % (n + 1, len(images)))
+            for index, (src, done, failed) in enumerate(images):
+                self._progress(emit, 'image', '正在下载图片（第 %d / %d 张）…' % (index + 1, len(images)))
                 try:
-                    self._download(raw['id'], block['index'], src)
-                    block['ok'] = True
+                    self._download(raw['id'], index, src)
+                    done()
                 except NewsError as error:
+                    failed()
                     self.log_error(error, url)
                     errors.append(error.to_dict())
 
@@ -268,7 +267,10 @@ class NewsService:
             raise NewsError('tokenize', '分词失败：%s' % type(error).__name__, location)
 
     def _blocks(self, raw_blocks):
-        """Tokenized blocks (sentence ids run through the whole article) and [(image block, src)]."""
+        """Tokenized blocks (sentence ids run through the whole article) and the images to fetch,
+        [(src, on_success, on_failure)] in local image index order. Article images and video
+        posters share one index space: image blocks carry `index`/`ok`, a video's `cover` is its
+        poster's index (null when there is none or it failed)."""
         blocks, images, next_id = [], [], 0
         for n, raw in enumerate(raw_blocks, 1):
             kind = raw.get('type')
@@ -279,7 +281,14 @@ class NewsService:
                 sentences = self._sentences(raw.get('caption'), next_id, n)
                 block = {'type': 'image', 'index': len(images), 'caption_sentences': sentences,
                          'credit': raw.get('credit') or '', 'ok': False}
-                images.append((block, raw.get('src')))
+                images.append((raw.get('src'), lambda b=block: b.update(ok=True), lambda: None))
+                blocks.append(block)
+            elif kind == 'video':
+                sentences = []
+                block = {'type': 'video', 'url': raw.get('url') or '', 'cover': None}
+                if raw.get('cover'):
+                    block['cover'] = len(images)
+                    images.append((raw['cover'], lambda: None, lambda b=block: b.update(cover=None)))
                 blocks.append(block)
             else:
                 sentences = []
@@ -289,17 +298,7 @@ class NewsService:
 
     def _download(self, article_id, index, src):
         location = '第 %d 张' % (index + 1)
-        try:
-            parts = urlsplit(src or '')
-            host = parts.hostname or ''
-        except ValueError:
-            parts, host = None, ''
-        if not parts or parts.scheme != 'https' or not host.endswith(IMAGE_HOSTS):
-            raise NewsError('image', '图片地址不是雅虎的', location, retryable=False)
-        try:
-            data = self.yahoo.fetch(src, location)
-        except NewsError as error:
-            raise NewsError('image', error.reason, location, error.retryable)
+        data = self.yahoo.image(src, location)
         if not sniff_image(data):
             raise NewsError('image', '下载的内容不是图片', location, retryable=False)
         self.store.save_image(article_id, index, data)
@@ -311,7 +310,8 @@ class NewsService:
             path = self.store.image_path(article_id, index)
         except ValueError:
             raise KeyError(article_id)
-        if not any(b.get('type') == 'image' and b.get('index') == index and b.get('ok')
+        if not any((b.get('type') == 'image' and b.get('index') == index and b.get('ok'))
+                   or (b.get('type') == 'video' and b.get('cover') == index)
                    for b in article.get('blocks', [])):
             raise KeyError(index)
         try:
