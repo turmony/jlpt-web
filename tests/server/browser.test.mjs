@@ -986,8 +986,29 @@ for(const device of NEWS_DEVICES) {
     await drag(page,await at(tok(page,1,13)),below);
     assert.equal((await events(page)).length,before);
     assert.deepEqual(await partIndices(page),kept);
+    // From the trailing 。 back into the sentence: words up to the last one, 。 left out.
+    await drag(page,await at(tok(page,1,13)),await at(tok(page,1,3)));
+    assert.deepEqual(await partIndices(page),range(1,3,12));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:1,start:3,end:12}]);
     // Only sentence 1 is ever highlighted.
     assert.deepEqual(await page.locator('.news-sentence.is-selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.sid)),['1']);
+  }));
+
+  test(`drag keeps numbers with their counters and trims only punctuation on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    // Sentence 4: 10/日/(/火/)/から/11/日/(/水/)/にかけて/雨/が/降り/ます/。
+    await longPress(page,tok(page,4,1));
+    await drag(page,await at(tok(page,4,0),0.2),await at(tok(page,4,1),0.6));
+    assert.deepEqual(await partIndices(page),range(4,0,1));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:4,start:0,end:1}]);
+    // Just a number is a selection too.
+    await drag(page,await at(tok(page,4,6),0.05,0.1),await at(tok(page,4,6),0.95,0.9));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:4,start:6,end:6}]);
+    assert.deepEqual(await partIndices(page),range(4,6,6));
+    // Brackets at the edges are dropped.
+    await drag(page,await at(tok(page,4,2),0.5),await at(tok(page,4,4),0.5));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:4,start:3,end:3}]);
+    assert.deepEqual(await partIndices(page),range(4,3,3));
   }));
 
   test(`dragging outside selected sentence scrolls on ${device}`,()=>withNews(device,async(page,url)=>{
@@ -1037,7 +1058,7 @@ for(const device of NEWS_DEVICES) {
     assert.equal(await page.locator('.news-body').evaluate(body=>body.lastElementChild.classList.contains('news-error')),true);
     assert.equal(await page.getByText('最後の段落の文です。').count(),0);
     await rm(join(tmp,'news-page3-fail'));
-    await writeFile(join(tmp,'news-clock-offset'),'120'); // past the server's 60 s reuse of the partial result
+    // Straight away: the server does not reuse a partial article, so 重试 really fetches page 3 again.
     await page.locator('.news-body').getByRole('button',{name:'重试'}).click();
     await page.getByText('最後の段落の文です。').waitFor();
     assert.equal(await page.locator('.news-error').count(),0);
@@ -1064,6 +1085,19 @@ test('article errors show where they belong: failed images in place, missing pag
   assert.equal(await page.locator('.news-figure').first().locator('img').count(),0);
   assert.equal(await page.locator('.news-video .news-error-line').innerText(),'下载图片失败（第 2 张）：图片超过 5 MB');
   assert.match(await page.locator('.news-unknown').innerText(),/^这里有原文内容没能显示/);
+}));
+
+test('links taken from the article only go to Yahoo News over https',()=>withNews('iPhone 13',async(page,url)=>{
+  const article={id:READER_ID,url:READER_URL,title:'題',media:'媒体',published:'2026-11-08T15:30:00+09:00',author:'',
+    pages:{total:1,fetched:1,missing:[]},errors:[],
+    blocks:[{type:'video',url:'javascript:alert(1)',cover:null},{type:'video',url:'http://news.yahoo.co.jp/video/plain',cover:null},
+      {type:'video',url:'https://news.yahoo.co.jp.evil.com/video',cover:null},{type:'video',url:'https://news.yahoo.co.jp/video/ok',cover:null},
+      {type:'video',url:'https://s.yimg.yahoo.co.jp/v',cover:null},{type:'mystery',url:'data:text/html,x'}]};
+  await page.route('**/api/news/open',route=>route.fulfill({status:200,headers:{'content-type':'text/event-stream'},body:'event: article\ndata: '+JSON.stringify(article)+'\n\n'}));
+  await page.goto(readerPage(url));
+  await page.locator('.news-article-title').waitFor();
+  const hrefs=await page.locator('.news-video a, .news-unknown a').evaluateAll(links=>links.map(link=>link.getAttribute('href')));
+  assert.deepEqual(hrefs,[READER_URL,READER_URL,READER_URL,'https://news.yahoo.co.jp/video/ok','https://s.yimg.yahoo.co.jp/v',READER_URL]);
 }));
 
 test('a reader link that is not a Yahoo article shows the server\'s error line',()=>withNews('iPhone 13',async(page,url)=>{

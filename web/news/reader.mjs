@@ -51,9 +51,19 @@ function node(tag, className, text) {
   return element;
 }
 
+// Links come from Yahoo's page data: only https on news.yahoo.co.jp or *.yahoo.co.jp is kept.
+function yahooLink(href) {
+  try {
+    const parsed = new URL(href);
+    if (parsed.protocol === 'https:' && (parsed.hostname === 'news.yahoo.co.jp' || parsed.hostname.endsWith('.yahoo.co.jp'))) return parsed.href;
+  } catch {}
+  return null;
+}
+
+// `href` when it is a Yahoo link, else the article's own address (validated by the server).
 function outLink(href, text) {
   const link = node('a', '', text);
-  link.href = href;
+  link.href = yahooLink(href) || article.url;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   return link;
@@ -160,6 +170,7 @@ function blockNode(block, error) {
 }
 
 function render(data) {
+  endPress();
   article = data;
   sentences.clear();
   selection = null;
@@ -193,6 +204,7 @@ export function open() {
   const url = new URLSearchParams(location.search).get('url');
   const root = $('news-article');
   opening?.abort();
+  endPress();
   article = null;
   sentences.clear();
   selection = null;
@@ -274,11 +286,14 @@ function indexAt(sentenceId, x, y) {
   return index;
 }
 
-// Leading and trailing punctuation is dropped; a range of punctuation only is no selection.
+// Leading and trailing punctuation and spaces are dropped (numbers stay: 10日 is a unit); a range of
+// punctuation only is no selection.
+const EDGE_POS = new Set(['補助記号', '記号', '空白']);
 function trimmed(sentenceId, start, end) {
   const {tokens} = sentences.get(sentenceId);
-  while (start <= end && !tokens[start].t) start++;
-  while (end >= start && !tokens[end].t) end--;
+  const edge = token => EDGE_POS.has(token.p) || !token.s.trim();
+  while (start <= end && edge(tokens[start])) start++;
+  while (end >= start && edge(tokens[end])) end--;
   return start <= end ? [start, end] : null;
 }
 
@@ -310,6 +325,7 @@ function onPointerDown(event) {
 
 function onPointerMove(event) {
   if (!press || event.pointerId !== press.pointerId) return;
+  if (event.pointerType === 'mouse' && event.buttons === 0) return onPointerCancel(event); // the release was missed
   if (press.mode === 'pending' && Math.hypot(event.clientX - press.x, event.clientY - press.y) > MOVE_TOLERANCE_PX) {
     clearTimeout(press.timer);
     press.mode = press.inSelected && selection?.sentenceId === press.sentenceId ? 'drag' : 'none';

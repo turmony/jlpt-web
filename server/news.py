@@ -23,7 +23,7 @@ from .news_xml import AnalysisParser, parse_gloss
 from .news_yahoo import FEEDS, HOST, Yahoo, validate_url
 
 FEED_TTL = 600
-REUSE_SECONDS = 60          # a second open of the same URL right after the first reuses its result
+REUSE_SECONDS = 60          # a second open of the same URL right after the first reuses a complete result
 MODEL_SLOTS = 3
 CLEANUP_INTERVAL = 3600
 PING_GAP = 0.5
@@ -213,8 +213,10 @@ class NewsService:
                 article = hit[1]
             else:
                 article = self._build(url, emit)
-                with self._lock:
-                    self._recent[url] = (self.clock(), article)
+                # A partial article (missing page, failed image) is not reused: 重试 must fetch again.
+                if not article.get('errors') and not article['pages'].get('missing'):
+                    with self._lock:
+                        self._recent[url] = (self.clock(), article)
         emit('article', article)
 
     def _build(self, url, emit):

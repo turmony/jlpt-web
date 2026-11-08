@@ -306,6 +306,23 @@ class OpenTests(NewsHTTPBase):
         texts = [''.join(t['s'] for s in b['sentences'] for t in s['tokens']) for b in art['blocks']]
         self.assertEqual(texts, ['一頁目の本文。', '二頁目の本文。'])
 
+    def test_partial_article_is_refetched_on_the_next_open(self):
+        # 重试 right after a missing page must fetch again, not get the same partial result back.
+        self.use(multi(**{A + '?page=3': (503, b'')}))
+        calls = []
+        inner = self.svc.yahoo._fetch
+        self.svc.yahoo._fetch = lambda url: (calls.append(url), inner(url))[1]
+        self.login()
+        self.assertEqual(self.open_article()['pages']['missing'], [3])
+        self.mapping[A + '?page=3'] = (200, load('multi_p3'))
+        art = self.open_article()
+        self.assertEqual(art['pages'], {'total': 3, 'fetched': 3, 'missing': []})
+        self.assertEqual(art['errors'], [])
+        self.assertEqual(calls.count(A + '?page=3'), 2)
+        # A complete article is still reused by an open right after it.
+        self.open_article()
+        self.assertEqual(calls.count(A), 2)
+
     def test_rejects_non_yahoo_url_before_streaming(self):
         self.use()
         self.login()
