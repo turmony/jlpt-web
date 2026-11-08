@@ -17,7 +17,7 @@
 - 抓取：单次请求超时 10 秒；多页间隔约 0.5 秒；同一篇文章并发打开只抓一次。
 - 存储：文章与图片 7 天；释义缓存 30 天；图片单张上限 5 MB；新闻目录总上限 300 MB（超出先删最早的文章）；启动时及每小时清理。
 - 查词与分析记录不保存；追问对话由页面每次随请求发送，服务器不留存。
-- 模型：查词、分析、追问共用页头选定的模型（`state/news/settings.json`），`reasoning_effort` 为 `low`；模型不可用时不自动换模型。
+- 模型：查词、分析、追问共用页头选定的模型（`state/news/settings.json`）；思考档位取该模型 `reasoning_efforts` 中最低的一档（顺序 `low` < `medium` < `high` < `xhigh` < `max`），模型没有档位列表时不发送 `reasoning_effort`（2026-11-08 实测：DeepSeek-V4-Pro、GLM-5.3-Flash 只有 high/max，Auto、Fast 没有档位）；模型不可用时不自动换模型。
 - 超时：模型 30 秒内无任何输出或总时长超过 2 分钟按超时处理；模型请求同时最多 3 个。
 - 追问只发送最近 6 轮问答。
 - 提示词只放带说明的模板，不放具体例句；模板文字照抄 spec 第 5 节。
@@ -181,13 +181,14 @@ def test_request_id_format(self):
 - Consumes: `NewsError`。
 - Produces:
   - `class Hub(base_url: str, api_key: str, first_timeout=30, total_timeout=120)`。
-  - `Hub.models() -> list[{"id": str, "name": str}]`：`GET /v1/models`，过滤 `enabled is False`；`name` 取 `name_local` 或 `id`。
-  - `Hub.stream(model: str, messages: list[dict]) -> Iterator[str]`：`POST /v1/chat/completions`，`{"model", "messages", "stream": true, "reasoning_effort": "low"}`，逐个产出 `choices[0].delta.content` 文本；生成器被 `close()` 时关闭上游连接。
-  - `Hub.complete(model, messages) -> str`：拼接 `stream` 结果（查词用）。
+  - `Hub.models() -> list[{"id": str, "name": str, "effort": str | None}]`：`GET /v1/models`，过滤 `enabled is False`；`name` 取 `name_local` 或 `id`；`effort` 为 `reasoning_efforts` 中最低的一档，没有则 `None`。结果缓存 5 分钟。
+  - `Hub.stream(model: str, messages: list[dict], effort: str | None) -> Iterator[str]`：`POST /v1/chat/completions`，`{"model", "messages", "stream": true}`，`effort` 非空时加 `"reasoning_effort": effort`；逐个产出 `choices[0].delta.content` 文本；生成器被 `close()` 时关闭上游连接。
+  - `Hub.complete(model, messages, effort) -> str`：拼接 `stream` 结果（查词用）。
+  - `NewsService` 调用前用 `Hub.models()` 查出所选模型的 `effort`；所选模型不在列表中时报 `model`「当前模型不可用，请重新选择」。
   - 错误映射：连接失败、401 → `gateway`（原因分别为「qoder2api-hub 未运行或无法连接」「API Key 无效」）；429、正文含 `10605` → `model`「模型排队中，请稍后重试」；400/404 且正文提到模型 → `model`「当前模型不可用，请重新选择」（`retryable=False`）；其他 HTTP 错误 → `model`「模型返回 {status}：{前 200 字}」；首个文本 30 秒未到或总计超 120 秒 → `model`「模型 30 秒内没有输出」/「回答超过 2 分钟」；已开始输出后连接断开 → `stream`「回答中断」。
 - `tests/server/fake_hub.py`：`FakeHub(script)` 起在随机端口的 HTTP 服务，`script` 为按请求顺序的行为列表：`('chunks', ['<a>', 'b</a>'], delay)`、`('status', 429, body)`、`('silent', seconds)`、`('cut_after', ['部分'])`；记录收到的请求体到 `requests`。
 
-- [ ] **Step 1: 写失败测试** — 每种映射一个测试，断言 `stage` 与 `reason`；`test_stream_yields_chunks_in_order`；`test_request_body_has_low_reasoning_and_stream`（检查 `FakeHub.requests[0]`）；`test_closing_generator_closes_upstream`（关闭后 FakeHub 记录到连接断开）。超时测试用 `first_timeout=0.3`。
+- [ ] **Step 1: 写失败测试** — 每种映射一个测试，断言 `stage` 与 `reason`；`test_stream_yields_chunks_in_order`；`test_request_body_uses_lowest_supported_effort`（模型档位 `['high','max']` 时请求体 `reasoning_effort == 'high'`；无档位的模型请求体不含该字段；检查 `FakeHub.requests`）；`test_closing_generator_closes_upstream`（关闭后 FakeHub 记录到连接断开）。超时测试用 `first_timeout=0.3`。
 - [ ] **Step 2: 运行确认失败。**
 - [ ] **Step 3: 实现** — `http.client`；读 SSE 行 `data: {...}`、`data: [DONE]`；socket 超时设为剩余时间。
 - [ ] **Step 4: 运行确认通过。**
@@ -421,7 +422,7 @@ def test_every_stage_error_has_request_id_and_location(self):
 - Modify: `docs/server-deployment.md`（本次发布记录：发布目录、venv、回滚路径）
 
 - [ ] **Step 1:** `python3 -m venv /srv/jlpt/venv && /srv/jlpt/venv/bin/pip install -r requirements-news.txt`，记录 `du -sh /srv/jlpt/venv`。
-- [ ] **Step 2:** `python3 scripts/configure_server.py … --llm-base-url http://127.0.0.1:8790 --llm-api-key <qoder2api-hub 中为本站新建的 Key>`。
+- [ ] **Step 2:** `python3 scripts/configure_server.py … --llm-base-url http://127.0.0.1:8790 --llm-api-key <Key>`。Key 为 qoder2api-hub `accounts/settings.json` 中名为「JLPT新闻」的条目（id `k1`，2026-11-08 创建），由脚本读取后直接写入，不在终端或日志中显示。
 - [ ] **Step 3:** `python3 scripts/prepare_release.py --name <UTC时间>-news`，`node scripts/build-server.mjs <新版本>/static`，切换 `/srv/jlpt/app` 与 `/srv/jlpt/static`，安装新的 `jlpt.service` 与 Caddyfile，`caddy validate` 后 `systemctl daemon-reload && systemctl restart jlpt.service && systemctl reload caddy`。
 - [ ] **Step 4:** 验证：`/news/` 未登录 303 到登录页；登录后 `python3 scripts/news_probe.py --per-feed 1` 通过；`systemctl show jlpt.service -p MemoryCurrent` 记录内存；`/review/`、`/grammar/`、`/papers.html`、`/code/` 仍正常。
 - [ ] **Step 5:** 请用户在 iPad 与 iPhone 上实际操作长按、拖选与面板，记录结果到 `docs/server-deployment.md`。
