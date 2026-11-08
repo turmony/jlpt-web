@@ -153,6 +153,62 @@ class ErrorMappingTests(HubTestCase):
         self.assertErr(self.run_stream(hub), 'model', '模型没有返回内容')
 
 
+class SlowLineAndInBandErrorTests(HubTestCase):
+    def run_stream(self, hub):
+        got = []
+        with self.assertRaises(NewsError) as ctx:
+            for piece in hub.stream('m', MSG, None):
+                got.append(piece)
+        return ctx, got
+
+    def test_trickle_without_newline_hits_first_timeout(self):
+        import time
+        fake, hub = self.hub([('trickle', 0.05, 5, [])], first_timeout=0.3, total_timeout=10)
+        t = time.monotonic()
+        ctx, got = self.run_stream(hub)
+        self.assertLess(time.monotonic() - t, 1.5)
+        self.assertErr(ctx, 'model', '模型 0.3 秒内没有输出')
+
+    def test_trickle_without_newline_hits_total_timeout(self):
+        import time
+        fake, hub = self.hub([('trickle', 0.05, 5, ['a'])], first_timeout=1, total_timeout=0.5)
+        t = time.monotonic()
+        ctx, got = self.run_stream(hub)
+        self.assertLess(time.monotonic() - t, 1.5)
+        self.assertEqual(got, ['a'])
+        self.assertErr(ctx, 'model', '回答超过 0.5 秒')
+
+    def test_in_band_10605_is_queueing(self):
+        fake, hub = self.hub([('sse', ['data: {"error":{"message":"busy","code":10605}}\n\n'])])
+        ctx, got = self.run_stream(hub)
+        self.assertErr(ctx, 'model', '模型排队中，请稍后重试')
+
+    def test_in_band_error_mentioning_model_is_unavailable(self):
+        fake, hub = self.hub([('sse', ['data: {"error":{"message":"unknown model m"}}\n\n'])])
+        ctx, got = self.run_stream(hub)
+        self.assertErr(ctx, 'model', '当前模型不可用，请重新选择', retryable=False)
+
+    def test_in_band_other_error_is_surfaced(self):
+        fake, hub = self.hub([('sse', ['data: {"error":{"message":"boom ' + KEY + '"}}\n\n'])])
+        ctx, got = self.run_stream(hub)
+        self.assertErr(ctx, 'model', '模型返回错误：boom ***')
+
+    def test_non_sse_json_error_body_is_mapped(self):
+        fake, hub = self.hub([('status', 200, {'error': {'message': 'quota', 'code': 10605}})])
+        ctx, got = self.run_stream(hub)
+        self.assertErr(ctx, 'model', '模型排队中，请稍后重试')
+
+    def test_non_sse_json_error_body_other_message(self):
+        fake, hub = self.hub([('status', 200, {'error': {'message': 'weird failure'}})])
+        ctx, got = self.run_stream(hub)
+        self.assertErr(ctx, 'model', '模型返回错误：weird failure')
+
+    def test_non_sse_plain_body_is_surfaced(self):
+        fake, hub = self.hub([('status', 200, 'maintenance')])
+        ctx, got = self.run_stream(hub)
+        self.assertErr(ctx, 'model', '模型返回 200：maintenance')
+
+
 class ModelsTests(HubTestCase):
     MODELS = [
         {'id': 'Auto', 'enabled': True},

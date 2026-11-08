@@ -8,6 +8,9 @@ are JSON-representable (lists work as well as tuples) so a script can be loaded 
     ['status', 429, body]                 answer with this HTTP status; body is str or JSON-able
     ['silent', seconds]                   accept the request, send nothing for `seconds`, then close
     ['cut_after', ['部分'], delay]         stream the texts, then drop the connection without [DONE]
+    ['trickle', interval, seconds, texts] stream `texts` normally, then dribble an 'x' every `interval`
+                                          seconds for `seconds` seconds with no newline (a stalled line)
+    ['sse', ['raw text', ...]]            200 event-stream; write the given raw strings verbatim, then close
 
 Recorded for assertions: `requests` (parsed chat bodies), `request_headers`, `max_concurrent`
 (most simultaneous in-flight chat requests) and `disconnects` (chat requests whose client went away
@@ -144,6 +147,22 @@ class FakeHub:
                         return True
                     self._emit('data: ' + json.dumps({'choices': [], 'usage': {'total_tokens': 1}}) + '\n\n')
                     self._emit('data: [DONE]\n\n')
+                    return True
+                if kind == 'sse':
+                    self._stream_headers()
+                    for raw in step[1]:
+                        self._emit(raw)
+                    return True
+                if kind == 'trickle':
+                    interval, seconds, texts = float(step[1]), float(step[2]), step[3]
+                    self._stream_headers()
+                    for text in texts:
+                        self._emit(_chunk({'content': text}))
+                    end = time.monotonic() + seconds
+                    while time.monotonic() < end:
+                        if not self._alive(interval):
+                            return False
+                        self._emit('x')
                     return True
                 self._send_json(500, {'error': 'unknown script step %r' % (kind,)})
                 return True

@@ -88,6 +88,30 @@ class Hub:
             raise NewsError('model', R_UNAVAILABLE, retryable=False)
         raise NewsError('model', '模型返回 %d：%s' % (status, text[:200]))
 
+    def _raise_in_band(self, err):
+        """An error reported inside a 200 answer (SSE `error` payload or a JSON error body)."""
+        raw = json.dumps(err, ensure_ascii=False) if not isinstance(err, str) else err
+        msg = err.get('message') if isinstance(err, dict) else err
+        msg = self._scrub(str(msg if msg else raw))
+        raw = self._scrub(raw)
+        if '10605' in raw:
+            raise NewsError('model', R_QUEUE)
+        if 'model' in raw.lower():
+            raise NewsError('model', R_UNAVAILABLE, retryable=False)
+        raise NewsError('model', '模型返回错误：%s' % msg[:200])
+
+    def _raise_stray(self, text):
+        try:
+            obj = json.loads(text)
+        except ValueError:
+            obj = None
+        if isinstance(obj, dict) and obj.get('error'):
+            self._raise_in_band(obj['error'])
+        text = self._scrub(text)
+        if '10605' in text:
+            raise NewsError('model', R_QUEUE)
+        raise NewsError('model', '模型返回 200：%s' % text[:200])
+
     # -- models ------------------------------------------------------------
     def models(self):
         with self._lock:
@@ -178,18 +202,38 @@ class Hub:
                         err = b''
                     self._raise_http(resp.status, err)
                 done = False
+                buf = b''
+                stray = []  # non-SSE lines: a JSON/plain body answered with 200
+                eof = False
                 while not done:
-                    which = arm()
-                    try:
-                        line = resp.readline(1 << 20)
-                    except TimeoutError:
-                        raise _Deadline(which)
-                    except (OSError, http.client.HTTPException):
-                        break
-                    if not line:
-                        break
+                    nl = buf.find(b'\n')
+                    if nl < 0:
+                        if eof or len(buf) > (1 << 20):
+                            if not buf:
+                                break
+                            nl, eof = len(buf), True
+                        else:
+                            # Read in pieces and re-check the deadline between them, so a server
+                            # that dribbles bytes without finishing a line is still cut off.
+                            if resp.isclosed():
+                                eof = True
+                                continue
+                            which = arm()
+                            try:
+                                piece = resp.read1(65536)
+                            except TimeoutError:
+                                raise _Deadline(which)
+                            except (OSError, http.client.HTTPException):
+                                piece = b''
+                            if not piece:
+                                eof = True
+                            buf += piece
+                            continue
+                    line, buf = buf[:nl], buf[nl + 1:]
                     line = line.decode('utf-8', 'replace').strip()
                     if not line.startswith('data:'):
+                        if line and sum(map(len, stray)) < 4096:
+                            stray.append(line)
                         continue
                     data = line[5:].strip()
                     if data == '[DONE]':
@@ -202,14 +246,14 @@ class Hub:
                     if not isinstance(obj, dict):
                         continue
                     if obj.get('error'):
-                        err = obj['error']
-                        msg = err.get('message') if isinstance(err, dict) else err
-                        raise NewsError('model', '模型返回错误：%s' % self._scrub(str(msg))[:200])
+                        self._raise_in_band(obj['error'])
                     text = _delta_text(obj)
                     if text:
                         got_text = True
                         yield text
                 if not got_text:
+                    if stray:
+                        self._raise_stray(''.join(stray))
                     raise NewsError('model', R_NO_OUTPUT)
                 if not done:
                     raise NewsError('stream', R_CUT)
