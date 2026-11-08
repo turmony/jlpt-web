@@ -632,3 +632,23 @@ cd /srv/jlpt/app
 - 连同代码回退：先把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回上一个发布目录，再改回上面的 `ExecStart`。`/srv/jlpt/venv` 可以保留，也可删除回收约 250 MB。
 - Caddy 的 `flush_interval -1` 不需要回滚；如需恢复，删掉该 `reverse_proxy` 的花括号块后 `caddy validate` 再 reload。
 - `state/news/` 是缓存目录（文章、图片 7 天，释义 30 天），回滚不需要处理。
+
+### 上线记录（2026-11-08）
+
+发布目录为 `/srv/jlpt/releases/20261108-news`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 都切到该目录，服务已重启。网页提交 `2714d50`（合并 `feat/news-reader`）。
+
+- venv：用 `uv` 创建 `/srv/jlpt/venv`（本机没有 `python3.12-venv`），按 `requirements-news.txt` 安装，占用 251 MB；`fugashi.Tagger()` 可正常分词。
+- 配置：`config.json` 新增 `llm`（`http://127.0.0.1:8790`，密钥为 qoder2api-hub 中的「JLPT新闻」，经环境变量传入，未在终端或日志中出现），权限仍为 600。备份在 `state/config.json.bak-20261108-news`。
+- 服务单元：只把线上 `/etc/systemd/system/jlpt.service` 的 `ExecStart` 改为 `/srv/jlpt/venv/bin/python …`，线上原有的 `Restart=on-failure` 保留。备份在 `jlpt.service.bak-20261108-news`。
+- Caddy：线上 `/etc/caddy/Caddyfile` 含仓库版没有的本地内容（VPN 管理、CloudCLI 的 `import` 和 `@existingSite` 匹配），因此没有用 `deploy/Caddyfile` 覆盖，只在 `@api` 的 `reverse_proxy` 中加入 `flush_interval -1`，`caddy validate` 通过后 reload。备份在 `Caddyfile.bak-20261108-news`。
+- 模型：页头尚未选择模型，首次使用时在页头选择（建议 DeepSeek-Flash）。
+
+验证：合并后的 main 上，276 项后端测试（含真实 Caddy，news venv）、89 项浏览器测试通过；上线前真实模型测试 6/6（DeepSeek-Flash）。上线后：本机与公网的 `/news/`、`/news/read.html`、`/review/`、`/grammar/`、`/papers.html`、`/code/` 未登录均为 303，`/api/news/feeds`、`/api/review/today` 为 401，与上线前一致；`news_probe.py --per-feed 1`（venv）成功 8 / 共 8，非雅虎图片 0；本机登录后模型列表 13 个、国内列表 8 条，打开一篇文章依次收到进度事件和文章（`text/event-stream`、`X-Accel-Buffering: no`，不含服务器内部缓存字段），图片 200（image/jpeg）。重启后 `jlpt.service` 内存约 22 MB。
+
+注意：
+
+- `scripts/configure_server.py` 会把 `study` 改写为 `~/projects/jlpt-study/.worktrees/web-study`，而线上实际使用 `/root/projects/jlpt-study`（该 worktree 不存在）。本次运行后已把 `study` 改回原值，只保留新增的 `llm`。以后重跑该脚本（包括 `deploy/install.sh`）后，必须核对 `study`。
+- `deploy/install.sh` 会用仓库版覆盖 `/etc/caddy/Caddyfile` 和 `jlpt.service`，会丢掉上述线上本地内容；在仓库版合并这些内容之前，不要在本机直接运行 `install.sh`。
+- 用户的 iPad 与 iPhone 实机检查（长按、拖选、面板）待进行。
+
+回滚：把 `/srv/jlpt/app` 切回 `20261026-forget/app`、`/srv/jlpt/static` 切回 `20261026-forget-sticker/static`；把 `jlpt.service.bak-20261108-news` 复制回 `/etc/systemd/system/jlpt.service`，执行 `systemctl daemon-reload && systemctl restart jlpt.service`。Caddyfile 可保留，也可用 `Caddyfile.bak-20261108-news` 恢复后执行 `caddy validate` 并 reload。`config.json` 中的 `llm`、`/srv/jlpt/venv`、`state/news/` 对旧版本无影响。
