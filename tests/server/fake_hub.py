@@ -11,6 +11,10 @@ are JSON-representable (lists work as well as tuples) so a script can be loaded 
     ['trickle', interval, seconds, texts] stream `texts` normally, then dribble an 'x' every `interval`
                                           seconds for `seconds` seconds with no newline (a stalled line)
     ['sse', ['raw text', ...]]            200 event-stream; write the given raw strings verbatim, then close
+    ['reasoning', seconds, texts, field]  stream a thinking delta (`field`, default 'reasoning_content')
+                                          every 0.1 s for `seconds`, then `texts` as content, then [DONE]
+    ['pings', seconds]                    200 event-stream; write a `: ping` comment every 0.1 s for
+                                          `seconds`, then close (a hub that is itself still queued)
 
 Recorded for assertions: `requests` (parsed chat bodies), `request_headers`, `max_concurrent`
 (most simultaneous in-flight chat requests) and `disconnects` (chat requests whose client went away
@@ -152,6 +156,28 @@ class FakeHub:
                     self._stream_headers()
                     for raw in step[1]:
                         self._emit(raw)
+                    return True
+                if kind == 'reasoning':
+                    seconds, texts = float(step[1]), step[2]
+                    field = step[3] if len(step) > 3 else 'reasoning_content'
+                    self._stream_headers()
+                    self._emit(_chunk({'role': 'assistant'}))
+                    end = time.monotonic() + seconds
+                    while time.monotonic() < end:
+                        self._emit(_chunk({field: '思考'}))
+                        if not self._alive(0.1):
+                            return False
+                    for text in texts:
+                        self._emit(_chunk({'content': text}))
+                    self._emit('data: [DONE]\n\n')
+                    return True
+                if kind == 'pings':
+                    self._stream_headers()
+                    end = time.monotonic() + float(step[1])
+                    while time.monotonic() < end:
+                        self._emit(': ping\n\n')
+                        if not self._alive(0.1):
+                            return False
                     return True
                 if kind == 'trickle':
                     interval, seconds, texts = float(step[1]), float(step[2]), step[3]

@@ -209,6 +209,55 @@ class SlowLineAndInBandErrorTests(HubTestCase):
         self.assertErr(ctx, 'model', '模型返回 200：maintenance')
 
 
+class ReasoningTests(HubTestCase):
+    """Thinking deltas are output for the 30-second deadline (spec section 6) but never text."""
+
+    def test_reasoning_longer_than_first_timeout_then_content_succeeds(self):
+        fake, hub = self.hub([('reasoning', 0.8, ['答', '案'])], first_timeout=0.3, total_timeout=5)
+        got = list(hub.stream('m', MSG, None))
+        self.assertEqual([g for g in got if g], ['答', '案'])
+        self.assertIn('', got)  # heartbeats while thinking
+        self.assertNotIn('思考', ''.join(got))
+
+    def test_reasoning_field_name_variant_counts_too(self):
+        fake, hub = self.hub([('reasoning', 0.8, ['ok'], 'reasoning')], first_timeout=0.3, total_timeout=5)
+        self.assertEqual(hub.complete('m', MSG, None), 'ok')
+
+    def test_complete_ignores_heartbeats(self):
+        fake, hub = self.hub([('reasoning', 0.3, ['日本', '語'])], first_timeout=1, total_timeout=5)
+        self.assertEqual(hub.complete('m', MSG, None), '日本語')
+
+    def test_reasoning_only_beyond_total_timeout_fails_with_total_reason(self):
+        import time
+        fake, hub = self.hub([('reasoning', 5, ['late'])], first_timeout=0.3, total_timeout=1)
+        t = time.monotonic()
+        with self.assertRaises(NewsError) as ctx:
+            list(hub.stream('m', MSG, None))
+        self.assertLess(time.monotonic() - t, 2)
+        self.assertErr(ctx, 'model', '回答超过 1 秒')
+
+    def test_reasoning_then_done_without_text_is_no_output(self):
+        fake, hub = self.hub([('reasoning', 0.2, [])], first_timeout=1, total_timeout=5)
+        with self.assertRaises(NewsError) as ctx:
+            list(hub.stream('m', MSG, None))
+        self.assertErr(ctx, 'model', '模型没有返回内容')
+
+    def test_hub_pings_alone_still_hit_first_timeout(self):
+        import time
+        fake, hub = self.hub([('pings', 5)], first_timeout=0.3, total_timeout=10)
+        t = time.monotonic()
+        with self.assertRaises(NewsError) as ctx:
+            list(hub.stream('m', MSG, None))
+        self.assertLess(time.monotonic() - t, 1.5)
+        self.assertErr(ctx, 'model', '模型 0.3 秒内没有输出')
+
+    def test_hub_ping_comments_are_not_reported_as_a_stray_body(self):
+        fake, hub = self.hub([('sse', [': ping\n\n', 'data: [DONE]\n\n'])])
+        with self.assertRaises(NewsError) as ctx:
+            list(hub.stream('m', MSG, None))
+        self.assertErr(ctx, 'model', '模型没有返回内容')
+
+
 class ModelsTests(HubTestCase):
     MODELS = [
         {'id': 'Auto', 'enabled': True},

@@ -373,13 +373,14 @@ class NewsService:
 
     def _stream(self, model, messages, effort, on_text, emit=None):
         """Feed model text to on_text(chunk) -> bool (whether it emitted). Pings a quiet stream so
-        a closed client is noticed; closing the generator drops the upstream request."""
+        a closed client is noticed, including while the model only thinks (the hub's '' heartbeats,
+        which never reach on_text); closing the generator drops the upstream request."""
         gen = self.hub.stream(model, messages, effort)
         last = time.monotonic()
         try:
             for chunk in gen:
                 now = time.monotonic()
-                if on_text(chunk):
+                if chunk and on_text(chunk):
                     last = now
                 elif emit and now - last >= PING_GAP:
                     emit(None)

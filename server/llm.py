@@ -3,7 +3,7 @@
 Errors are raised as NewsError with the stage that failed:
   gateway  cannot reach the hub, no valid HTTP answer, or the API key is rejected
   model    the hub answered but the model failed, queued, timed out or produced nothing
-  stream   the answer was cut off after text had already started
+  stream   the hub dropped the answer after text had already started
 """
 import http.client
 import json
@@ -154,11 +154,14 @@ class Hub:
 
     # -- chat --------------------------------------------------------------
     def complete(self, model, messages, effort=None):
-        return ''.join(self.stream(model, messages, effort))
+        return ''.join(chunk for chunk in self.stream(model, messages, effort) if chunk)
 
     def stream(self, model, messages, effort=None):
         """Yield the text deltas of a chat completion. Closing the generator drops the upstream
-        connection. Deadlines: first text within first_timeout, whole answer within total_timeout."""
+        connection. While the model only thinks (reasoning deltas) an empty string '' is yielded as
+        a heartbeat, never the reasoning itself: consumers skip '' for content but may use it to
+        ping their own client. Deadlines: first output (text or reasoning) within first_timeout,
+        whole answer within total_timeout. SSE comment lines (`: ping`) are not output."""
         body = {'model': model, 'messages': messages, 'stream': True}
         if effort:
             body['reasoning_effort'] = effort
@@ -167,6 +170,7 @@ class Hub:
         conn, sock = self._connect(min(self.first_timeout, self.total_timeout))
         resp = None
         got_text = False
+        got_output = False  # text or reasoning: switches from the first-output to the total deadline
         which = 'first'
         try:
             def arm():
@@ -176,9 +180,9 @@ class Hub:
                 first_left = start + self.first_timeout - now
                 if total_left <= 0:
                     raise _Deadline('total')
-                if not got_text and first_left <= 0:
+                if not got_output and first_left <= 0:
                     raise _Deadline('first')
-                if not got_text and first_left < total_left:
+                if not got_output and first_left < total_left:
                     sock.settimeout(first_left)
                     return 'first'
                 sock.settimeout(total_left)
@@ -232,7 +236,7 @@ class Hub:
                     line, buf = buf[:nl], buf[nl + 1:]
                     line = line.decode('utf-8', 'replace').strip()
                     if not line.startswith('data:'):
-                        if line and sum(map(len, stray)) < 4096:
+                        if line and not line.startswith(':') and sum(map(len, stray)) < 4096:
                             stray.append(line)
                         continue
                     data = line[5:].strip()
@@ -247,10 +251,13 @@ class Hub:
                         continue
                     if obj.get('error'):
                         self._raise_in_band(obj['error'])
-                    text = _delta_text(obj)
+                    text, reasoning = _delta(obj)
                     if text:
-                        got_text = True
+                        got_text = got_output = True
                         yield text
+                    elif reasoning:
+                        got_output = True
+                        yield ''
                 if not got_text:
                     if stray:
                         self._raise_stray(''.join(stray))
@@ -266,9 +273,13 @@ class Hub:
             sock.close()
 
 
-def _delta_text(obj):
+def _delta(obj):
+    """(content, reasoning) strings of a chunk's first choice; None where absent."""
     try:
-        content = obj['choices'][0]['delta'].get('content')
+        delta = obj['choices'][0]['delta']
+        content = delta.get('content')
+        reasoning = delta.get('reasoning_content') or delta.get('reasoning')
     except (KeyError, IndexError, TypeError, AttributeError):
-        return None
-    return content if isinstance(content, str) else None
+        return None, None
+    return (content if isinstance(content, str) else None,
+            reasoning if isinstance(reasoning, str) else None)

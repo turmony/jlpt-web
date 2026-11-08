@@ -633,6 +633,47 @@ class AskTests(NewsHTTPBase):
         self.assertEqual(self.svc.slots._value, 3)
 
 
+class ReasoningHTTPTests(NewsHTTPBase):
+    """A model that thinks before answering: thinking keeps the request alive and lets the server
+    notice a browser that went away."""
+
+    def test_analysis_after_long_thinking_succeeds(self):
+        self.use(script=[('reasoning', 0.8, ANALYSIS)])  # first_timeout 0.5
+        self.login()
+        self.open_article()
+        events = self.sse('/api/news/analyze', self.analyze_body(1))
+        self.assertEqual(events[-1], ('done', {'analysis_text': ''.join(ANALYSIS)}), events)
+        self.assertNotIn('思考', json.dumps(events, ensure_ascii=False))
+
+    def test_ask_after_thinking_sends_no_empty_deltas(self):
+        self.use(script=[('reasoning', 0.8, ['因为', '是持续。'])])
+        self.login()
+        self.open_article()
+        body = {**self.analyze_body(1, 0, 1), 'analysis': '', 'history': [], 'question': '为什么？'}
+        events = self.sse('/api/news/ask', body)
+        self.assertEqual([(n, d) for n, d in events if n != 'progress'],
+                         [('delta', {'text': '因为'}), ('delta', {'text': '是持续。'}), ('done', {})])
+
+    def test_client_gone_while_model_thinks_is_noticed_and_frees_the_slot(self):
+        self.use(script=[('reasoning', 10, ['never']), ('chunks', ANALYSIS, 0)],
+                 first_timeout=5, total_timeout=20)
+        self.svc.slots = threading.BoundedSemaphore(1)  # a leaked slot would queue the next request
+        self.login()
+        self.open_article()
+        sock = socket.create_connection(('127.0.0.1', self.port), timeout=10)
+        body = json.dumps(self.analyze_body(1)).encode()
+        sock.sendall(('POST /api/news/analyze HTTP/1.1\r\nHost: x\r\nOrigin: %s\r\nCookie: %s\r\n'
+                      'Content-Type: application/json\r\nContent-Length: %d\r\n\r\n'
+                      % (ORIGIN, self.cookie, len(body))).encode() + body)
+        self.assertTrue(self.fake.wait_requests(1))
+        time.sleep(0.3)  # the model is thinking
+        sock.close()
+        self.assertTrue(self.fake.wait_disconnect(timeout=3))
+        events = self.sse('/api/news/analyze', self.analyze_body(1))
+        self.assertEqual(events[-1][0], 'done', events)
+        self.assertNotIn(('progress', {'stage': 'model', 'text': '排队中…'}), events)
+
+
 class StageErrorTests(NewsHTTPBase):
     def stage_of_open(self, mapping, url=A):
         self.use(mapping)
