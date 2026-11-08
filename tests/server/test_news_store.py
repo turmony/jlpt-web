@@ -8,7 +8,7 @@ from unittest import mock
 
 from server import news_store
 from server.news_errors import NewsError
-from server.news_store import (ARTICLE_TTL, GLOSS_TTL, IMAGE_MAX, NewsStore)
+from server.news_store import (ARTICLE_TTL, GLOSS_TTL, IMAGE_MAX, NewsStore, image_key)
 
 AID = 'abcdef0123456789'
 
@@ -93,6 +93,30 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(cm.exception.location, '第 2 张')
         self.store.save_image(AID, 0, b'x' * IMAGE_MAX)
         self.assertEqual(self.store.image_path(AID, 0).stat().st_size, IMAGE_MAX)
+
+    def test_images_saved_by_source_key_and_pruned(self):
+        # Task 13: images are kept per source URL so a rebuilt article can re-index them.
+        key = image_key('https://newsatcl-pctr.c.yimg.jp/t/a.jpg?exp=10800')
+        self.assertRegex(key, r'^[0-9a-f]{40}$')
+        self.assertEqual(key, image_key('https://newsatcl-pctr.c.yimg.jp/t/a.jpg?exp=10800'))
+        self.assertNotEqual(key, image_key('https://newsatcl-pctr.c.yimg.jp/t/b.jpg?exp=10800'))
+        other = image_key('https://newsatcl-pctr.c.yimg.jp/t/b.jpg')
+        self.store.save_article({'id': AID})
+        self.store.save_image(AID, key, b'a')
+        self.store.save_image(AID, other, b'b')
+        self.store.save_image(AID, 0, b'legacy')
+        images = Path(self.tmp.name) / 'news' / AID / 'images'
+        self.assertEqual(self.store.image_path(AID, key), images / key)
+        self.assertEqual((images / key).read_bytes(), b'a')
+        self.store.prune_images(AID, {key})
+        self.assertEqual(sorted(p.name for p in images.iterdir()), [key])
+        self.store.prune_images('abcdef0123456780', set())  # no such article: nothing to do
+        with self.assertRaises(NewsError) as cm:
+            self.store.save_image(AID, key, b'x' * (IMAGE_MAX + 1), '第 4 张')
+        self.assertEqual((cm.exception.stage, cm.exception.location), ('image', '第 4 张'))
+        for bad in ('A' * 40, 'a' * 39, '../' + 'a' * 37, key + '0'):
+            with self.assertRaises(ValueError):
+                self.store.image_path(AID, bad)
 
     def test_image_path_layout(self):
         p = self.store.image_path(AID, 3)

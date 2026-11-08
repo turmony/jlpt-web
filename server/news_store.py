@@ -1,5 +1,6 @@
 """Article, image, glossary and settings storage for the news reader, with expiry cleanup."""
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -17,6 +18,7 @@ IMAGE_MAX = 5 * 1024 * 1024
 TOTAL_MAX = 300 * 1024 * 1024
 
 ID_RE = re.compile(r'[0-9a-f]{8,64}')
+KEY_RE = re.compile(r'[0-9a-f]{40}')
 DEFAULT_SETTINGS = {'model': None}
 
 
@@ -30,6 +32,20 @@ def _check_index(index):
     if type(index) is not int or index < 0:
         raise ValueError('invalid image index')
     return index
+
+
+def image_key(src):
+    """File name of a downloaded image: a digest of its source URL, so an article rebuilt from
+    stored pages can find the image again without downloading it."""
+    return hashlib.sha1(src.encode('utf-8')).hexdigest()
+
+
+def _check_name(name):
+    """An image file name: a source key (current layout) or an int index (articles saved before
+    images were keyed by source)."""
+    if isinstance(name, str) and KEY_RE.fullmatch(name):
+        return name
+    return str(_check_index(name))
 
 
 class NewsStore:
@@ -92,15 +108,33 @@ class NewsStore:
                 raise KeyError(article_id) from None
 
     # --- images --------------------------------------------------------
-    def image_path(self, article_id, index):
-        return self._article_dir(article_id) / 'images' / str(_check_index(index))
+    def image_path(self, article_id, name):
+        """images/<source key>, or images/<index> for articles saved before keyed images."""
+        return self._article_dir(article_id) / 'images' / _check_name(name)
 
-    def save_image(self, article_id, index, data):
-        path = self.image_path(article_id, index)
+    def save_image(self, article_id, name, data, location=None):
+        path = self.image_path(article_id, name)
         if len(data) > IMAGE_MAX:
-            raise NewsError('image', '图片超过 5 MB', '第 %d 张' % (index + 1))
+            if location is None and type(name) is int:
+                location = '第 %d 张' % (name + 1)
+            raise NewsError('image', '图片超过 5 MB', location)
         with self._lock:
             self._atomic_write(path, data)
+
+    def prune_images(self, article_id, keep):
+        """Delete the article's image files whose names are not in `keep`."""
+        folder = self._article_dir(article_id) / 'images'
+        with self._lock:
+            try:
+                entries = list(folder.iterdir())
+            except FileNotFoundError:
+                return
+            for entry in entries:
+                if entry.name not in keep and not entry.name.endswith('.tmp'):
+                    try:
+                        entry.unlink()
+                    except OSError:
+                        pass
 
     # --- single flight -------------------------------------------------
     @contextlib.contextmanager

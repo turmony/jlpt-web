@@ -15,7 +15,9 @@ from .news_store import IMAGE_MAX
 HOST = 'news.yahoo.co.jp'
 TIMEOUT = 10
 PAGE_GAP = 0.5
-MAX_PAGES = 20             # a bogus maxPage must not start hundreds of spaced fetches
+MAX_PAGES = 6              # pages shown; the rest are one error line (2026-11-08, user-approved)
+PAGE_RETRY_DELAY = 1.5     # a failed page is tried once more after this pause
+OPEN_BUDGET = 30           # seconds one article open may spend fetching pages
 USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36'
 
 FEEDS = {
@@ -28,6 +30,7 @@ _ARTICLE_PATH = re.compile(r'/articles/([0-9a-f]{8,64})')
 _KNOWN_TAGS = {'yjrf-article', 'yjrf-paragraph', 'figure', 'figcaption', 'yjrf-img',
                'p', 'h2', 'a', 'br', 'strong', 'em', 'span'}
 _NO_RETRY = {403, 404, 410}
+_PAGE_GONE = {404, 410}      # this page only; any other failure means Yahoo as a whole is in trouble
 _REDIRECTS = {301, 302, 303, 307, 308}
 MAX_REDIRECTS = 5
 
@@ -46,6 +49,12 @@ def validate_url(url):
             or u.netloc != HOST or not _PATH_OK.fullmatch(u.path)):
         raise bad
     return 'https://%s%s' % (HOST, u.path)
+
+
+def article_id_of(url):
+    """The id of a canonical article URL; None for a topic (pickup) URL."""
+    m = _ARTICLE_PATH.fullmatch(urllib.parse.urlsplit(url).path)
+    return m.group(1) if m else None
 
 
 class _SameHostRedirect(urllib.request.HTTPRedirectHandler):
@@ -216,11 +225,37 @@ class OffNewsTopic(NewsError):
                          % (host or '未知地址'), '话题页', retryable=False)
 
 
+def _pages_text(pages):
+    """'3', '3–6' or '3、5–6' for a sorted list of page numbers (runs joined by an en dash)."""
+    runs = []
+    for n in pages:
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    return '、'.join('%d' % a if a == b else '%d–%d' % (a, b) for a, b in runs)
+
+
+def _page_location(pages, total):
+    return '第 %s 页 / 共 %d 页' % (_pages_text(pages), total)
+
+
+class _PageFailed(Exception):
+    """A page that could not be fetched or read; `site_wide` failures stop the page loop."""
+    def __init__(self, error, site_wide):
+        super().__init__(error.reason)
+        self.error = error
+        self.site_wide = site_wide
+
+
 class Yahoo:
-    def __init__(self, fetch=http_fetch, sleep=time.sleep, open_image=open_image):
+    def __init__(self, fetch=http_fetch, sleep=time.sleep, open_image=open_image,
+                 clock=time.monotonic, budget=OPEN_BUDGET):
         self._fetch = fetch
         self._sleep = sleep
         self._open_image = open_image
+        self._clock = clock
+        self._budget = budget
 
     def image(self, url, location):
         """Bytes of an article image. Only https news.yahoo.co.jp / *.yimg.jp, redirects only
@@ -263,7 +298,9 @@ class Yahoo:
         except Exception as e:
             raise NewsError('yahoo', '连接雅虎失败：%s' % (e or type(e).__name__), location)
         if status != 200:
-            raise NewsError('yahoo', '雅虎返回 %s' % status, location, retryable=status not in _NO_RETRY)
+            error = NewsError('yahoo', '雅虎返回 %s' % status, location, retryable=status not in _NO_RETRY)
+            error.status = status
+            raise error
         return body
 
     def feed(self, slug):
@@ -310,35 +347,118 @@ class Yahoo:
                 host = None
             raise OffNewsTopic(host)
 
-    def open(self, url, progress):
-        url = validate_url(url)
-        if '/pickup/' in url:
-            url = self._resolve_pickup(url, progress)
-        article_id = _ARTICLE_PATH.fullmatch(urllib.parse.urlsplit(url).path).group(1)
+    def _page(self, url, n, total):
+        """Page n parsed, or _PageFailed. 404/410 and pages without article data are this
+        page's own problem; timeouts, connection errors, 403, 429 and 5xx are site-wide."""
+        loc = _page_location([n], total)
+        try:
+            body = self.fetch('%s?page=%d' % (url, n), loc)
+        except NewsError as error:
+            raise _PageFailed(error, getattr(error, 'status', None) not in _PAGE_GONE)
+        try:
+            return parse_page(extract_state(body, loc), url, loc)
+        except NewsError as error:
+            raise _PageFailed(error, False)
+        except (AttributeError, TypeError, ValueError, KeyError, IndexError) as error:
+            raise _PageFailed(NewsError('parse', '正文结构无法识别（雅虎可能改版）：%s' % type(error).__name__, loc),
+                              False)
 
-        progress('yahoo', '正在抓取雅虎…')
-        loc1 = '第 1 页'
-        first = parse_page(extract_state(self.fetch(url, loc1), loc1), url, loc1)
-        total = max(1, int(first['max']))
-        art = {'id': article_id, 'url': url, 'title': first['title'], 'media': first['media'],
-               'published': first['published'], 'author': first['author'],
-               'pages': {'total': total, 'fetched': 1, 'missing': []},
-               'blocks': list(first['blocks']), 'errors': []}
-        for n in range(2, min(total, MAX_PAGES) + 1):
-            loc = '第 %d 页 / 共 %d 页' % (n, total)
+    def _first_page(self, url):
+        loc = '第 1 页'
+        for attempt in (1, 2):
+            try:
+                return parse_page(extract_state(self.fetch(url, loc), loc), url, loc)
+            except NewsError:
+                if attempt == 2:
+                    raise
+            self._sleep(PAGE_RETRY_DELAY)
+
+    def open(self, url, progress, known=None):
+        """The article as {id, url, title, media, published, author, pages:{total, fetched,
+        missing}, blocks, errors, page_blocks}. Pages 1..MAX_PAGES are fetched in order, spaced by
+        PAGE_GAP; a failed page is tried once more after PAGE_RETRY_DELAY. A site-wide failure,
+        a page whose number is wrong, or running past the time budget stops the loop; the pages
+        left are `missing` and get one error. Pages past MAX_PAGES are one error, never listed.
+
+        `known` is an earlier result of this method for the same article: its pages are kept
+        and only the pages it misses are fetched (no topic page, no page 1)."""
+        began = self._clock()
+        if known:
+            pages = {int(n): list(blocks) for n, blocks in known['page_blocks']}
+            if 1 not in pages:
+                raise NewsError('parse', '缓存里没有第 1 页', '第 1 页')
+            meta = {key: known[key] for key in ('id', 'url', 'title', 'media', 'published', 'author')}
+            total = max(1, int(known['pages']['total']))
+        else:
+            url = validate_url(url)
+            if '/pickup/' in url:
+                url = self._resolve_pickup(url, progress)
+            article_id = _ARTICLE_PATH.fullmatch(urllib.parse.urlsplit(url).path).group(1)
+            progress('yahoo', '正在抓取雅虎…')
+            first = self._first_page(url)
+            total = max(1, int(first['max']))
+            pages = {1: list(first['blocks'])}
+            meta = {'id': article_id, 'url': url, 'title': first['title'], 'media': first['media'],
+                    'published': first['published'], 'author': first['author']}
+        url = meta['url']
+        shown = min(total, MAX_PAGES)
+        pages = {n: blocks for n, blocks in pages.items() if 1 <= n <= shown}
+        todo = [n for n in range(2, shown + 1) if n not in pages]
+        errors = []
+
+        def rest_from(n):
+            return _page_location(todo[todo.index(n):], total)
+
+        for n in todo:
             progress('yahoo', '正在抓取雅虎（第 %d / %d 页）…' % (n, total))
             self._sleep(PAGE_GAP)
-            try:
-                page = parse_page(extract_state(self.fetch('%s?page=%d' % (url, n), loc), loc), url, loc)
-            except NewsError as e:
-                art['pages']['missing'].append(n)
-                art['errors'].append(e.to_dict())
+            page, failure, late = None, None, False
+            for attempt in (1, 2):
+                if attempt == 2:
+                    self._sleep(PAGE_RETRY_DELAY)
+                if self._clock() - began > self._budget:
+                    late = True
+                    break
+                try:
+                    page = self._page(url, n, total)
+                    break
+                except _PageFailed as failed:
+                    failure = failed
+            if late:
+                errors.append(NewsError('yahoo', '抓取超过 %g 秒，已停止' % self._budget, rest_from(n)).to_dict())
+                break
+            if page is None:
+                if failure.site_wide:
+                    # Yahoo as a whole is unwell (403/429 included): worth trying again later.
+                    failure.error.location = rest_from(n)
+                    failure.error.retryable = True
+                    errors.append(failure.error.to_dict())
+                    break
+                errors.append(failure.error.to_dict())
                 continue
-            art['pages']['fetched'] += 1
-            art['blocks'].extend(page['blocks'])
+            if _page_number(page['current']) != n:
+                # Yahoo ignored ?page= (or served another page): what follows cannot be trusted.
+                errors.append(NewsError('parse', '第 %d 页内容与页码不符，已停止抓取后续页' % n,
+                                        _page_location([n], total), retryable=False).to_dict())
+                break
+            pages[n] = list(page['blocks'])
+
         if total > MAX_PAGES:
-            art['pages']['missing'].extend(range(MAX_PAGES + 1, total + 1))
-            art['errors'].append(NewsError(
-                'yahoo', '页数过多，只抓取前 %d 页' % MAX_PAGES,
-                '第 %d 页起 / 共 %d 页' % (MAX_PAGES + 1, total), retryable=False).to_dict())
+            errors.append(NewsError(
+                'yahoo', '这篇文章共 %d 页，只显示前 %d 页，其余请看原文' % (total, MAX_PAGES),
+                '第 %s 页 / 共 %d 页' % (MAX_PAGES + 1 if total == MAX_PAGES + 1 else '%d–%d' % (MAX_PAGES + 1, total),
+                                     total), retryable=False).to_dict())
+        order = sorted(pages)
+        art = dict(meta)
+        art.update(pages={'total': total, 'fetched': len(order),
+                          'missing': [n for n in range(1, shown + 1) if n not in pages]},
+                   blocks=[b for n in order for b in pages[n]], errors=errors,
+                   page_blocks=[[n, pages[n]] for n in order])
         return art
+
+
+def _page_number(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

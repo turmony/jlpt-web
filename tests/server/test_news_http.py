@@ -3,6 +3,7 @@ import http.client
 import importlib.util
 import io
 import json
+import shutil
 import socket
 import tempfile
 import threading
@@ -20,7 +21,8 @@ from server.news import NewsService, match_card, start_cleanup
 from server.news_text import TokenizerUnavailable, split_sentences
 from server.news_yahoo import Yahoo
 from tests.server.fake_hub import FakeHub
-from tests.server.news_fixture import ARTICLE_ID, ARTICLE_URL as A, PICKUP_URL as P, fake_fetch, fake_open, load
+from tests.server.news_fixture import (ARTICLE_ID, ARTICLE_URL as A, PICKUP_URL as P, article_pages,
+                                      fake_fetch, fake_open, load)
 
 HAVE_FUGASHI = importlib.util.find_spec('fugashi') is not None
 ORIGIN = 'http://test.local'
@@ -327,14 +329,113 @@ class OpenTests(NewsHTTPBase):
         self.svc.yahoo._fetch = lambda url: (calls.append(url), inner(url))[1]
         self.login()
         self.assertEqual(self.open_article()['pages']['missing'], [3])
+        self.assertEqual(calls.count(A + '?page=3'), 2)  # tried, then retried once
         self.mapping[A + '?page=3'] = (200, load('multi_p3'))
         art = self.open_article()
         self.assertEqual(art['pages'], {'total': 3, 'fetched': 3, 'missing': []})
         self.assertEqual(art['errors'], [])
-        self.assertEqual(calls.count(A + '?page=3'), 2)
+        self.assertEqual(calls.count(A + '?page=3'), 3)
+        # Only the missing page was fetched again; page 1 came from the stored copy.
+        self.assertEqual(calls.count(A), 1)
         # A complete article is still reused by an open right after it.
         self.open_article()
-        self.assertEqual(calls.count(A), 2)
+        self.assertEqual(len(calls), 5)
+
+    def test_partial_reopen_fetches_only_missing_pages_and_reuses_images(self):
+        img = {n: 'https://newsatcl-pctr.c.yimg.jp/t/test/page%d.jpg?exp=10800' % n for n in (1, 2, 3)}
+        data = {n: JPEG + b'page%d' % n for n in (1, 2, 3)}
+        mapping = {P: (200, load('pickup')), **article_pages(3, images=img),
+                   img[1]: (200, data[1]), img[2]: (200, data[2]), img[3]: (200, data[3])}
+        mapping[A + '?page=2'] = (404, b'')
+        self.use(mapping)
+        self.login()
+        first = self.open_article(P)
+        self.assertEqual(first['pages'], {'total': 3, 'fetched': 2, 'missing': [2]})
+        self.assertEqual([(e['stage'], e['location']) for e in first['errors']], [('yahoo', '第 2 页 / 共 3 页')])
+        self.assertEqual([b['index'] for b in first['blocks'] if b['type'] == 'image'], [0, 1])
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/1').read(), data[3])
+
+        # 重试: page 2 is back; the old image URLs have expired since.
+        fetch, opener = self.svc.yahoo._fetch, self.svc.yahoo._open_image
+        fetch.calls.clear()
+        opener.calls.clear()
+        self.mapping[A + '?page=2'] = article_pages(3, images=img)[A + '?page=2']
+        self.mapping[img[1]] = self.mapping[img[3]] = (404, b'')
+        art = self.open_article(P)
+        self.assertEqual(fetch.calls, [A + '?page=2'])
+        self.assertEqual(opener.calls, [img[2]])
+        self.assertEqual(art['pages'], {'total': 3, 'fetched': 3, 'missing': []})
+        self.assertEqual(art['errors'], [])
+        self.assertEqual((art['id'], art['url'], art['title']), (ARTICLE_ID, A, '複数ページの見出し'))
+        texts = [''.join(t['s'] for s in b.get('sentences', []) + b.get('caption_sentences', []) for t in s['tokens'])
+                 for b in art['blocks']]
+        self.assertEqual(texts, ['第1頁の本文。', '写真1', '第2頁の本文。', '写真2', '第3頁の本文。', '写真3'])
+        ids = [s['id'] for b in art['blocks'] for s in b.get('sentences', []) + b.get('caption_sentences', [])]
+        self.assertEqual(ids, list(range(6)))
+        images = [b for b in art['blocks'] if b['type'] == 'image']
+        self.assertEqual([(b['index'], b['ok']) for b in images], [(0, True), (1, True), (2, True)])
+        for index, n in ((0, 1), (1, 2), (2, 3)):
+            resp = self.request(f'/api/news/image/{ARTICLE_ID}/{index}')
+            self.assertEqual((resp.status, resp.read()), (200, data[n]), index)
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/3').status, 404)
+        self.assertEqual(self.svc.store.load_article(ARTICLE_ID)['blocks'], art['blocks'])
+        # Complete now: reused right away, nothing fetched.
+        self.assertEqual(self.open_article(P)['blocks'], art['blocks'])
+        self.assertEqual(fetch.calls, [A + '?page=2'])
+
+    def test_partial_reopen_retries_failed_images_of_kept_pages(self):
+        img = {1: 'https://newsatcl-pctr.c.yimg.jp/t/test/page1.jpg', 2: 'https://newsatcl-pctr.c.yimg.jp/t/test/page2.jpg'}
+        mapping = {**article_pages(2, images=img), img[1]: (503, b''), img[2]: (200, PNG)}
+        mapping[A + '?page=2'] = (503, b'')
+        self.use(mapping)
+        self.login()
+        first = self.open_article()
+        self.assertEqual([e['stage'] for e in first['errors']], ['yahoo', 'image'])
+        self.mapping[A + '?page=2'] = article_pages(2, images=img)[A + '?page=2']
+        self.mapping[img[1]] = (200, JPEG)
+        art = self.open_article()
+        self.assertEqual(art['errors'], [])
+        self.assertEqual([(b['index'], b['ok']) for b in art['blocks'] if b['type'] == 'image'], [(0, True), (1, True)])
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/0').read(), JPEG)
+        self.assertEqual(self.request(f'/api/news/image/{ARTICLE_ID}/1').read(), PNG)
+
+    def test_expired_partial_copy_is_fetched_in_full(self):
+        mapping = {P: (200, load('pickup')), **article_pages(3)}
+        mapping[A + '?page=3'] = (503, b'')
+        self.use(mapping)
+        self.login()
+        self.assertEqual(self.open_article(P)['pages']['missing'], [3])
+        self.svc.yahoo._fetch.calls.clear()
+        self.mapping[A + '?page=3'] = article_pages(3)[A + '?page=3']
+        later = time.time() + 8 * 86400
+        self.svc.store.now = lambda: later
+        art = self.open_article(P)
+        self.assertEqual(self.svc.yahoo._fetch.calls, [P, A, A + '?page=2', A + '?page=3'])
+        self.assertEqual(art['pages']['missing'], [])
+
+    def test_damaged_stored_copy_is_fetched_in_full(self):
+        self.use(multi(**{A + '?page=3': (503, b'')}))
+        self.login()
+        self.open_article()
+        path = Path(self.config['state']) / 'news' / ARTICLE_ID / 'article.json'
+        good = json.loads(path.read_text('utf-8'))
+        self.mapping[A + '?page=3'] = (200, load('multi_p3'))
+        for damage in ({'images': ['../../settings.json']}, {'source': {**good['cache']['source'], 'page_blocks': [[2, []]]}},
+                       {'source': {**good['cache']['source'], 'url': 'https://example.com/x'}}):
+            path.write_text(json.dumps(dict(good, cache=dict(good['cache'], **damage))), 'utf-8')
+            self.svc.yahoo._fetch.calls.clear()
+            art = self.open_article()
+            self.assertEqual(self.svc.yahoo._fetch.calls, [A, A + '?page=2', A + '?page=3'], damage)
+            self.assertEqual(art['pages']['missing'], [])
+            self.svc._recent.clear()
+
+    def test_image_route_still_serves_articles_saved_before_task_13(self):
+        self.use()
+        self.login()
+        self.svc.store.save_article({'id': ARTICLE_ID, 'blocks': [{'type': 'image', 'index': 0, 'ok': True}]})
+        self.svc.store.save_image(ARTICLE_ID, 0, JPEG)
+        resp = self.request(f'/api/news/image/{ARTICLE_ID}/0')
+        self.assertEqual((resp.status, resp.read()), (200, JPEG))
 
     def test_rejects_non_yahoo_url_before_streaming(self):
         self.use()
@@ -700,6 +801,8 @@ class StageErrorTests(NewsHTTPBase):
         # Yahoo 503 on page 3: the article opens and records the page error.
         self.use(multi(**{A + '?page=3': (503, b'')}))
         errors.append(('yahoo', self.open_article(P)['errors'][0]))
+        # The cases below open the same article afresh, not as a refill of this partial copy.
+        shutil.rmtree(Path(self.config['state']) / 'news' / ARTICLE_ID)
         # Yahoo times out on the first page: the whole open fails.
         self.use({A: TimeoutError('timed out')})
         errors.append(('yahoo', self.sse('/api/news/open', {'url': A})[-1][1]))

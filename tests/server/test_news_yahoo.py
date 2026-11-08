@@ -4,7 +4,8 @@ from unittest import mock
 
 from server.news_errors import STAGES, NewsError, new_request_id
 from server.news_yahoo import FEEDS, OffNewsTopic, Yahoo, http_fetch, validate_url
-from tests.server.news_fixture import ARTICLE_URL as A, PICKUP_URL as P, fake_fetch, fake_open, load
+from tests.server.news_fixture import (ARTICLE_URL as A, PICKUP_URL as P, article_page, article_pages,
+                                      fake_fetch, fake_open, load)
 
 
 def no_sleep(s):
@@ -52,11 +53,13 @@ class YahooTests(unittest.TestCase):
         self.assertEqual(art['errors'][0]['location'], '第 3 页 / 共 3 页')
         self.assertIn('503', art['errors'][0]['reason'])
 
-    def test_network_exception_on_later_page_is_recorded(self):
+    def test_network_exception_on_later_page_stops_and_is_recorded(self):
         y = Yahoo(fetch=fake_fetch(multi(**{A + '?page=2': TimeoutError('timed out')})), sleep=no_sleep)
         art = y.open(P, progress=quiet)
-        self.assertEqual(art['pages']['missing'], [2])
+        self.assertEqual(art['pages']['missing'], [2, 3])
+        self.assertEqual(len(art['errors']), 1)
         self.assertEqual(art['errors'][0]['stage'], 'yahoo')
+        self.assertEqual(art['errors'][0]['location'], '第 2–3 页 / 共 3 页')
         self.assertTrue(art['errors'][0]['retryable'])
 
     def test_first_page_failure_raises_yahoo_error(self):
@@ -170,31 +173,195 @@ class YahooTests(unittest.TestCase):
         Yahoo(fetch=fake_fetch(multi()), sleep=slept.append).open(P, progress=quiet)
         self.assertEqual(slept, [0.5, 0.5])
 
-    def test_page_count_is_capped_and_the_rest_recorded_missing(self):
-        from server.news_yahoo import MAX_PAGES
-        self.assertEqual(MAX_PAGES, 20)
-        first = load('multi_p1').replace(b'"maxPage": 3', b'"maxPage": 500')
-        mapping = {A: (200, first)}
-        for n in range(2, 501):
-            mapping[A + '?page=%d' % n] = (200, load('multi_p2'))
-        fetched = []
-        base = fake_fetch(mapping)
-
-        def fetch(url):
-            fetched.append(url)
-            return base(url)
-        slept = []
-        art = Yahoo(fetch=fetch, sleep=slept.append).open(A, progress=quiet)
-        self.assertEqual(fetched, [A] + [A + '?page=%d' % n for n in range(2, 21)])
-        self.assertEqual(len(slept), 19)
-        self.assertEqual(art['pages'], {'total': 500, 'fetched': 20, 'missing': list(range(21, 501))})
-        self.assertEqual(len(art['errors']), 1)
-        err = art['errors'][0]
-        self.assertEqual((err['stage'], err['reason'], err['location'], err['retryable']),
-                         ('yahoo', '页数过多，只抓取前 20 页', '第 21 页起 / 共 500 页', False))
-
     def test_request_id_format(self):
         self.assertRegex(new_request_id(), r'^n-\d{8}-[0-9a-f]{4}$')
+
+
+class Clock:
+    """A fake clock; its sleep advances time and is recorded."""
+    def __init__(self):
+        self.t = 0.0
+        self.slept = []
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, s):
+        self.slept.append(s)
+        self.t += s
+
+
+def page(n):
+    return A if n == 1 else A + '?page=%d' % n
+
+
+class PageRuleTests(unittest.TestCase):
+    """Task 13: page cap, per-page retry, failure classes, page sanity, time budget, refill."""
+
+    def open(self, mapping, url=A, clock=None, known=None, fetch=None):
+        clock = clock or Clock()
+        f = fetch or fake_fetch(mapping)
+        y = Yahoo(fetch=f, sleep=clock.sleep, clock=clock)
+        art = y.open(url, quiet, known=known) if known else y.open(url, quiet)
+        return art, f.calls, clock
+
+    def texts(self, art):
+        return [b['text'] for b in art['blocks'] if b['type'] == 'paragraph']
+
+    def test_constants(self):
+        from server import news_yahoo
+        self.assertEqual((news_yahoo.MAX_PAGES, news_yahoo.PAGE_RETRY_DELAY, news_yahoo.OPEN_BUDGET), (6, 1.5, 30))
+
+    def test_more_than_six_pages_fetches_six_and_records_one_cap_error(self):
+        art, calls, _ = self.open(article_pages(8))
+        self.assertEqual(calls, [page(n) for n in range(1, 7)])
+        self.assertEqual(art['pages'], {'total': 8, 'fetched': 6, 'missing': []})
+        self.assertEqual(self.texts(art), ['第%d頁の本文。' % n for n in range(1, 7)])
+        self.assertEqual(len(art['errors']), 1)
+        err = art['errors'][0]
+        self.assertEqual((err['stage'], err['location'], err['reason'], err['retryable']),
+                         ('yahoo', '第 7–8 页 / 共 8 页', '这篇文章共 8 页，只显示前 6 页，其余请看原文', False))
+        self.assertRegex(err['request_id'], r'^n-\d{8}-[0-9a-f]{4}$')
+
+    def test_absurd_page_count_is_fast_and_bounded(self):
+        import time
+        import tracemalloc
+        total = 10 ** 9
+        tracemalloc.start()
+        began = time.monotonic()
+        try:
+            art, calls, _ = self.open(article_pages(total, upto=6))
+            _size, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertLess(time.monotonic() - began, 2)
+        self.assertLess(peak, 2 * 1024 * 1024)
+        self.assertEqual(calls, [page(n) for n in range(1, 7)])
+        self.assertEqual(art['pages'], {'total': total, 'fetched': 6, 'missing': []})
+        self.assertEqual([(e['location'], e['reason']) for e in art['errors']],
+                         [('第 7–1000000000 页 / 共 1000000000 页', '这篇文章共 1000000000 页，只显示前 6 页，其余请看原文')])
+
+    def test_failed_page_is_retried_once_after_a_pause(self):
+        mapping = article_pages(6)
+        mapping[page(3)] = [(503, b''), mapping[page(3)]]
+        art, calls, clock = self.open(mapping)
+        self.assertEqual(calls, [page(1), page(2), page(3), page(3), page(4), page(5), page(6)])
+        self.assertEqual(art['pages'], {'total': 6, 'fetched': 6, 'missing': []})
+        self.assertEqual(art['errors'], [])
+        self.assertEqual(clock.slept, [0.5, 0.5, 1.5, 0.5, 0.5, 0.5])
+
+    def test_first_page_is_retried_once_too(self):
+        mapping = article_pages(1)
+        mapping[A] = [TimeoutError('timed out'), mapping[A]]
+        art, calls, clock = self.open(mapping)
+        self.assertEqual(calls, [A, A])
+        self.assertEqual(clock.slept, [1.5])
+        self.assertEqual(self.texts(art), ['第1頁の本文。'])
+        with self.assertRaises(NewsError) as cm:
+            self.open({A: (503, b'')})
+        self.assertEqual((cm.exception.stage, cm.exception.reason), ('yahoo', '雅虎返回 503'))
+
+    def test_site_wide_failure_stops_and_marks_the_rest_missing(self):
+        for answer, reason in (((503, b''), '雅虎返回 503'), ((500, b''), '雅虎返回 500'),
+                               ((403, b''), '雅虎返回 403'), ((429, b''), '雅虎返回 429'),
+                               (TimeoutError('timed out'), '连接雅虎失败：timed out'),
+                               (ConnectionResetError('reset'), '连接雅虎失败：reset')):
+            mapping = article_pages(6)
+            mapping[page(3)] = answer
+            art, calls, _ = self.open(mapping)
+            self.assertEqual(calls, [page(1), page(2), page(3), page(3)], reason)
+            self.assertEqual(art['pages'], {'total': 6, 'fetched': 2, 'missing': [3, 4, 5, 6]})
+            self.assertEqual(self.texts(art), ['第1頁の本文。', '第2頁の本文。'])
+            self.assertEqual([(e['stage'], e['location'], e['reason'], e['retryable']) for e in art['errors']],
+                             [('yahoo', '第 3–6 页 / 共 6 页', reason, True)], reason)
+
+    def test_page_specific_failure_skips_that_page_only(self):
+        broken = (200, b'<html>no data</html>')
+        for answer, stage, retryable in (((404, b''), 'yahoo', False), ((410, b''), 'yahoo', False),
+                                         (broken, 'parse', True),
+                                         ((200, load('multi_p1').replace(b'"paragraphs"', b'"nothing"')), 'parse', True)):
+            mapping = article_pages(6)
+            mapping[page(3)] = answer
+            art, calls, _ = self.open(mapping)
+            self.assertEqual(calls, [page(1), page(2), page(3), page(3), page(4), page(5), page(6)], answer)
+            self.assertEqual(art['pages'], {'total': 6, 'fetched': 5, 'missing': [3]})
+            self.assertEqual(self.texts(art), ['第%d頁の本文。' % n for n in (1, 2, 4, 5, 6)])
+            self.assertEqual([(e['stage'], e['location'], e['retryable']) for e in art['errors']],
+                             [(stage, '第 3 页 / 共 6 页', retryable)], answer)
+
+    def test_page_with_wrong_number_stops_with_parse_error(self):
+        mapping = article_pages(6)
+        mapping[page(4)] = (200, article_page(4, 6, current=1))  # Yahoo ignored ?page=
+        art, calls, _ = self.open(mapping)
+        self.assertEqual(calls, [page(1), page(2), page(3), page(4)])
+        self.assertEqual(art['pages'], {'total': 6, 'fetched': 3, 'missing': [4, 5, 6]})
+        self.assertEqual(self.texts(art), ['第1頁の本文。', '第2頁の本文。', '第3頁の本文。'])
+        self.assertEqual([(e['stage'], e['location'], e['reason']) for e in art['errors']],
+                         [('parse', '第 4 页 / 共 6 页', '第 4 页内容与页码不符，已停止抓取后续页')])
+
+    def test_time_budget_stops_fetching(self):
+        clock = Clock()
+        inner = fake_fetch(article_pages(6))
+
+        def slow(url):  # every request takes 8 s
+            clock.t += 8
+            return inner(url)
+        slow.calls = inner.calls
+        art, calls, _ = self.open(None, clock=clock, fetch=slow)
+        # 0→8 (p1) 8.5→16.5 (p2) 17→25 (p3) 25.5→33.5 (p4); at 34 s the budget is spent.
+        self.assertEqual(calls, [page(1), page(2), page(3), page(4)])
+        self.assertEqual(art['pages'], {'total': 6, 'fetched': 4, 'missing': [5, 6]})
+        self.assertEqual([(e['stage'], e['location'], e['reason'], e['retryable']) for e in art['errors']],
+                         [('yahoo', '第 5–6 页 / 共 6 页', '抓取超过 30 秒，已停止', True)])
+
+    def test_budget_is_injectable(self):
+        clock = Clock()
+        y = Yahoo(fetch=fake_fetch(article_pages(3)), sleep=clock.sleep, clock=clock, budget=0.7)
+        art = y.open(A, quiet)
+        # 0.5 s gap before page 2 is within 0.7 s; after the gap before page 3 (1.0 s) it is not.
+        self.assertEqual(art['pages']['missing'], [3])
+        self.assertEqual(art['errors'][0]['reason'], '抓取超过 0.7 秒，已停止')
+
+    def test_known_pages_are_kept_and_only_missing_pages_fetched(self):
+        mapping = article_pages(6)
+        mapping[page(3)] = (404, b'')
+        first, _calls, _ = self.open(mapping)
+        self.assertEqual(first['pages']['missing'], [3])
+        self.assertEqual(first['page_blocks'][0][0], 1)
+        mapping = article_pages(6)
+        art, calls, clock = self.open(mapping, url=P, known=first)
+        self.assertEqual(calls, [page(3)])
+        self.assertEqual(clock.slept, [0.5])
+        self.assertEqual(art['pages'], {'total': 6, 'fetched': 6, 'missing': []})
+        self.assertEqual(self.texts(art), ['第%d頁の本文。' % n for n in range(1, 7)])
+        self.assertEqual(art['errors'], [])
+        self.assertEqual((art['id'], art['url'], art['title']), (first['id'], first['url'], first['title']))
+
+    def test_refill_applies_the_same_rules_and_keeps_the_cap_error(self):
+        mapping = article_pages(9)
+        mapping[page(3)] = (503, b'')
+        first, _calls, _ = self.open(mapping)
+        self.assertEqual(first['pages']['missing'], [3, 4, 5, 6])
+        self.assertEqual([e['location'] for e in first['errors']], ['第 3–6 页 / 共 9 页', '第 7–9 页 / 共 9 页'])
+        mapping = article_pages(9)
+        mapping[page(5)] = (503, b'')
+        art, calls, _ = self.open(mapping, known=first)
+        self.assertEqual(calls, [page(3), page(4), page(5), page(5)])
+        self.assertEqual(art['pages'], {'total': 9, 'fetched': 4, 'missing': [5, 6]})
+        self.assertEqual([e['location'] for e in art['errors']], ['第 5–6 页 / 共 9 页', '第 7–9 页 / 共 9 页'])
+
+    def test_range_location_skips_pages_already_fetched(self):
+        mapping = article_pages(6)
+        mapping[page(3)] = (404, b'')
+        mapping[page(5)] = (404, b'')
+        first, _calls, _ = self.open(mapping)
+        self.assertEqual(first['pages']['missing'], [3, 5])
+        mapping = article_pages(6)
+        mapping[page(3)] = (503, b'')
+        art, calls, _ = self.open(mapping, known=first)
+        self.assertEqual(calls, [page(3), page(3)])
+        self.assertEqual(art['pages']['missing'], [3, 5])
+        self.assertEqual([e['location'] for e in art['errors']], ['第 3、5 页 / 共 6 页'])
 
 
 class ErrorTests(unittest.TestCase):

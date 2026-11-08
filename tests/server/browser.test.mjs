@@ -1092,6 +1092,26 @@ test('article errors show where they belong: failed images in place, missing pag
   assert.match(await page.locator('.news-unknown').innerText(),/^这里有原文内容没能显示/);
 }));
 
+test('page errors: a range of missing pages offers 重试, the page cap does not',()=>withNews('iPhone 13',async(page,url)=>{
+  const err=(location,reason,retryable)=>({stage:'yahoo',stage_label:'抓取雅虎',location,reason,retryable,request_id:'n-20261108-0002',time:'15:42:07'});
+  const sentence=(id,text)=>({id,tokens:[{s:text,r:'',l:text,p:'名詞',t:true},{s:'。',r:'',l:'。',p:'補助記号',t:false}]});
+  const article={id:READER_ID,url:READER_URL,title:'題',media:'媒体',published:'2026-11-08T15:30:00+09:00',author:'',
+    pages:{total:9,fetched:2,missing:[3,4,5,6]},
+    blocks:[{type:'paragraph',sentences:[sentence(0,'一')]},{type:'paragraph',sentences:[sentence(1,'二')]}],
+    errors:[err('第 3–6 页 / 共 9 页','雅虎返回 503',true),err('第 7–9 页 / 共 9 页','这篇文章共 9 页，只显示前 6 页，其余请看原文',false)]};
+  await page.route('**/api/news/open',route=>route.fulfill({status:200,headers:{'content-type':'text/event-stream'},body:'event: article\ndata: '+JSON.stringify(article)+'\n\n'}));
+  await page.goto(readerPage(url));
+  await page.locator('.news-article-title').waitFor();
+  const errors=page.locator('.news-body > .news-error');
+  assert.equal(await errors.count(),2);
+  assert.equal(await errors.nth(0).locator('.news-error-line').innerText(),'抓取雅虎失败（第 3–6 页 / 共 9 页）：雅虎返回 503');
+  assert.equal(await errors.nth(0).getByRole('button',{name:'重试'}).count(),1);
+  assert.equal(await errors.nth(1).locator('.news-error-line').innerText(),'抓取雅虎失败（第 7–9 页 / 共 9 页）：这篇文章共 9 页，只显示前 6 页，其余请看原文');
+  assert.equal(await errors.nth(1).getByRole('button',{name:'重试'}).count(),0);
+  // Both come after the fetched text.
+  assert.equal(await page.locator('.news-body').evaluate(body=>[...body.children].map(node=>node.className.split(' ')[0]).join(',')),'news-para,news-para,news-error,news-error');
+}));
+
 test('links taken from the article only go to Yahoo News over https',()=>withNews('iPhone 13',async(page,url)=>{
   const article={id:READER_ID,url:READER_URL,title:'題',media:'媒体',published:'2026-11-08T15:30:00+09:00',author:'',
     pages:{total:1,fetched:1,missing:[]},errors:[],

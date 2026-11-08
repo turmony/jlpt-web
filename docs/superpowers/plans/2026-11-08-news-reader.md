@@ -14,7 +14,7 @@
 
 - 仅接受 `https://news.yahoo.co.jp/pickup/<数字>` 与 `https://news.yahoo.co.jp/articles/<hex>`；不跟随跳转到其他主机。
 - RSS 分类与 slug：主要 `top-picks`、国内 `domestic`、国际 `world`、经济 `business`、娱乐 `entertainment`、体育 `sports`、IT `it`、科学 `science`；RSS 缓存 10 分钟。
-- 抓取：单次请求超时 10 秒；多页间隔约 0.5 秒；同一篇文章并发打开只抓一次。
+- 抓取：单次请求超时 10 秒；多页间隔约 0.5 秒；同一篇文章并发打开只抓一次。（2026-11-08 用户确认追加：最多抓 6 页；失败页隔 1.5 秒自动重试一次；一次打开最多抓 30 秒；重试只补抓缺页。）
 - 存储：文章与图片 7 天；释义缓存 30 天；图片单张上限 5 MB；新闻目录总上限 300 MB（超出先删最早的文章）；启动时及每小时清理。
 - 查词与分析记录不保存；追问对话由页面每次随请求发送，服务器不留存。
 - 模型：查词、分析、追问共用页头选定的模型（`state/news/settings.json`）；思考档位取该模型 `reasoning_efforts` 中最低的一档（顺序 `low` < `medium` < `high` < `xhigh` < `max`），模型没有档位列表时不发送 `reasoning_effort`（2026-11-08 实测：DeepSeek-V4-Pro、GLM-5.3-Flash 只有 high/max，Auto、Fast 没有档位）；模型不可用时不自动换模型。

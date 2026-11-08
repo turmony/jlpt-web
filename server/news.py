@@ -17,10 +17,10 @@ from pathlib import Path
 from .llm import Hub, R_UNAVAILABLE
 from .news_errors import NewsError
 from .news_prompts import MAX_HISTORY_ROUNDS, analysis_messages, ask_messages, gloss_messages
-from .news_store import ID_RE, NewsStore
+from .news_store import ARTICLE_TTL, ID_RE, KEY_RE, NewsStore, image_key
 from .news_text import TokenizerUnavailable, to_sentences
 from .news_xml import AnalysisParser, parse_gloss
-from .news_yahoo import FEEDS, HOST, Yahoo, validate_url
+from .news_yahoo import FEEDS, HOST, Yahoo, article_id_of, validate_url
 
 FEED_TTL = 600
 REUSE_SECONDS = 60          # a second open of the same URL right after the first reuses a complete result
@@ -39,6 +39,29 @@ _CARD_CUT = re.compile('[：（(]')
 _CARD_SPLIT = re.compile('[／・/]')
 _CARD_TRIM = ' \t\r\n　〜～'
 _LEVEL = re.compile(r'N[1-5]')
+
+
+def _source_ok(source, article_id):
+    """Whether a stored `cache.source` has the shape Yahoo.open(known=...) expects."""
+    if not isinstance(source, dict) or source.get('id') != article_id:
+        return False
+    if not all(isinstance(source.get(key), str) for key in ('url', 'title', 'media', 'published', 'author')):
+        return False
+    try:
+        if article_id_of(validate_url(source['url'])) != article_id:
+            return False
+    except ValueError:
+        return False
+    pages, page_blocks = source.get('pages'), source.get('page_blocks')
+    if not isinstance(pages, dict) or type(pages.get('total')) is not int or not isinstance(page_blocks, list):
+        return False
+    numbers = []
+    for item in page_blocks:
+        if not (isinstance(item, list) and len(item) == 2 and type(item[0]) is int and isinstance(item[1], list)
+                and all(isinstance(block, dict) for block in item[1])):
+            return False
+        numbers.append(item[0])
+    return 1 in numbers
 
 
 class ClientGone(BaseException):
@@ -142,6 +165,7 @@ class NewsService:
         self._lock = threading.Lock()
         self._feeds = {}       # slug -> (fetched_at, items)
         self._recent = {}      # canonical url -> (opened_at, article)
+        self._resolved = {}    # topic (pickup) url -> (opened_at, article id): finds the stored copy
         self._catalog = None
 
     # -- logging & streaming -------------------------------------------------
@@ -208,22 +232,59 @@ class NewsService:
             now = self.clock()
             with self._lock:
                 self._recent = {k: v for k, v in self._recent.items() if now - v[0] < REUSE_SECONDS}
+                self._resolved = {k: v for k, v in self._resolved.items() if now - v[0] < ARTICLE_TTL}
                 hit = self._recent.get(url)
+                article_id = article_id_of(url) or self._resolved.get(url, (None, None))[1]
             if hit:
                 article = hit[1]
             else:
-                article = self._build(url, emit)
-                # A partial article (missing page, failed image) is not reused: 重试 must fetch again.
-                if not article.get('errors') and not article['pages'].get('missing'):
-                    with self._lock:
+                # A stored partial copy (missing pages) is refilled: only its missing pages are fetched.
+                article = self._build(url, emit, self._stored_partial(article_id))
+                with self._lock:
+                    if article_id_of(url) is None:
+                        self._resolved[url] = (self.clock(), article['id'])
+                    # A partial article (missing page, failed image) is not reused: 重试 must fetch again.
+                    if not article.get('errors') and not article['pages'].get('missing'):
                         self._recent[url] = (self.clock(), article)
         emit('article', article)
 
-    def _build(self, url, emit):
+    def _stored_partial(self, article_id):
+        """The saved copy of an article that still misses pages and can be refilled, or None."""
+        if not article_id:
+            return None
+        try:
+            saved = self.store.load_article(article_id)
+        except (KeyError, ValueError):
+            return None
+        cache = saved.get('cache')
+        source = cache.get('source') if isinstance(cache, dict) else None
+        pages = saved.get('pages')
+        images = cache.get('images') if isinstance(cache, dict) else None
+        if not (isinstance(pages, dict) and pages.get('missing') and _source_ok(source, article_id)
+                and isinstance(images, list)
+                and all(key is None or (isinstance(key, str) and KEY_RE.fullmatch(key)) for key in images)):
+            return None
+        return saved
+
+    def _build(self, url, emit, previous=None):
+        """Fetch (or, with `previous`, refill) an article, tokenize it, download its images and
+        save it. A refill keeps the stored pages and the images already downloaded for them;
+        sentence ids and image indices are assigned afresh over the whole article."""
         step = 'yahoo'
         try:
+            reuse = set()
+            if previous:
+                cache = previous['cache']
+                reuse = {key for key in cache['images'] if isinstance(key, str)
+                         and self.store.image_path(previous['id'], key).is_file()}
+
+            def progress(stage, text):
+                self._progress(emit, stage, text)
             try:
-                raw = self.yahoo.open(url, lambda stage, text: self._progress(emit, stage, text))
+                if previous:
+                    raw = self.yahoo.open(url, progress, known=previous['cache']['source'])
+                else:
+                    raw = self.yahoo.open(url, progress)
             except NewsError:
                 raise
             except (AttributeError, TypeError, ValueError, KeyError, IndexError) as error:
@@ -237,10 +298,16 @@ class NewsService:
             blocks, images = self._blocks(raw['blocks'])
 
             step = 'image'
+            keys = [None] * len(images)
             for index, (src, done, failed) in enumerate(images):
+                key = image_key(src) if isinstance(src, str) else None
+                if key in reuse:
+                    keys[index] = key
+                    done()
+                    continue
                 self._progress(emit, 'image', '正在下载图片（第 %d / %d 张）…' % (index + 1, len(images)))
                 try:
-                    self._download(raw['id'], index, src)
+                    keys[index] = self._download(raw['id'], index, src)
                     done()
                 except NewsError as error:
                     failed()
@@ -250,7 +317,13 @@ class NewsService:
             step = 'parse'
             article = {key: raw[key] for key in ('id', 'url', 'title', 'media', 'published', 'author', 'pages')}
             article.update(blocks=blocks, errors=errors)
-            self.store.save_article(article)
+            source = None
+            if 'page_blocks' in raw:
+                source = {key: raw[key] for key in ('id', 'url', 'title', 'media', 'published', 'author',
+                                                    'pages', 'page_blocks')}
+            # `cache` stays on the server: which file holds image n, and the pages as fetched.
+            self.store.save_article(dict(article, cache={'images': keys, 'source': source}))
+            self.store.prune_images(raw['id'], {key for key in keys if key})
             return article
         except NewsError:
             raise
@@ -299,22 +372,37 @@ class NewsService:
         return blocks, images
 
     def _download(self, article_id, index, src):
+        """Download and save image `index`; returns its file key."""
         location = '第 %d 张' % (index + 1)
         data = self.yahoo.image(src, location)
         if not sniff_image(data):
             raise NewsError('image', '下载的内容不是图片', location, retryable=False)
-        self.store.save_image(article_id, index, data)
+        key = image_key(src)
+        self.store.save_image(article_id, key, data, location)
+        return key
 
     def image(self, article_id, index):
         """(bytes, mime) of a saved image of a live article; KeyError otherwise."""
         try:
             article = self.store.load_article(article_id)
-            path = self.store.image_path(article_id, index)
+            self.store.image_path(article_id, index)  # validates the index
         except ValueError:
             raise KeyError(article_id)
         if not any((b.get('type') == 'image' and b.get('index') == index and b.get('ok'))
                    or (b.get('type') == 'video' and b.get('cover') == index)
                    for b in article.get('blocks', [])):
+            raise KeyError(index)
+        cache = article.get('cache')
+        if isinstance(cache, dict):
+            keys = cache.get('images')
+            name = keys[index] if isinstance(keys, list) and index < len(keys) else None
+            if not isinstance(name, str):
+                raise KeyError(index)
+        else:
+            name = index  # saved before images were keyed by source
+        try:
+            path = self.store.image_path(article_id, name)
+        except ValueError:
             raise KeyError(index)
         try:
             data = path.read_bytes()
