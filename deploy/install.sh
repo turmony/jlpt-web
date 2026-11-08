@@ -24,6 +24,11 @@ fi
 npm ci --no-audit --no-fund
 npm run build:chat
 node scripts/build-server.mjs /srv/jlpt/static
+# News reader runs in its own venv (fugashi + unidic-lite, ~249 MB). uv is already required below.
+if [ ! -x /srv/jlpt/venv/bin/python ]; then
+  uv venv --python /usr/bin/python3 /srv/jlpt/venv
+fi
+uv pip install --python /srv/jlpt/venv/bin/python -r requirements-news.txt
 python3 scripts/setup_study.py --projects "$JLPT_PROJECTS_ROOT"
 python3 scripts/configure_server.py --projects "$JLPT_PROJECTS_ROOT" --origin "$1"
 cd "$JLPT_PROJECTS_ROOT/jlpt-study/.worktrees/web-study"

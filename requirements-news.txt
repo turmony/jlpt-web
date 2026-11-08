@@ -1,0 +1,6 @@
+# News reader tokenizer dependencies (Task 1 dictionary measurement, 1000 sentences, fugashi 1.5.2):
+#   unidic-lite 1.0.8: 249 MB on disk, RSS +5.2 MB on load, +25.2 MB after 1000 sentences (mmap'd)
+#   ipadic 1.0.0:       51 MB on disk, RSS +4.0 MB on load, +14.7 MB after 1000 sentences
+# Rule: RSS increase <= 150 MB -> unidic-lite (richer 'kana' reading + lemma). Chosen: unidic-lite.
+fugashi==1.5.2
+unidic-lite==1.0.8

@@ -14,7 +14,7 @@
 
 - 仅接受 `https://news.yahoo.co.jp/pickup/<数字>` 与 `https://news.yahoo.co.jp/articles/<hex>`；不跟随跳转到其他主机。
 - RSS 分类与 slug：主要 `top-picks`、国内 `domestic`、国际 `world`、经济 `business`、娱乐 `entertainment`、体育 `sports`、IT `it`、科学 `science`；RSS 缓存 10 分钟。
-- 抓取：单次请求超时 10 秒；多页间隔约 0.5 秒；同一篇文章并发打开只抓一次。
+- 抓取：单次请求超时 10 秒；多页间隔约 0.5 秒；同一篇文章并发打开只抓一次。（2026-11-08 用户确认追加：最多抓 6 页；失败页隔 1.5 秒自动重试一次；一次打开最多抓 30 秒；重试只补抓缺页。）
 - 存储：文章与图片 7 天；释义缓存 30 天；图片单张上限 5 MB；新闻目录总上限 300 MB（超出先删最早的文章）；启动时及每小时清理。
 - 查词与分析记录不保存；追问对话由页面每次随请求发送，服务器不留存。
 - 模型：查词、分析、追问共用页头选定的模型（`state/news/settings.json`）；思考档位取该模型 `reasoning_efforts` 中最低的一档（顺序 `low` < `medium` < `high` < `xhigh` < `max`），模型没有档位列表时不发送 `reasoning_effort`（2026-11-08 实测：DeepSeek-V4-Pro、GLM-5.3-Flash 只有 high/max，Auto、Fast 没有档位）；模型不可用时不自动换模型。
@@ -185,7 +185,7 @@ def test_request_id_format(self):
   - `Hub.stream(model: str, messages: list[dict], effort: str | None) -> Iterator[str]`：`POST /v1/chat/completions`，`{"model", "messages", "stream": true}`，`effort` 非空时加 `"reasoning_effort": effort`；逐个产出 `choices[0].delta.content` 文本；生成器被 `close()` 时关闭上游连接。
   - `Hub.complete(model, messages, effort) -> str`：拼接 `stream` 结果（查词用）。
   - `NewsService` 调用前用 `Hub.models()` 查出所选模型的 `effort`；所选模型不在列表中时报 `model`「当前模型不可用，请重新选择」。
-  - 错误映射：连接失败、401 → `gateway`（原因分别为「qoder2api-hub 未运行或无法连接」「API Key 无效」）；429、正文含 `10605` → `model`「模型排队中，请稍后重试」；400/404 且正文提到模型 → `model`「当前模型不可用，请重新选择」（`retryable=False`）；其他 HTTP 错误 → `model`「模型返回 {status}：{前 200 字}」；首个文本 30 秒未到或总计超 120 秒 → `model`「模型 30 秒内没有输出」/「回答超过 2 分钟」；已开始输出后连接断开 → `stream`「回答中断」。
+  - 错误映射：连接失败、401 → `gateway`（原因分别为「qoder2api-hub 未运行或无法连接」「API Key 无效」）；429、正文含 `10605` → `model`「模型排队中，请稍后重试」；400/404 且正文提到模型 → `model`「当前模型不可用，请重新选择」（`retryable=False`）；其他 HTTP 错误 → `model`「模型返回 {status}：{前 200 字}」；首个输出（正文或思考内容，hub 的 `: ping` 不算）30 秒未到或总计超 120 秒 → `model`「模型 30 秒内没有输出」/「回答超过 2 分钟」；已开始输出后 hub 连接断开 → `stream`「qoder2api-hub 中途断开」（与网页自身断网的「回答中断」区分）。
 - `tests/server/fake_hub.py`：`FakeHub(script)` 起在随机端口的 HTTP 服务，`script` 为按请求顺序的行为列表：`('chunks', ['<a>', 'b</a>'], delay)`、`('status', 429, body)`、`('silent', seconds)`、`('cut_after', ['部分'])`；记录收到的请求体到 `requests`。
 
 - [ ] **Step 1: 写失败测试** — 每种映射一个测试，断言 `stage` 与 `reason`；`test_stream_yields_chunks_in_order`；`test_request_body_uses_lowest_supported_effort`（模型档位 `['high','max']` 时请求体 `reasoning_effort == 'high'`；无档位的模型请求体不含该字段；检查 `FakeHub.requests`）；`test_closing_generator_closes_upstream`（关闭后 FakeHub 记录到连接断开）。超时测试用 `first_timeout=0.3`。

@@ -21,7 +21,10 @@
         }
         @api path /api/* /auth/check
         handle @api {
-            reverse_proxy 127.0.0.1:8765
+            # News endpoints stream Server-Sent Events: pass every chunk through immediately.
+            reverse_proxy 127.0.0.1:8765 {
+                flush_interval -1
+            }
         }
         handle {
             forward_auth 127.0.0.1:8765 {

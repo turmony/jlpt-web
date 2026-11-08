@@ -528,3 +528,107 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 对照 1.37.5 的包：依赖不变，数据库没有表结构改动；前端键盘外壳（`fixed inset-0` + `bottom: var(--keyboard-height, 0px)`，只在 `visualViewport` 的 `resize` 里更新）与 `.chat-composer-shell` 都没变，所以 2026-10-26 的键盘错位修复仍然适用，横屏仍被挡住的问题照旧。补丁的各处替换在新包上都恰好匹配 1 次，连续两遍通过。新版增加了输入框里的权限模式提示、排队追加消息、CLI 版本显示，以及文件查看器可读工作区根（`/root/projects`）下任意文件（写入范围不变）。
 
 验证：`/health` 返回 1.37.6，服务端 3001 的 shim 与仓库文件一致，`index.html` 和 bundle 带新哈希，`/root` 放行与模型名称标签生效，Caddy `/code/` 未登录返回 303，日志无报错。按用户要求，上线后删除了 `/srv/cloudcli.prev` 和本次的数据库备份，因此没有现成的回滚副本；要回退需重新 `upgrade.sh 1.37.5` 并 `--swap`（数据库未做结构迁移，不影响）。真机上的输入框表现尚未确认。
+
+## 雅虎新闻阅读器部署（2026-11-08）
+
+新闻阅读器用 fugashi + unidic-lite 切句分词，其余服务端代码仍只用标准库，所以只有 `jlpt.service` 换到独立 venv，Caddy 和其他进程不受影响。
+
+### 创建 venv
+
+依赖固定在仓库的 `requirements-news.txt`（`fugashi==1.5.2`、`unidic-lite==1.0.8`）。实测占用：unidic-lite 词典约 249 MB 磁盘，加载后常驻内存约 +5 MB，处理 1000 个句子后约 +25 MB（词典按内存映射读取）；换成体积更小的 ipadic 约 51 MB 磁盘、+15 MB，但读音与原形更差，所以选 unidic-lite。部署前确认 `/srv` 所在磁盘有 300 MB 以上空闲。
+
+首选标准做法：
+
+```bash
+cd /srv/jlpt/app
+python3 -m venv /srv/jlpt/venv
+/srv/jlpt/venv/bin/pip install -r requirements-news.txt
+```
+
+Ubuntu 24.04 上若报 `ensurepip is not available`（本服务器就是这样，未装 `python3.12-venv`），二选一：
+
+```bash
+# 方案 A：补装 venv 包后重新执行上面三行（先 rm -rf /srv/jlpt/venv 清掉失败的残留）
+apt install python3.12-venv
+
+# 方案 B：用已安装的 uv（venv 里没有 pip，用 uv pip 安装）
+uv venv --python /usr/bin/python3 /srv/jlpt/venv
+uv pip install --python /srv/jlpt/venv/bin/python -r requirements-news.txt
+```
+
+`deploy/install.sh` 采用方案 B，venv 不存在时才创建，每次都按 `requirements-news.txt` 同步。验证：`/srv/jlpt/venv/bin/python -c "import fugashi, unidic_lite; fugashi.Tagger()"` 无报错。
+
+### 服务单元
+
+`deploy/jlpt.service` 的启动命令改为 `ExecStart=/srv/jlpt/venv/bin/python -m server --config /srv/jlpt/state/config.json`，工作目录仍是 `/srv/jlpt/app`。venv 必须先建好再安装单元并重启，否则服务会因找不到解释器反复重启。
+
+### 配置模型网关
+
+新闻的查词、分析和追问经 qoder2api-hub 的 OpenAI 兼容接口。把地址和密钥写进 `config.json` 的 `llm`：
+
+```bash
+cd /srv/jlpt/app
+read -rs JLPT_LLM_API_KEY && export JLPT_LLM_API_KEY      # 输入密钥，不回显、不进 shell 历史
+python3 scripts/configure_server.py --origin https://你的云平台HTTP代理域名 \
+  --llm-base-url http://127.0.0.1:8790
+unset JLPT_LLM_API_KEY
+systemctl restart jlpt.service
+```
+
+- 密钥也可用 `--llm-api-key` 传，但会留在 shell 历史和进程列表里，优先用环境变量 `JLPT_LLM_API_KEY`。
+- 脚本不打印密钥，参数写错时的报错也只显示参数名；`config.json` 权限保持 600。
+- 只给 `--llm-base-url` 时保留已有密钥；只给密钥而没有地址（且 `config.json` 里也没有）会报错。不带任何 `--llm-*` 参数重跑，已有 `llm` 配置原样保留。
+- 重复运行脚本不会重置网站密码。
+
+### Caddy 与流式响应
+
+`/api/news/open`、`/api/news/analyze`、`/api/news/ask` 以 SSE 逐段返回，Caddy 不能攒包。`deploy/Caddyfile` 的 `@api` 反向代理已加 `flush_interval -1`（每个数据块立即转发），站点级 `encode zstd gzip` 对 `text/event-stream` 不压缩，应用另发 `X-Accel-Buffering: no`。`tests/server/test_caddy.py` 用真实 `deploy/Caddyfile`（仅换端口）起 Caddy，后端先发一个事件、0.5 秒后发第二个，断言第一个事件 0.4 秒内到达且未被压缩。
+
+云平台的 HTTP 代理在 Caddy 之前，如果它自己缓冲响应，页面会表现为分析结果一次性出现；这不在仓库控制范围内，需要在云平台侧关闭对该域名的响应缓冲。
+
+更新 Caddyfile 后：
+
+```bash
+install -m 644 deploy/Caddyfile /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy.service
+```
+
+### 真实模型测试与雅虎抽查
+
+这两项会访问外部服务，不在 `npm run test:server` 里，按需手动运行。
+
+**真实模型测试**（`tests/llm/`，6 项）：经本机 qoder2api-hub 调用模型，检查查词释义（最多两个义项、每个不超过 15 字，助词「で」也有功能说明）、分析回复能完整解析且标签外没有多余内容、只选整句时没有 `<selection>` 而选中部分时有、相关语法排在最前、必需标签齐全且 `<level>` 在 N5–N1 之内、各段逐个到达（第一段比最后一段早至少 0.3 秒）、追问第二轮「那换成に呢」能接上第一轮。每次约 7 次模型调用，会消耗额度；在修改 `server/news_prompts.py` 之后、上线前、更换常用模型时运行。需要三个环境变量，缺任何一个整组跳过并说明原因：
+
+```bash
+cd /srv/jlpt/app
+read -rs JLPT_LLM_API_KEY && export JLPT_LLM_API_KEY      # qoder2api-hub 的密钥，不回显、不进 shell 历史
+JLPT_LLM_BASE_URL=http://127.0.0.1:8790 JLPT_LLM_MODEL=DeepSeek-Flash npm run test:llm
+unset JLPT_LLM_API_KEY
+```
+
+- 思考档位与服务器一致，取该模型 `reasoning_efforts` 中最低的一档；模型不在 qoder2api-hub 的列表里时整组报错，不换用其他模型。
+- 测试句子全部自写；失败信息只含模型回复，不含密钥和请求头。
+- 格式类失败时，只调整 `news_prompts.py` 里模板周围的规则措辞（模板本身照抄设计文档第 5 节），重跑通过后在 `tests/server/test_news_xml.py` 补对应的回归用例。
+- 2026-11-08 用 DeepSeek-Flash（`low`）连跑两次均 6/6 通过，每次 40–60 秒。句子分析要先思考再输出：第二次首段输出在 10–13 秒，第一次单次分析总耗时 20–28 秒（首段约在 20 秒以后），离 30 秒无输出超时余量不大。
+
+**雅虎抽查**（`scripts/news_probe.py`）：抓取 8 个分类的 RSS，各取前 N 篇，用服务器同一套代码打开文章（多页间隔约 0.5 秒，篇与篇之间也间隔 0.5 秒）、解析并切句分词；图片只检查地址，不下载。上线前、以及怀疑雅虎改版（打开文章报「解析正文」）时运行。必须用新闻 venv 的 Python，系统 Python 没有 fugashi，每篇都会报「切句分词」失败：
+
+```bash
+cd /srv/jlpt/app
+/srv/jlpt/venv/bin/python scripts/news_probe.py --per-feed 3            # 约 25 秒
+/srv/jlpt/venv/bin/python scripts/news_probe.py --feed it --per-feed 1  # 只查某个分类，--feed 可重复
+```
+
+- 每篇一行：分类、页数（已抓 / 总页数）、图片数（含视频封面）、非雅虎图片（不在 `news.yahoo.co.jp` 或 `*.yimg.jp` 上、服务器会拒绝下载的张数）、句数、结果；失败行带 `stage` 与原因，出现未识别的正文元素时结果里会注明个数。
+- 有的话题指向雅虎新闻以外的页面（如 `search.yahoo.co.jp` 的社交网络帖子汇总），阅读器本来就打不开（页面上报「解析正文」且不提供重试），抽查记为「跳过」，不计入成功或失败。
+- 列表读不到或为空时，该分类按计划篇数记为失败；列表不足 N 篇时单独一行注明实际篇数。
+- 末行「成功 x / 共 y」（有跳过时附跳过篇数）。有失败、一篇都没检查到、或跳过的话题超过打开总数的三分之一（多半是话题页改版）时退出码为 1，末行写明「未通过：」原因。
+- 2026-11-08 实测（`--per-feed 3`）：成功 23 / 共 23，跳过 1（娱乐分类的社交网络帖子汇总话题）；36 张图片全部在雅虎主机上；2–3 页的文章均完整合并，没有未识别元素。
+
+### 回滚
+
+- 只回退服务进程：把 `/etc/systemd/system/jlpt.service` 的 `ExecStart` 改回 `/usr/bin/python3 -m server --config /srv/jlpt/state/config.json`，然后 `systemctl daemon-reload && systemctl restart jlpt.service`。旧版本代码不读 `llm`，多出的配置项无害。
+- 连同代码回退：先把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回上一个发布目录，再改回上面的 `ExecStart`。`/srv/jlpt/venv` 可以保留，也可删除回收约 250 MB。
+- Caddy 的 `flush_interval -1` 不需要回滚；如需恢复，删掉该 `reverse_proxy` 的花括号块后 `caddy validate` 再 reload。
+- `state/news/` 是缓存目录（文章、图片 7 天，释义 30 天），回滚不需要处理。
