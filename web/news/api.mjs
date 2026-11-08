@@ -62,8 +62,9 @@ export function getJSON(path) {
   return request(path, {});
 }
 
-export function postJSON(path, body) {
-  return request(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+// `signal` (optional) aborts the request; the caller should then ignore the resulting failure.
+export function postJSON(path, body, {signal} = {}) {
+  return request(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal});
 }
 
 // Incremental Server-Sent-Events parser: push(text) with decoded chunks of any size.

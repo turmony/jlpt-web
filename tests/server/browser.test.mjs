@@ -735,3 +735,342 @@ test('streamSSE rejects when the page handler throws and does not report an inte
   });
   assert.deepEqual(result,{'non-terminal':{outcome:'rejected: handler bug',seen:['progress']},terminal:{outcome:'rejected: handler bug',seen:['done']}});
 }));
+
+// ---- Reader page. READER_URL is the fixture's three-page article (browser_fixture.py READER_PAGES); the fixture
+// tokenizer cuts sentence 1 into 台風/は/強い/勢力/で/島/に/接近/する/おそれ/が/あり/ます/。 (indices 0..13). ----
+const READER_ID='b2c3d4e5f6a7081929304a5b6c7d8e9f00112233';
+const READER_URL='https://news.yahoo.co.jp/articles/'+READER_ID;
+const readerPage=url=>url+'/news/read.html?url='+encodeURIComponent(READER_URL);
+async function openReader(page,url) {
+  await page.goto(readerPage(url));
+  await page.locator('.news-article-title').waitFor();
+  await page.evaluate(()=>{
+    window.__events=[];
+    for(const name of ['news:select-sentence','news:select-part']) document.addEventListener(name,event=>window.__events.push([name,event.detail]));
+    window.__spoken=[];
+    // On the prototype: WebKit may drop an expando on the speechSynthesis wrapper between calls.
+    if(window.SpeechSynthesis) SpeechSynthesis.prototype.speak=utterance=>window.__spoken.push([utterance.text,utterance.lang]);
+  });
+}
+const tok=(page,s,i)=>page.locator(`.news-token[data-s="${s}"][data-i="${i}"]`);
+const events=page=>page.evaluate(()=>window.__events);
+const card=page=>page.locator('.news-card');
+// Touch input as iOS WebKit reports it: pointer events of pointerType 'touch', all sent to the element first
+// touched (implicit capture), coordinates in the viewport. Playwright has no touch-drag API for WebKit.
+async function pointer(page,type,[x,y]) {
+  await page.evaluate(([type,x,y])=>{
+    if(type==='pointerdown') window.__touched=document.elementFromPoint(x,y);
+    const up=type==='pointerup'||type==='pointercancel';
+    (window.__touched||document.body).dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,composed:true,pointerId:7,pointerType:'touch',isPrimary:true,clientX:x,clientY:y,button:type==='pointermove'?-1:0,buttons:up?0:1,width:20,height:20,pressure:up?0:0.5}));
+  },[type,x,y]);
+}
+// A point inside an element's first line box: fx/fy are fractions of it (0.5,0.5 is the centre).
+async function at(locator,fx=0.5,fy=0.5) {
+  await locator.scrollIntoViewIfNeeded();
+  return locator.evaluate((node,[fx,fy])=>{const box=node.getClientRects()[0];return [box.left+box.width*fx,box.top+box.height*fy];},[fx,fy]);
+}
+async function tap(page,locator) {const point=await at(locator);await pointer(page,'pointerdown',point);await page.waitForTimeout(40);await pointer(page,'pointerup',point);}
+async function longPress(page,locator) {const point=await at(locator);await pointer(page,'pointerdown',point);await page.waitForTimeout(650);await pointer(page,'pointerup',point);}
+async function drag(page,from,to,{end='pointerup'}={}) {
+  await pointer(page,'pointerdown',from);
+  for(let step=1;step<=6;step++) {await page.waitForTimeout(15);await pointer(page,'pointermove',[from[0]+(to[0]-from[0])*step/6,from[1]+(to[1]-from[1])*step/6]);}
+  await pointer(page,end,to);
+}
+const partIndices=page=>page.locator('.news-token.is-part').evaluateAll(nodes=>nodes.map(node=>`${node.dataset.s}:${node.dataset.i}`));
+const range=(s,a,b)=>Array.from({length:b-a+1},(_,k)=>`${s}:${a+k}`);
+const GLOSS_HUB=[['chunks',['<gloss><meaning>势力；力量，强度</meaning></gloss>'],0]];
+
+for(const device of NEWS_DEVICES) {
+  test(`open shows progress then title, media, images and video placeholder on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await writeFile(join(tmp,'news-hold-page2'),'');
+    await page.goto(readerPage(url));
+    await page.locator('.news-progress',{hasText:'正在抓取雅虎（第 2 / 3 页）…'}).waitFor();
+    assert.equal(await page.locator('.news-article-title').count(),0);
+    await rm(join(tmp,'news-hold-page2'));
+    const title=page.locator('.news-article-title');
+    await title.waitFor();
+    assert.equal(await title.innerText(),'台風が島に接近');
+    assert.equal(await page.title(),'台風が島に接近 · 新闻 · JLPT 学习册');
+    assert.equal(await page.locator('.news-progress').count(),0);
+    assert.equal(await page.locator('.news-meta .news-media').innerText(),'テスト通信');
+    assert.equal(await page.locator('.news-meta time').innerText(),'2026年11月8日 15:30');
+    const original=page.locator('.news-meta a',{hasText:'原文'});
+    assert.equal(await original.getAttribute('href'),READER_URL);
+    assert.equal(await original.getAttribute('target'),'_blank');
+    assert.match(await original.getAttribute('rel'),/noopener/);
+    assert.equal(await page.locator('.news-body h3').first().innerText(),'台風の接近');
+    assert.equal(await page.locator('.news-body .news-para').first().innerText(),'台風は強い勢力で島に接近するおそれがあります。気象庁は早めの準備を呼びかけました。');
+    // Every token is its own span, numbered per sentence; ids run through captions too.
+    assert.deepEqual(await page.locator('.news-sentence[data-sid="1"] .news-token').allInnerTexts(),['台風','は','強い','勢力','で','島','に','接近','する','おそれ','が','あり','ます','。']);
+    const photo=page.locator('.news-figure img');
+    assert.equal(await photo.getAttribute('src'),`/api/news/image/${READER_ID}/0`);
+    await page.waitForFunction(()=>document.querySelector('.news-figure img').naturalWidth>0);
+    assert.equal(await page.locator('.news-figure figcaption .news-sentence').innerText(),'港に並ぶ船。');
+    assert.equal(await page.locator('.news-figure figcaption .news-sentence').getAttribute('data-sid'),'3');
+    assert.equal(await page.locator('.news-figure .news-credit').innerText(),'テスト提供');
+    const videos=page.locator('.news-video');
+    assert.equal(await videos.count(),2);
+    assert.equal(await videos.nth(0).locator('img').getAttribute('src'),`/api/news/image/${READER_ID}/1`);
+    await page.waitForFunction(()=>document.querySelector('.news-video img').naturalWidth>0);
+    assert.equal(await videos.nth(0).locator('.news-video-placeholder').count(),0);
+    assert.equal(await videos.nth(1).locator('img').count(),0);
+    assert.equal(await videos.nth(1).locator('.news-video-placeholder').count(),1);
+    for(const [n,href] of [[0,'https://news.yahoo.co.jp/video/reader/1'],[1,'https://news.yahoo.co.jp/video/reader/2']]) {
+      const watch=videos.nth(n).getByRole('link',{name:'在雅虎观看'});
+      assert.equal(await watch.getAttribute('href'),href);
+      assert.equal(await watch.getAttribute('target'),'_blank');
+      assert.match(await watch.getAttribute('rel'),/noopener/);
+    }
+    const unknown=page.locator('.news-unknown');
+    assert.match(await unknown.innerText(),/^这里有原文内容没能显示/);
+    assert.equal(await unknown.locator('a').getAttribute('href'),READER_URL);
+    // Pages 2 and 3 follow page 1 as one article.
+    assert.equal(await page.locator('.news-body .news-para').last().innerText(),'最後の段落の文です。');
+    assert.equal(await page.locator('.news-error').count(),0);
+    // The system press-and-hold selection and callout are off on the text. Desktop WebKit does not compute
+    // -webkit-touch-callout (iOS only), so that one is checked in the stylesheet the page loads.
+    assert.equal(await page.locator('.news-body').evaluate(node=>getComputedStyle(node).webkitUserSelect),'none');
+    const css=await page.evaluate(()=>fetch('/news/news.css').then(response=>response.text()));
+    assert.match(css,/\.news-body\{[^}]*-webkit-touch-callout:none/);
+  }));
+
+  test(`tap word shows reading and gloss; rapid taps keep only last on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    // Through the server and the fake model: reading, part of speech, meaning, speech.
+    const word=tok(page,1,3);
+    await tap(page,word);
+    await card(page).waitFor();
+    assert.equal(await card(page).locator('.news-card-word').innerText(),'勢力');
+    assert.equal(await card(page).locator('.news-card-reading').innerText(),'せいりょく');
+    assert.equal(await card(page).locator('.news-card-pos').innerText(),'名词');
+    await card(page).locator('.news-card-meaning',{hasText:'势力；力量，强度'}).waitFor();
+    // The card sits next to the word and inside the viewport.
+    const box=await card(page).boundingBox();const wordBox=await word.boundingBox();const view=page.viewportSize();
+    assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=view.width&&box.y+box.height<=view.height,JSON.stringify([box,view]));
+    assert.ok(Math.min(Math.abs(box.y-(wordBox.y+wordBox.height)),Math.abs(box.y+box.height-wordBox.y))<=16,JSON.stringify([box,wordBox]));
+    await card(page).getByRole('button',{name:'朗读'}).click();
+    assert.deepEqual(await page.evaluate(()=>window.__spoken),[['勢力','ja-JP']]);
+    // Tapping elsewhere closes the card.
+    await tap(page,page.locator('.news-article-title'));
+    assert.equal(await card(page).count(),0);
+    // Rapid taps: a slow earlier answer never replaces the last word's, and a word tapped over at once is not asked for.
+    const asked=[];
+    await page.route('**/api/news/gloss',async route=>{
+      const {lemma}=route.request().postDataJSON();asked.push(lemma);
+      if(lemma==='台風') await new Promise(r=>setTimeout(r,700));
+      try {await route.fulfill({json:{meaning:lemma+'的释义'}});} catch {}
+    });
+    await tap(page,tok(page,1,0));
+    await card(page).locator('.news-progress').waitFor();
+    await page.waitForTimeout(350);
+    const quick=[await at(tok(page,1,2)),await at(tok(page,1,5))];
+    for(const point of quick) {await pointer(page,'pointerdown',point);await pointer(page,'pointerup',point);}
+    await card(page).locator('.news-card-meaning',{hasText:'島的释义'}).waitFor();
+    await page.waitForTimeout(900);
+    assert.equal(await card(page).locator('.news-card-word').innerText(),'島');
+    assert.equal(await card(page).locator('.news-card-meaning').innerText(),'島的释义');
+    assert.equal(await page.locator('.news-card').count(),1);
+    assert.deepEqual(asked,['台風','島']);
+    // A failed lookup shows one error line with 重试 in the card.
+    await page.unroute('**/api/news/gloss');
+    let fail=true;
+    await page.route('**/api/news/gloss',route=>fail?route.fulfill({status:502,json:failure('model','模型生成','模型没有回应',{location:'查词：船'})}):route.fulfill({json:{meaning:'船只'}}));
+    await tap(page,tok(page,3,3));
+    const line=card(page).locator('.news-error-line');
+    assert.equal(await line.innerText(),'模型生成失败（查词：船）：模型没有回应');
+    fail=false;
+    await card(page).getByRole('button',{name:'重试'}).click();
+    await card(page).locator('.news-card-meaning',{hasText:'船只'}).waitFor();
+    // 在本句中的作用 selects the sentence with this word as the selected part.
+    await card(page).getByRole('button',{name:'在本句中的作用'}).click();
+    assert.equal(await card(page).count(),0);
+    assert.deepEqual(await events(page),[['news:select-part',{sentenceId:3,start:3,end:3}]]);
+    assert.equal(await page.locator('.news-sentence.is-selected').getAttribute('data-sid'),'3');
+    assert.deepEqual(await partIndices(page),['3:3']);
+  },{hub:GLOSS_HUB,select:'Auto'}));
+
+  test(`punctuation is not tappable on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    const asked=[];
+    await page.route('**/api/news/gloss',route=>{asked.push(route.request().postDataJSON().lemma);route.fulfill({json:{meaning:'x'}});});
+    for(const [s,i] of [[1,13],[4,0],[4,2],[4,6]]) await tap(page,tok(page,s,i)); // 。 10 ( 11
+    await page.waitForTimeout(400);
+    assert.equal(await card(page).count(),0);
+    assert.deepEqual(asked,[]);
+    // Particles are words like any other.
+    await tap(page,tok(page,1,1));
+    await card(page).locator('.news-card-meaning',{hasText:'x'}).waitFor();
+    assert.equal(await card(page).locator('.news-card-pos').innerText(),'助词');
+    assert.deepEqual(asked,['は']);
+  }));
+
+  test(`long press selects whole sentence on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    // A press shorter than 500 ms is a tap, not a selection.
+    const point=await at(tok(page,1,5));
+    await pointer(page,'pointerdown',point);await page.waitForTimeout(250);await pointer(page,'pointerup',point);
+    await card(page).waitFor();
+    assert.equal(await page.locator('.news-sentence.is-selected').count(),0);
+    await longPress(page,tok(page,1,5));
+    assert.equal(await card(page).count(),0);
+    assert.deepEqual(await page.locator('.news-sentence.is-selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.sid)),['1']);
+    assert.deepEqual(await events(page),[['news:select-sentence',{sentenceId:1}]]);
+    assert.equal(await page.locator('.news-sentence[data-sid="1"]').evaluate(node=>getComputedStyle(node).touchAction),'none');
+    // Anywhere in a sentence, punctuation included; another sentence replaces the selection.
+    await longPress(page,tok(page,4,2));
+    assert.deepEqual(await page.locator('.news-sentence.is-selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.sid)),['4']);
+    assert.notEqual(await page.locator('.news-sentence[data-sid="1"]').evaluate(node=>getComputedStyle(node).touchAction),'none');
+    // Caption sentences too.
+    await longPress(page,tok(page,3,0));
+    assert.deepEqual(await events(page),[['news:select-sentence',{sentenceId:1}],['news:select-sentence',{sentenceId:4}],['news:select-sentence',{sentenceId:3}]]);
+    // Moving more than 10 px cancels the long press.
+    const start=await at(tok(page,2,0));
+    await pointer(page,'pointerdown',start);await page.waitForTimeout(100);
+    await pointer(page,'pointermove',[start[0],start[1]+14]);await page.waitForTimeout(600);await pointer(page,'pointerup',[start[0],start[1]+14]);
+    assert.equal((await events(page)).length,3);
+    assert.equal(await card(page).count(),0);
+    // The system menu stays closed.
+    assert.equal(await tok(page,1,5).evaluate(node=>{const event=new MouseEvent('contextmenu',{bubbles:true,cancelable:true});node.dispatchEvent(event);return event.defaultPrevented;}),true);
+  }));
+
+  test(`drag inside selected sentence snaps to whole words on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    await longPress(page,tok(page,1,5));
+    // From inside 強い to the first character of 島: both words whole.
+    await drag(page,await at(tok(page,1,2),0.7),await at(tok(page,1,5),0.2));
+    assert.deepEqual(await partIndices(page),range(1,2,5));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:1,start:2,end:5}]);
+    assert.equal(await page.locator('.news-sentence.is-selected').getAttribute('data-sid'),'1');
+    // Backwards works the same and replaces the part.
+    await drag(page,await at(tok(page,1,11),0.6),await at(tok(page,1,3),0.4));
+    assert.deepEqual(await partIndices(page),range(1,3,11));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:1,start:3,end:11}]);
+    assert.equal((await events(page)).length,3);
+    // A tap on a word of the selected sentence still opens the word card and keeps the part.
+    await tap(page,tok(page,1,7));
+    await card(page).waitFor();
+    assert.equal(await card(page).locator('.news-card-word').innerText(),'接近');
+    assert.deepEqual(await partIndices(page),range(1,3,11));
+    assert.equal((await events(page)).length,3);
+    // Long press on the selected sentence goes back to the whole sentence.
+    await longPress(page,tok(page,1,0));
+    assert.deepEqual(await partIndices(page),[]);
+    assert.deepEqual((await events(page)).at(-1),['news:select-sentence',{sentenceId:1}]);
+  }));
+
+  test(`drag past sentence end clamps to sentence on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    await longPress(page,tok(page,1,5));
+    // Past the end into the next sentence and further down the page: up to the last word, 。 left out.
+    await drag(page,await at(tok(page,1,3)),await at(tok(page,2,2)));
+    assert.deepEqual(await partIndices(page),range(1,3,12));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:1,start:3,end:12}]);
+    const view=page.viewportSize();
+    const below=[view.width/2,view.height-4]; // further down the page, below sentence 1
+    await drag(page,await at(tok(page,1,6)),below);
+    assert.deepEqual(await partIndices(page),range(1,6,12));
+    // Back past the start, into the heading and up to the title: from the first word.
+    await drag(page,await at(tok(page,1,5)),await at(tok(page,0,1)));
+    assert.deepEqual(await partIndices(page),range(1,0,5));
+    const title=await at(page.locator('.news-article-title'),0.9,0.5);
+    await drag(page,await at(tok(page,1,9)),title);
+    assert.deepEqual(await partIndices(page),range(1,0,9));
+    assert.deepEqual((await events(page)).at(-1),['news:select-part',{sentenceId:1,start:0,end:9}]);
+    // Into the blank margin beside the paragraph: still inside the sentence.
+    const [x,y]=await at(tok(page,1,4));
+    await drag(page,[x,y],[2,y]);
+    const parts=await partIndices(page);
+    assert.ok(parts.length>0&&parts.every(part=>part.startsWith('1:')),JSON.stringify(parts));
+    // Starting on the final 。 and going further: nothing but punctuation, so the selection is unchanged.
+    const before=(await events(page)).length;const kept=await partIndices(page);
+    await drag(page,await at(tok(page,1,13)),below);
+    assert.equal((await events(page)).length,before);
+    assert.deepEqual(await partIndices(page),kept);
+    // Only sentence 1 is ever highlighted.
+    assert.deepEqual(await page.locator('.news-sentence.is-selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.sid)),['1']);
+  }));
+
+  test(`dragging outside selected sentence scrolls on ${device}`,()=>withNews(device,async(page,url)=>{
+    await openReader(page,url);
+    await longPress(page,tok(page,1,5));
+    const selected=tok(page,1,3);const other=tok(page,6,0);
+    // The page is long enough to scroll.
+    assert.ok(await page.evaluate(()=>document.scrollingElement.scrollHeight>innerHeight+400));
+    // Native panning stays on outside the selected sentence and is off on it.
+    const touchMove=locator=>locator.evaluate(node=>{
+      node.dispatchEvent(new TouchEvent('touchstart',{bubbles:true,cancelable:true}));
+      const move=new TouchEvent('touchmove',{bubbles:true,cancelable:true});node.dispatchEvent(move);
+      node.dispatchEvent(new TouchEvent('touchend',{bubbles:true,cancelable:true}));
+      return [move.defaultPrevented,getComputedStyle(node.closest('.news-sentence')).touchAction];
+    });
+    const [blocked]=await touchMove(selected);
+    assert.equal(blocked,true);
+    await other.scrollIntoViewIfNeeded();
+    const [otherBlocked,otherAction]=await touchMove(other);
+    assert.equal(otherBlocked,false);
+    assert.notEqual(otherAction,'none');
+    // WebKit cancels the pointer once it starts panning: no selection, no card, no long press afterwards.
+    const from=await at(other);
+    await drag(page,from,[from[0],from[1]-80],{end:'pointercancel'});
+    await page.waitForTimeout(650);
+    // And a drag that ends normally outside the selected sentence selects nothing either.
+    await drag(page,from,[from[0]+60,from[1]-60]);
+    await page.waitForTimeout(100);
+    assert.deepEqual(await events(page),[['news:select-sentence',{sentenceId:1}]]);
+    assert.deepEqual(await page.locator('.news-sentence.is-selected').evaluateAll(nodes=>nodes.map(node=>node.dataset.sid)),['1']);
+    assert.deepEqual(await partIndices(page),[]);
+    assert.equal(await card(page).count(),0);
+    // The page itself really scrolls.
+    const before=await page.evaluate(()=>scrollY);
+    await page.evaluate(()=>window.scrollBy(0,300));
+    assert.ok(await page.evaluate(()=>scrollY)>before);
+  }));
+
+  test(`partial article shows page-missing error line with retry on ${device}`,()=>withNews(device,async(page,url,tmp)=>{
+    await writeFile(join(tmp,'news-page3-fail'),'');
+    await page.goto(readerPage(url));
+    await page.locator('.news-article-title').waitFor();
+    const line=page.locator('.news-body .news-error-line');
+    assert.equal(await line.innerText(),'抓取雅虎失败（第 3 页 / 共 3 页）：雅虎返回 503');
+    assert.equal(await page.locator('.news-body .news-para').last().innerText(),'30番目の段落です。町の人々は静かに過ごしています。');
+    // The line sits at the end of what was fetched.
+    assert.equal(await page.locator('.news-body').evaluate(body=>body.lastElementChild.classList.contains('news-error')),true);
+    assert.equal(await page.getByText('最後の段落の文です。').count(),0);
+    await rm(join(tmp,'news-page3-fail'));
+    await writeFile(join(tmp,'news-clock-offset'),'120'); // past the server's 60 s reuse of the partial result
+    await page.locator('.news-body').getByRole('button',{name:'重试'}).click();
+    await page.getByText('最後の段落の文です。').waitFor();
+    assert.equal(await page.locator('.news-error').count(),0);
+    assert.equal(await page.locator('.news-article-title').count(),1);
+  }));
+}
+
+test('article errors show where they belong: failed images in place, missing pages at the end',()=>withNews('iPhone 13',async(page,url)=>{
+  const err=(stage,stage_label,location,reason)=>({stage,stage_label,location,reason,retryable:true,request_id:'n-20261108-0001',time:'15:42:07'});
+  const sentence=(id,text)=>({id,tokens:[{s:text,r:'',l:text,p:'名詞',t:true},{s:'。',r:'',l:'。',p:'補助記号',t:false}]});
+  const article={id:READER_ID,url:READER_URL,title:'題',media:'媒体',published:'2026-11-08T15:30:00+09:00',author:'',
+    pages:{total:2,fetched:1,missing:[2]},
+    blocks:[{type:'paragraph',sentences:[sentence(0,'一')]},{type:'image',index:0,caption_sentences:[sentence(1,'写真')],credit:'',ok:false},
+      {type:'paragraph',sentences:[sentence(2,'二')]},{type:'video',url:'https://news.yahoo.co.jp/video/x',cover:null},
+      {type:'image',index:2,caption_sentences:[],credit:'',ok:true},{type:'paragraph',sentences:[sentence(3,'三')]},{type:'mystery',url:READER_URL}],
+    errors:[err('yahoo','抓取雅虎','第 2 页 / 共 2 页','雅虎返回 503'),err('image','下载图片','第 1 张','图片返回 404'),err('image','下载图片','第 2 张','图片超过 5 MB')]};
+  await page.route('**/api/news/open',route=>route.fulfill({status:200,headers:{'content-type':'text/event-stream'},body:'event: article\ndata: '+JSON.stringify(article)+'\n\n'}));
+  await page.route('**/api/news/image/**',route=>route.fulfill({status:404,body:''}));
+  await page.goto(readerPage(url));
+  await page.locator('.news-article-title').waitFor();
+  const order=await page.locator('.news-body').evaluate(body=>[...body.children].map(node=>node.matches('.news-error')?'error:'+node.querySelector('.news-error-line').textContent:node.className.split(' ')[0]));
+  assert.deepEqual(order,['news-para','news-figure','news-para','news-video','news-figure','news-para','news-unknown','error:抓取雅虎失败（第 2 页 / 共 2 页）：雅虎返回 503']);
+  assert.equal(await page.locator('.news-figure').first().locator('.news-error-line').innerText(),'下载图片失败（第 1 张）：图片返回 404');
+  assert.equal(await page.locator('.news-figure').first().locator('img').count(),0);
+  assert.equal(await page.locator('.news-video .news-error-line').innerText(),'下载图片失败（第 2 张）：图片超过 5 MB');
+  assert.match(await page.locator('.news-unknown').innerText(),/^这里有原文内容没能显示/);
+}));
+
+test('a reader link that is not a Yahoo article shows the server\'s error line',()=>withNews('iPhone 13',async(page,url)=>{
+  await page.goto(url+'/news/read.html?url='+encodeURIComponent('https://example.com/x'));
+  const line=page.locator('.news-error-line');
+  await line.waitFor();
+  assert.match(await line.innerText(),/^网页→服务器失败/);
+  await page.goto(url+'/news/read.html');
+  assert.equal(await page.locator('.news-error-line').innerText(),'网页→服务器失败：缺少文章链接');
+}));
