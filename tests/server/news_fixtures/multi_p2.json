@@ -1,0 +1,39 @@
+{
+  "articleDetail": {
+    "headline": "複数ページの見出し",
+    "media": {
+      "mediaName": "テスト通信"
+    },
+    "createDateTime": "2026-11-08T15:30:00+09:00",
+    "author": "記者 太郎",
+    "currentPage": 2,
+    "maxPage": 3,
+    "paragraphs": [
+      {
+        "head": "",
+        "textDetails": [
+          {
+            "text": "二頁目の本文。"
+          }
+        ],
+        "objectItems": []
+      }
+    ],
+    "richBody": {
+      "tagName": "yjrf-article",
+      "children": [
+        {
+          "tagName": "yjrf-paragraph",
+          "children": [
+            {
+              "tagName": "p",
+              "children": [
+                "二頁目の本文。"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
