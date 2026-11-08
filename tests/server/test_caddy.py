@@ -1,4 +1,5 @@
 import http.client
+import http.server
 import os
 import socket
 import subprocess
@@ -53,3 +54,61 @@ class CaddyTests(unittest.TestCase):
             finally:
                 process.terminate();process.wait(timeout=5)
                 backend.shutdown();backend.server_close()
+
+
+@unittest.skipUnless(os.environ.get('CADDY_BINARY'), 'Set CADDY_BINARY to exercise the real deployment proxy')
+class CaddyStreamingTests(unittest.TestCase):
+    def test_sse_passes_through_caddy_incrementally(self):
+        class Backend(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get('Content-Length') or 0))
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/event-stream')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('X-Accel-Buffering', 'no')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.close_connection = True
+                self.wfile.write(b'event: first\ndata: {"n": 1}\n\n'); self.wfile.flush()
+                time.sleep(.5)
+                self.wfile.write(b'event: second\ndata: {"n": 2}\n\n'); self.wfile.flush()
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); static=root/'static'; static.mkdir()
+            with socket.socket() as s:
+                s.bind(('127.0.0.1',0)); port=s.getsockname()[1]
+            backend=http.server.ThreadingHTTPServer(('127.0.0.1',0),Backend)
+            threading.Thread(target=backend.serve_forever,daemon=True).start()
+            config=Path('deploy/Caddyfile').read_text().replace('admin 127.0.0.1:2019','admin off').replace(':8080 {',f'http://127.0.0.1:{port} {{').replace('/srv/jlpt/static',str(static)).replace('127.0.0.1:8765',f'127.0.0.1:{backend.server_port}')
+            config_path=root/'Caddyfile';config_path.write_text(config)
+            process=subprocess.Popen([os.environ['CADDY_BINARY'],'run','--config',str(config_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            try:
+                for _ in range(100):
+                    try:
+                        conn=http.client.HTTPConnection('127.0.0.1',port,timeout=2);conn.request('GET','/login.html');conn.getresponse().read();conn.close();break
+                    except OSError:time.sleep(.03)
+                for path in ('/api/news/analyze','/api/news/open','/api/news/ask'):
+                    # A browser always offers compression; the stream must still arrive event by event.
+                    conn=http.client.HTTPConnection('127.0.0.1',port,timeout=5)
+                    started=time.monotonic()
+                    conn.request('POST',path,body='{}',headers={'Content-Type':'application/json','Accept-Encoding':'gzip, deflate, br, zstd'})
+                    response=conn.getresponse()
+                    self.assertEqual(response.status,200,path)
+                    self.assertEqual(response.getheader('Content-Type'),'text/event-stream',path)
+                    self.assertIsNone(response.getheader('Content-Encoding'),path)
+                    first=response.readline()
+                    elapsed=time.monotonic()-started
+                    self.assertEqual(first,b'event: first\n',path)
+                    self.assertLess(elapsed,.4,f'{path}: first event arrived after {elapsed:.2f}s, the proxy buffered the stream')
+                    rest=response.read()
+                    self.assertIn(b'event: second',rest,path)
+                    self.assertGreaterEqual(time.monotonic()-started,.45,path)
+                    conn.close()
+            finally:
+                process.terminate();process.wait(timeout=5)
+                backend.shutdown();backend.server_close()
+
+    def test_deployed_caddyfile_disables_response_buffering_for_api(self):
+        config=Path('deploy/Caddyfile').read_text()
+        api=config[config.index('handle @api'):config.index('handle {', config.index('handle @api'))]
+        self.assertRegex(api, r'flush_interval\s+-1')

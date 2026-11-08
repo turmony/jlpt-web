@@ -8,7 +8,7 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/srv/jlpt/app
-ExecStart=/usr/bin/python3 -m server --config /srv/jlpt/state/config.json
+ExecStart=/srv/jlpt/venv/bin/python -m server --config /srv/jlpt/state/config.json
 Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=3

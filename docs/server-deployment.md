@@ -528,3 +528,75 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 对照 1.37.5 的包：依赖不变，数据库没有表结构改动；前端键盘外壳（`fixed inset-0` + `bottom: var(--keyboard-height, 0px)`，只在 `visualViewport` 的 `resize` 里更新）与 `.chat-composer-shell` 都没变，所以 2026-10-26 的键盘错位修复仍然适用，横屏仍被挡住的问题照旧。补丁的各处替换在新包上都恰好匹配 1 次，连续两遍通过。新版增加了输入框里的权限模式提示、排队追加消息、CLI 版本显示，以及文件查看器可读工作区根（`/root/projects`）下任意文件（写入范围不变）。
 
 验证：`/health` 返回 1.37.6，服务端 3001 的 shim 与仓库文件一致，`index.html` 和 bundle 带新哈希，`/root` 放行与模型名称标签生效，Caddy `/code/` 未登录返回 303，日志无报错。按用户要求，上线后删除了 `/srv/cloudcli.prev` 和本次的数据库备份，因此没有现成的回滚副本；要回退需重新 `upgrade.sh 1.37.5` 并 `--swap`（数据库未做结构迁移，不影响）。真机上的输入框表现尚未确认。
+
+## 雅虎新闻阅读器部署（2026-11-08）
+
+新闻阅读器用 fugashi + unidic-lite 切句分词，其余服务端代码仍只用标准库，所以只有 `jlpt.service` 换到独立 venv，Caddy 和其他进程不受影响。
+
+### 创建 venv
+
+依赖固定在仓库的 `requirements-news.txt`（`fugashi==1.5.2`、`unidic-lite==1.0.8`）。实测占用：unidic-lite 词典约 249 MB 磁盘，加载后常驻内存约 +5 MB，处理 1000 个句子后约 +25 MB（词典按内存映射读取）；换成体积更小的 ipadic 约 51 MB 磁盘、+15 MB，但读音与原形更差，所以选 unidic-lite。部署前确认 `/srv` 所在磁盘有 300 MB 以上空闲。
+
+首选标准做法：
+
+```bash
+cd /srv/jlpt/app
+python3 -m venv /srv/jlpt/venv
+/srv/jlpt/venv/bin/pip install -r requirements-news.txt
+```
+
+Ubuntu 24.04 上若报 `ensurepip is not available`（本服务器就是这样，未装 `python3.12-venv`），二选一：
+
+```bash
+# 方案 A：补装 venv 包后重新执行上面三行（先 rm -rf /srv/jlpt/venv 清掉失败的残留）
+apt install python3.12-venv
+
+# 方案 B：用已安装的 uv（venv 里没有 pip，用 uv pip 安装）
+uv venv --python /usr/bin/python3 /srv/jlpt/venv
+uv pip install --python /srv/jlpt/venv/bin/python -r requirements-news.txt
+```
+
+`deploy/install.sh` 采用方案 B，venv 不存在时才创建，每次都按 `requirements-news.txt` 同步。验证：`/srv/jlpt/venv/bin/python -c "import fugashi, unidic_lite; fugashi.Tagger()"` 无报错。
+
+### 服务单元
+
+`deploy/jlpt.service` 的启动命令改为 `ExecStart=/srv/jlpt/venv/bin/python -m server --config /srv/jlpt/state/config.json`，工作目录仍是 `/srv/jlpt/app`。venv 必须先建好再安装单元并重启，否则服务会因找不到解释器反复重启。
+
+### 配置模型网关
+
+新闻的查词、分析和追问经 qoder2api-hub 的 OpenAI 兼容接口。把地址和密钥写进 `config.json` 的 `llm`：
+
+```bash
+cd /srv/jlpt/app
+read -rs JLPT_LLM_API_KEY && export JLPT_LLM_API_KEY      # 输入密钥，不回显、不进 shell 历史
+python3 scripts/configure_server.py --origin https://你的云平台HTTP代理域名 \
+  --llm-base-url http://127.0.0.1:8790
+unset JLPT_LLM_API_KEY
+systemctl restart jlpt.service
+```
+
+- 密钥也可用 `--llm-api-key` 传，但会留在 shell 历史和进程列表里，优先用环境变量 `JLPT_LLM_API_KEY`。
+- 脚本不打印密钥，参数写错时的报错也只显示参数名；`config.json` 权限保持 600。
+- 只给 `--llm-base-url` 时保留已有密钥；只给密钥而没有地址（且 `config.json` 里也没有）会报错。不带任何 `--llm-*` 参数重跑，已有 `llm` 配置原样保留。
+- 重复运行脚本不会重置网站密码。
+
+### Caddy 与流式响应
+
+`/api/news/open`、`/api/news/analyze`、`/api/news/ask` 以 SSE 逐段返回，Caddy 不能攒包。`deploy/Caddyfile` 的 `@api` 反向代理已加 `flush_interval -1`（每个数据块立即转发），站点级 `encode zstd gzip` 对 `text/event-stream` 不压缩，应用另发 `X-Accel-Buffering: no`。`tests/server/test_caddy.py` 用真实 `deploy/Caddyfile`（仅换端口）起 Caddy，后端先发一个事件、0.5 秒后发第二个，断言第一个事件 0.4 秒内到达且未被压缩。
+
+云平台的 HTTP 代理在 Caddy 之前，如果它自己缓冲响应，页面会表现为分析结果一次性出现；这不在仓库控制范围内，需要在云平台侧关闭对该域名的响应缓冲。
+
+更新 Caddyfile 后：
+
+```bash
+install -m 644 deploy/Caddyfile /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy.service
+```
+
+### 回滚
+
+- 只回退服务进程：把 `/etc/systemd/system/jlpt.service` 的 `ExecStart` 改回 `/usr/bin/python3 -m server --config /srv/jlpt/state/config.json`，然后 `systemctl daemon-reload && systemctl restart jlpt.service`。旧版本代码不读 `llm`，多出的配置项无害。
+- 连同代码回退：先把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回上一个发布目录，再改回上面的 `ExecStart`。`/srv/jlpt/venv` 可以保留，也可删除回收约 250 MB。
+- Caddy 的 `flush_interval -1` 不需要回滚；如需恢复，删掉该 `reverse_proxy` 的花括号块后 `caddy validate` 再 reload。
+- `state/news/` 是缓存目录（文章、图片 7 天，释义 30 天），回滚不需要处理。
