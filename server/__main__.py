@@ -3,6 +3,7 @@ import json
 import signal
 from pathlib import Path
 from .app import Application, create_server
+from .news import start_cleanup
 
 
 def main():
@@ -12,7 +13,9 @@ def main():
     parser.add_argument('--port', type=int, default=8765)
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
-    server = create_server(Application(config), (args.host, args.port))
+    app = Application(config)
+    start_cleanup(app.news)  # hourly expiry of news articles, images and glosses
+    server = create_server(app, (args.host, args.port))
 
     def stop(*_):
         raise KeyboardInterrupt
