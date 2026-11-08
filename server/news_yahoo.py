@@ -293,7 +293,14 @@ class Yahoo:
         try:
             return validate_url(article)
         except ValueError:
-            raise NewsError('parse', '话题页里的文章链接不是雅虎新闻', '话题页')
+            # Real topics sometimes point elsewhere (e.g. SNS posts on search.yahoo.co.jp).
+            # Not a page change and retrying will not help.
+            try:
+                host = urllib.parse.urlsplit(article).hostname if isinstance(article, str) else None
+            except ValueError:
+                host = None
+            raise NewsError('parse', '这条话题指向雅虎新闻以外的页面（%s），阅读器只能打开雅虎新闻文章'
+                            % (host or '未知地址'), '话题页', retryable=False)
 
     def open(self, url, progress):
         url = validate_url(url)

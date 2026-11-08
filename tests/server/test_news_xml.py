@@ -187,6 +187,16 @@ class PromptTests(unittest.TestCase):
         self.assertIn('没有选中部分时不输出 `<selection>`', ANALYSIS_TEMPLATE)
         self.assertIn('标签之外不写任何内容', ANALYSIS_TEMPLATE)
 
+    def test_author_rule_is_not_sent_to_model(self):
+        # 「只放模板、不放例句」是写提示词的人的规则，发给模型没有用；只保留「所有回答使用中文」。
+        sent = [gloss_messages('食べる', 'たべる', '動詞'), analysis_messages('段', '句', None),
+                ask_messages('句', None, '', [], '问')]
+        for msgs in sent:
+            system = msgs[0]['content']
+            self.assertIn('所有回答使用中文', system)
+            self.assertNotIn('提示词', system)
+            self.assertNotIn('示例', system)
+
     def test_gloss_messages(self):
         msgs = gloss_messages('食べる', 'たべる', '動詞')
         self.assertEqual(msgs[0]['role'], 'system')

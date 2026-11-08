@@ -594,6 +594,37 @@ caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy.service
 ```
 
+### 真实模型测试与雅虎抽查
+
+这两项会访问外部服务，不在 `npm run test:server` 里，按需手动运行。
+
+**真实模型测试**（`tests/llm/`，6 项）：经本机 qoder2api-hub 调用模型，检查查词释义（最多两个义项、每个不超过 15 字，助词「で」也有功能说明）、分析回复能完整解析且标签外没有多余内容、只选整句时没有 `<selection>` 而选中部分时有、相关语法排在最前、必需标签齐全且 `<level>` 在 N5–N1 之内、各段逐个到达（第一段比最后一段早至少 0.3 秒）、追问第二轮「那换成に呢」能接上第一轮。每次约 7 次模型调用，会消耗额度；在修改 `server/news_prompts.py` 之后、上线前、更换常用模型时运行。需要三个环境变量，缺任何一个整组跳过并说明原因：
+
+```bash
+cd /srv/jlpt/app
+read -rs JLPT_LLM_API_KEY && export JLPT_LLM_API_KEY      # qoder2api-hub 的密钥，不回显、不进 shell 历史
+JLPT_LLM_BASE_URL=http://127.0.0.1:8790 JLPT_LLM_MODEL=DeepSeek-Flash npm run test:llm
+unset JLPT_LLM_API_KEY
+```
+
+- 思考档位与服务器一致，取该模型 `reasoning_efforts` 中最低的一档；模型不在 qoder2api-hub 的列表里时整组报错，不换用其他模型。
+- 测试句子全部自写；失败信息只含模型回复，不含密钥和请求头。
+- 格式类失败时，只调整 `news_prompts.py` 里模板周围的规则措辞（模板本身照抄设计文档第 5 节），重跑通过后在 `tests/server/test_news_xml.py` 补对应的回归用例。
+- 2026-11-08 用 DeepSeek-Flash（`low`）连跑两次均 6/6 通过，每次 40–60 秒。句子分析要先思考再输出：第二次首段输出在 10–13 秒，第一次单次分析总耗时 20–28 秒（首段约在 20 秒以后），离 30 秒无输出超时余量不大。
+
+**雅虎抽查**（`scripts/news_probe.py`）：抓取 8 个分类的 RSS，各取前 N 篇，用服务器同一套代码打开文章（多页间隔约 0.5 秒，篇与篇之间也间隔 0.5 秒）、解析并切句分词；图片只检查地址，不下载。上线前、以及怀疑雅虎改版（打开文章报「解析正文」）时运行。必须用新闻 venv 的 Python，系统 Python 没有 fugashi，每篇都会报「切句分词」失败：
+
+```bash
+cd /srv/jlpt/app
+/srv/jlpt/venv/bin/python scripts/news_probe.py --per-feed 3            # 约 25 秒
+/srv/jlpt/venv/bin/python scripts/news_probe.py --feed it --per-feed 1  # 只查某个分类，--feed 可重复
+```
+
+- 每篇一行：分类、页数（已抓 / 总页数）、图片数（含视频封面）、非雅虎图片（不在 `news.yahoo.co.jp` 或 `*.yimg.jp` 上、服务器会拒绝下载的张数）、句数、结果；失败行带 `stage` 与原因，出现未识别的正文元素时结果里会注明个数。
+- 有的话题指向雅虎新闻以外的页面（如 `search.yahoo.co.jp` 的社交网络帖子汇总），阅读器本来就打不开（页面上报「解析正文」且不提供重试），抽查记为「跳过」，不计入成功或失败。
+- 末行「成功 x / 共 y」（有跳过时附跳过篇数），有失败时退出码为 1。
+- 2026-11-08 实测（`--per-feed 3`）：成功 23 / 共 23，跳过 1（娱乐分类的社交网络帖子汇总话题）；36 张图片全部在雅虎主机上；2–3 页的文章均完整合并，没有未识别元素。
+
 ### 回滚
 
 - 只回退服务进程：把 `/etc/systemd/system/jlpt.service` 的 `ExecStart` 改回 `/usr/bin/python3 -m server --config /srv/jlpt/state/config.json`，然后 `systemctl daemon-reload && systemctl restart jlpt.service`。旧版本代码不读 `llm`，多出的配置项无害。

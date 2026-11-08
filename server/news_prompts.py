@@ -1,10 +1,11 @@
 """Prompt templates and message builders for the news reader (spec section 5).
 
 Only explained templates live here; no filled-in sample sentences, so the model has
-nothing to copy. All answers are requested in Chinese.
+nothing to copy. That is a rule for whoever edits this file, not something to tell the
+model, so only the "answer in Chinese" part is sent.
 """
 
-PRINCIPLES = '提示词里只放带说明的模板，不放填好具体句子的示例。所有回答使用中文。'
+PRINCIPLES = '所有回答使用中文。'
 
 GLOSS_TEMPLATE = '''<gloss>
   <meaning>中文释义。最多两个义项，用「；」分隔，每个义项不超过 15 个字。

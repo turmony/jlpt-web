@@ -108,6 +108,20 @@ class YahooTests(unittest.TestCase):
             y.open(P, progress=quiet)
         self.assertEqual(cm.exception.stage, 'parse')
 
+    def test_pickup_pointing_off_news_is_final_and_names_host(self):
+        # 实测：有的话题（如社交网络帖子汇总）指向 search.yahoo.co.jp 而不是新闻文章。
+        page = load('pickup').replace(
+            b'https://news.yahoo.co.jp/articles/a1b2c3d4e5f60718293a4b5c6d7e8f9001122334?source=topics',
+            b'https://search.yahoo.co.jp/realtime/search/theme/0123abcd?fr=x')
+        for body, host in ((page, 'search.yahoo.co.jp'),
+                           (load('pickup').replace(b'"url": "https://news', b'"url": 7, "x": "'), '未知地址')):
+            y = Yahoo(fetch=fake_fetch({P: (200, body)}), sleep=no_sleep)
+            with self.assertRaises(NewsError) as cm:
+                y.open(P, progress=quiet)
+            e = cm.exception
+            self.assertEqual((e.stage, e.location, e.retryable), ('parse', '话题页', False))
+            self.assertIn(host, e.reason)
+
     def test_validate_url_accepts_and_normalizes(self):
         self.assertEqual(validate_url(' https://news.yahoo.co.jp/pickup/123?x=1#y '), 'https://news.yahoo.co.jp/pickup/123')
         self.assertEqual(validate_url(A + '?page=2'), A)
