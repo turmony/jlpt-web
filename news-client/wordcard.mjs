@@ -3,8 +3,8 @@
 // then the part of speech, the 原形, the model's meaning (progress while loading, an error line on
 // failure, with 重试 when it can be retried) and 「在本句中的作用」, which fires jlpt:select-part
 // {sentenceId, start: index, end: index} on document. Only one card exists, in the <jlpt-news>
-// shadow root's layer, fixed at the word's viewport position; tapping elsewhere, Escape or
-// scrolling the page closes it.
+// shadow root's layer, fixed at the word's viewport position; its × button, tapping elsewhere,
+// Escape or scrolling the page closes it.
 // Rapid taps: a lookup is sent LOOKUP_DELAY ms after the tap, so a word tapped over within that time
 // is never asked for, and a newer tap aborts the older request so only the last word's answer is shown.
 import {clientInfo, errorLine, NewsFailure, postJSON, progressLine} from './api.mjs';
@@ -120,7 +120,11 @@ export function showWordCard(tokenEl, token, sentenceId, index) {
     behind.append(number);
   }
   const hasLemma = !!token.l && token.l !== token.s;
-  root.append(head, node('div', 'news-card-pos', POS[token.p] || token.p || '未知词性'));
+  const closeButton = node('button', 'news-card-close', '×');
+  closeButton.type = 'button';
+  closeButton.setAttribute('aria-label', '关闭');
+  closeButton.addEventListener('click', closeWordCard);
+  root.append(closeButton, head, node('div', 'news-card-pos', POS[token.p] || token.p || '未知词性'));
   if (hasLemma) {
     const lemma = node('div', 'news-card-lemma', '原形：');
     const form = node('span', '', token.l);

@@ -422,6 +422,21 @@ function answer(route,{status=200,json}={}) {
 }
 
 for(const device of NEWS_DEVICES) {
+  test(`the word card has a close button in its top-right corner on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    await tap(page,tok(page,A,0));
+    await card(page).waitFor();
+    const close=card(page).locator('.news-card-close');
+    const [cardBox,closeBox]=await Promise.all([card(page).boundingBox(),close.boundingBox()]);
+    assert.ok(closeBox.x+closeBox.width>=cardBox.x+cardBox.width-1&&closeBox.y<=cardBox.y+1,JSON.stringify({cardBox,closeBox}));
+    assert.ok(closeBox.width>=44&&closeBox.height>=44,JSON.stringify(closeBox));
+    await close.click();
+    await card(page).waitFor({state:'detached'});
+  }));
+}
+
+for(const device of NEWS_DEVICES) {
   test(`the word card shows the pitch accent number where it belongs on ${device}`,()=>withUserscript(device,async(page,{site})=>{
     await openArticle(page,site);
     const [A,B,D]=await ids(page,'台風は強い勢力で島に接近する','気象庁は','雨は');
@@ -481,7 +496,7 @@ for(const device of NEWS_DEVICES) {
     // The pitch accent number is right behind the reading; there is no read-aloud button and no sound.
     assert.equal(await card(page).locator('.news-card-accent').innerText(),'[1]');
     assert.equal(await card(page).locator('.news-card-reading').innerText(),'せいりょく[1]');
-    assert.deepEqual(await card(page).locator('button').allInnerTexts(),['在本句中的作用']);
+    assert.deepEqual(await card(page).locator('button').allInnerTexts(),['×','在本句中的作用']);
     assert.doesNotMatch(await card(page).innerText(),/🔊/);
     // Tapping elsewhere closes the card.
     await tap(page,tok(page,A,13));
