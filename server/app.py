@@ -302,6 +302,8 @@ def create_server(app, address):
                 if path == '/open' and post:
                     url = svc.check_url(body().get('url'))
                     return self.sse(lambda emit: svc.open(url, emit), url)
+                if path == '/tokenize' and post:
+                    return self.reply(200, svc.tokenize(body()))
                 if path == '/analyze' and post:
                     args = svc.analyze_args(body())
                     return self.sse(lambda emit: svc.analyze(*args, emit=emit))

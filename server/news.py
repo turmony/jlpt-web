@@ -18,7 +18,7 @@ from .llm import Hub, R_UNAVAILABLE
 from .news_devices import DeviceStore
 from .news_errors import NewsError
 from .news_prompts import MAX_HISTORY_ROUNDS, analysis_messages, ask_messages, gloss_messages
-from .news_store import ARTICLE_TTL, ID_RE, KEY_RE, NewsStore, image_key
+from .news_store import ARTICLE_TTL, KEY_RE, NewsStore, image_key
 from .news_text import TokenizerUnavailable, to_sentences
 from .news_xml import AnalysisParser, parse_gloss
 from .news_yahoo import FEEDS, HOST, Yahoo, article_id_of, validate_url
@@ -31,6 +31,11 @@ PING_GAP = 0.5
 MAX_QUESTION = 500
 MAX_HISTORY_TEXT = 4000
 MAX_ANALYSIS = 20000
+MAX_PARAGRAPHS = 200        # per tokenize request
+MAX_CHARS = 20000           # in all paragraphs of one tokenize request
+MAX_PARAGRAPH = 4000        # a paragraph sent with an analysis or follow-up
+MAX_TOKENS = 400            # words in that sentence
+MAX_TOKEN = 100             # characters in one word
 KEY_SHOWN = 16              # hex digits of an image's file key given to the page (cache-busting only)
 
 R_EXPIRED = '文章缓存已过期，请重新打开'
@@ -506,50 +511,55 @@ class NewsService:
             self.store.glossary_put(model, lemma, pos, meaning)
             return {'meaning': meaning}
 
-    # -- sentence lookup ---------------------------------------------------------
-    def _locate(self, article_id, sentence_id, start, end):
-        """(paragraph text, sentence text, selection text) from the stored article."""
-        try:
-            article = self.store.load_article(article_id)
-        except (KeyError, ValueError):
-            raise NewsError('parse', R_EXPIRED, retryable=False)
-        for block in article.get('blocks', []):
-            sentences = block.get('sentences') or block.get('caption_sentences') or []
-            for sentence in sentences:
-                if sentence.get('id') != sentence_id:
-                    continue
-                tokens = sentence['tokens']
-                if start is not None and end >= len(tokens):
-                    raise client_error('选中范围超出句子')
-                selection = '' if start is None else ''.join(t['s'] for t in tokens[start:end + 1])
-                return _text(sentences), ''.join(t['s'] for t in tokens), selection
-        raise client_error('句子不存在')
+    # -- tokenizing ----------------------------------------------------------------
+    def tokenize(self, data):
+        """Sentences (token lists, no ids) for each paragraph the userscript found on a page."""
+        paragraphs = data.get('paragraphs')
+        if not isinstance(paragraphs, list) or not all(isinstance(p, str) for p in paragraphs):
+            raise client_error('分词请求格式不对')
+        if len(paragraphs) > MAX_PARAGRAPHS or sum(len(p) for p in paragraphs) > MAX_CHARS:
+            raise client_error('分词请求超过 %d 段或 2 万字' % MAX_PARAGRAPHS)
+        result = []
+        for n, text in enumerate(paragraphs, 1):
+            location = '第 %d 段' % n
+            try:
+                sentences = to_sentences(text, 0)
+            except TokenizerUnavailable:
+                raise NewsError('tokenize', '分词组件未安装', location, retryable=False)
+            except NewsError:
+                raise
+            except Exception as error:
+                raise NewsError('tokenize', '分词失败：%s' % type(error).__name__, location)
+            result.append([{'tokens': s['tokens']} for s in sentences])
+        return {'paragraphs': result}
 
+    # -- sentence arguments --------------------------------------------------------
     def _selection_args(self, data):
-        article, sentence = data.get('article'), data.get('sentence')
+        """(paragraph, tokens, start, end) from a body the userscript built."""
+        paragraph, tokens = data.get('paragraph'), data.get('tokens')
         start, end = data.get('start'), data.get('end')
-        if not isinstance(article, str) or not ID_RE.fullmatch(article):
-            raise client_error('文章编号无效')
-        if type(sentence) is not int or sentence < 0:
-            raise client_error('句子编号无效')
+        if not isinstance(paragraph, str) or not 1 <= len(paragraph) <= MAX_PARAGRAPH:
+            raise client_error('段落无效')
+        if not isinstance(tokens, list) or not 1 <= len(tokens) <= MAX_TOKENS \
+                or not all(isinstance(t, str) and len(t) <= MAX_TOKEN for t in tokens):
+            raise client_error('句子无效')
+        if ''.join(tokens) not in paragraph:
+            raise client_error('句子不在段落中')
         if (start is None) != (end is None):
             raise client_error('选中范围无效')
-        if start is not None and (type(start) is not int or type(end) is not int or not 0 <= start <= end):
-            raise client_error('选中范围无效')
-        try:
-            self._locate(article, sentence, start, end)
-        except NewsError as error:
-            if error.stage == 'client':
-                raise
-            # An expired article is reported inside the stream, where the page shows it.
-        return article, sentence, start, end
+        if start is not None:
+            if type(start) is not int or type(end) is not int or not 0 <= start <= end:
+                raise client_error('选中范围无效')
+            if end >= len(tokens):
+                raise client_error('选中范围超出句子')
+        return paragraph, tokens, start, end
 
     def analyze_args(self, data):
         """Validate an analyze body before any stream starts (NewsError('client') -> HTTP 400)."""
         return self._selection_args(data)
 
     def ask_args(self, data):
-        article, sentence, start, end = self._selection_args(data)
+        paragraph, tokens, start, end = self._selection_args(data)
         analysis = data.get('analysis') or ''
         if not isinstance(analysis, str) or len(analysis) > MAX_ANALYSIS:
             raise client_error('分析内容无效')
@@ -564,7 +574,11 @@ class NewsService:
         if not isinstance(question, str) or not question.strip() or len(question) > MAX_QUESTION:
             raise client_error('问题为空或超过 %d 字' % MAX_QUESTION)
         history = [{'q': h['q'], 'a': h['a']} for h in history[-MAX_HISTORY_ROUNDS:]]
-        return article, sentence, start, end, analysis, history, question.strip()
+        return paragraph, tokens, start, end, analysis, history, question.strip()
+
+    @staticmethod
+    def _sentence_texts(tokens, start, end):
+        return ''.join(tokens), '' if start is None else ''.join(tokens[start:end + 1])
 
     # -- analysis ----------------------------------------------------------------
     def card_for(self, form):
@@ -585,9 +599,9 @@ class NewsService:
         cards = data.get('cards') if isinstance(data, dict) else None
         return cards if isinstance(cards, list) else []
 
-    def analyze(self, article_id, sentence_id, start, end, emit):
-        with _located('句子分析（第 %d 句）' % (sentence_id + 1)):
-            paragraph, sentence, selection = self._locate(article_id, sentence_id, start, end)
+    def analyze(self, paragraph, tokens, start, end, emit):
+        with _located('句子分析'):
+            sentence, selection = self._sentence_texts(tokens, start, end)
             model, effort = self._model()
             parser = AnalysisParser()
             parts = []
@@ -614,9 +628,9 @@ class NewsService:
                 raise NewsError('format', '回复不符合分析模板')
             emit('done', {'analysis_text': ''.join(parts)})
 
-    def ask(self, article_id, sentence_id, start, end, analysis_text, history, question, emit):
-        with _located('追问（第 %d 句）' % (sentence_id + 1)):
-            _paragraph, sentence, selection = self._locate(article_id, sentence_id, start, end)
+    def ask(self, paragraph, tokens, start, end, analysis_text, history, question, emit):
+        with _located('追问'):
+            sentence, selection = self._sentence_texts(tokens, start, end)
             model, effort = self._model()
 
             def on_text(chunk):
