@@ -1,0 +1,29 @@
+/* Styles inside the <jlpt-news> shadow root; the host page's CSS cannot reach them. */
+:host {
+  all: initial;
+}
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  pointer-events: none;
+  font: 14px/1.5 -apple-system, "Hiragino Sans", "PingFang SC", sans-serif;
+  color: #222;
+}
+.layer > * {
+  pointer-events: auto;
+}
+.news-error-line {
+  all: unset;
+  cursor: pointer;
+  color: #b3261e;
+}
+.news-error-detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.news-error-detail dt { float: left; clear: left; margin-right: 8px; color: #666; }
+.news-error-detail dd { margin: 0; }
+.news-error-install { color: #1a73e8; }
+.news-error-retry { margin-left: 4px; }
+.news-progress { margin: 0; color: #666; }

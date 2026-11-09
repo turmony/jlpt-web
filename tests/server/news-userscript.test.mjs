@@ -1,29 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {spawn} from 'node:child_process';
-import {mkdtemp,readFile,rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {readFile} from 'node:fs/promises';
+import {startFixture,hubScript,withSite} from './site-helper.mjs';
 const require=createRequire(new URL('../../mobile/package.json',import.meta.url));
-const {chromium,devices}=require('playwright');
-
-async function withSite(engine,options,run,env={}) {
-  const tmp=await mkdtemp(join(tmpdir(),'jlpt-site-'));
-  const server=spawn('python3',['-m','tests.server.browser_fixture',tmp],{stdio:['ignore','pipe','pipe'],env:{...process.env,...env}});
-  let browser;
-  try {
-    const url=await new Promise((resolve,reject)=>{server.stdout.once('data',data=>resolve(data.toString().trim()));server.stderr.once('data',data=>reject(new Error(data.toString())));});
-    browser=await engine.launch();
-    const page=await (await browser.newContext(options)).newPage();
-    const errors=[];page.on('pageerror',error=>errors.push(error.message));
-    await page.goto(url+'/login.html');
-    await page.locator('#password').fill('browser-test-password');await page.locator('button[type=submit]').click();
-    await page.waitForURL(url+'/review/');
-    await run(page,url,tmp);
-    assert.deepEqual(errors,[]);
-  } finally {await browser?.close();server.kill();await rm(tmp,{recursive:true,force:true});}
-}
+const {chromium,webkit,devices}=require('playwright');
 
 test('the manage page prefills the device name from the user agent and links the install url',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
   await page.goto(url+'/news-script/');
@@ -60,4 +41,58 @@ test('the manage page lists devices and revokes one after confirming',()=>withSi
   assert.deepEqual(messages,['作废「iPad」后，这台设备上的脚本立即失效。']);
   assert.equal(await rows.count(),1);
   assert.match(await rows.first().innerText(),/iPhone/);
+}));
+
+const HEX='a1b2c3d4e5f60718';
+
+// Opens the sample news site (another port, so a real cross-origin call) in a browser that has the
+// installed userscript loader as an init script. run(page, {app, site, tmp, context}).
+// hub: FakeHub script/spec, select: id of the stored model; name: the device name to install as.
+async function withUserscript(device,run,{hub,select,name='iPad'}={}) {
+  const hubFile=hub?await hubScript(hub):null;
+  const fixture=await startFixture({...(hubFile?{NEWS_HUB_SCRIPT:hubFile.file}:{}),...(select?{NEWS_SELECTED_MODEL:select}:{})});
+  const {url:app,site,tmp}=fixture;
+  let browser;
+  try {
+    browser=await webkit.launch();
+    const context=await browser.newContext({...devices[device],locale:'zh-CN'});
+    const page=await context.newPage();
+    const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    const login=await page.request.post(app+'/api/login',{data:{password:'browser-test-password'},headers:{Origin:app}});
+    assert.equal(login.status(),200);
+    const install=await page.request.get(`${app}/api/news/install/${encodeURIComponent(name)}/jlpt-news.user.js`);
+    assert.equal(install.status(),200);
+    // Test hook: shadow roots are created open so locators can look inside the loader's button.
+    await context.addInitScript(()=>{const attach=Element.prototype.attachShadow;Element.prototype.attachShadow=function(init){return attach.call(this,{...init,mode:'open'});};});
+    await context.addInitScript(await install.text());
+    await run(page,{app,site,tmp,context});
+    assert.deepEqual(errors,[]);
+  } finally {await browser?.close();await fixture.stop();await hubFile?.remove();}
+}
+
+test('the loader runs the main script on an article page only',()=>withUserscript('iPad (gen 7)',async(page,{app,site})=>{
+  await page.goto(`${site}/articles/${HEX}`);
+  await page.locator('html[data-jlpt-news=ready]').waitFor({state:'attached'});
+  assert.equal(await page.locator('jlpt-news').count(),1);
+  // Not an article page: the script is fetched and run, but finds no site entry and does nothing.
+  const fetched=page.waitForResponse(response=>response.url()===app+'/api/news/client.js');
+  await page.goto(`${site}/articles/${HEX}/images/000`);
+  assert.equal((await fetched).status(),200);
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('html[data-jlpt-news]').count(),0);
+  assert.equal(await page.locator('jlpt-news').count(),0);
+  assert.equal(await page.locator('jlpt-news-loader').count(),0);
+}));
+
+test('a revoked token shows the loader button with the reinstall reason',()=>withUserscript('iPad (gen 7)',async(page,{app,site})=>{
+  const {devices:list}=await (await page.request.get(app+'/api/news/devices')).json();
+  const revoked=await page.request.post(app+'/api/news/devices/revoke',{data:{id:list[0].id},headers:{Origin:app}});
+  assert.equal(revoked.status(),200);
+  await page.goto(`${site}/articles/${HEX}`);
+  await page.locator('jlpt-news-loader button').click();
+  const panel=page.locator('jlpt-news-loader .p');
+  await panel.waitFor({state:'visible'});
+  assert.match(await panel.innerText(),/加载主脚本失败：令牌已失效，请重新安装脚本/);
+  assert.equal(await panel.getByRole('link',{name:'重新安装'}).getAttribute('href'),app+'/news-script/');
+  assert.equal(await page.locator('jlpt-news').count(),0);
 }));

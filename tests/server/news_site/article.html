@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台風が島に接近 - サンプルニュース</title>
+<style>
+  body { font: 16px/1.7 sans-serif; margin: 0 auto; max-width: 640px; padding: 12px; }
+  .article_body p { margin: 0 0 1em; }
+  figure { margin: 0 0 1em; }
+</style>
+</head>
+<body>
+<article>
+<h1>台風は強い勢力で島に接近</h1>
+<div class="article_body">
+<p>台風は強い勢力で<a href="/search?q=島">島</a>に接近するおそれがあります。<a href="/search?q=気象庁">気象庁</a>は早めの準備を呼びかけました。</p>
+<p>港に並ぶ船は、<b>気</b>象庁の発表を受けて避難しました。</p>
+<p>一行目です。<br>二行目です。<br>三行目です。</p>
+<p>全角　空白と&nbsp;不間断空白があります。😀 絵文字も含みます。</p>
+<figure><a href="/photo/1"><figcaption>港に並ぶ船（11月9日撮影）</figcaption></a></figure>
+<p>雨は10日から降り、最後の段落です。</p>
+</div>
+</article>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var body = function () { return document.querySelector('.article_body'); };
+  var html = body() && body().innerHTML;
+  if (params.get('missing') === '1') {
+    document.addEventListener('DOMContentLoaded', function () { var el = body(); if (el) el.remove(); });
+  }
+  if (params.get('rerender')) {
+    setTimeout(function () { var el = body(); if (el) el.innerHTML = html; }, Number(params.get('rerender')));
+  }
+  if (params.get('long') === '1') {
+    document.addEventListener('DOMContentLoaded', function () {
+      var el = body();
+      if (!el) return;
+      var out = [];
+      for (var i = 1; i <= 250; i++) {
+        out.push('<p>第' + i + '段落。台風は強い勢力で島に接近するおそれがあります。気象庁は早めの準備を呼びかけました。港に並ぶ船は避難し、雨は10日から降ります。この段落は長い記事を試すために作られました。</p>');
+      }
+      el.innerHTML = out.join('');
+    });
+  }
+})();
+</script>
+</body>
+</html>

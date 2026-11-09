@@ -95,7 +95,8 @@ _BODY = r"""(function () {
         panel.append(document.createElement('br'));
         const link = document.createElement('a');
         link.href = CONFIG.install;
-        link.textContent = CONFIG.install;
+        link.textContent = '重新安装';
+        link.target = '_blank';
         panel.append(link);
       }
       button.addEventListener('click', () => { panel.hidden = !panel.hidden; });

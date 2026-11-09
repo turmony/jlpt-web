@@ -1,29 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {spawn} from 'node:child_process';
-import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {withSite} from './site-helper.mjs';
 const require=createRequire(new URL('../../mobile/package.json',import.meta.url));
 const {chromium,webkit,devices}=require('playwright');
-
-async function withSite(engine,options,run,env={}) {
-  const tmp=await mkdtemp(join(tmpdir(),'jlpt-site-'));
-  const server=spawn('python3',['-m','tests.server.browser_fixture',tmp],{stdio:['ignore','pipe','pipe'],env:{...process.env,...env}});
-  let browser;
-  try {
-    const url=await new Promise((resolve,reject)=>{server.stdout.once('data',data=>resolve(data.toString().trim()));server.stderr.once('data',data=>reject(new Error(data.toString())));});
-    browser=await engine.launch();
-    const page=await (await browser.newContext(options)).newPage();
-    const errors=[];page.on('pageerror',error=>errors.push(error.message));
-    await page.goto(url+'/login.html');
-    await page.locator('#password').fill('browser-test-password');await page.locator('button[type=submit]').click();
-    await page.waitForURL(url+'/review/');
-    await run(page,url,tmp);
-    assert.deepEqual(errors,[]);
-  } finally {await browser?.close();server.kill();await rm(tmp,{recursive:true,force:true});}
-}
 
 test('home and login open the review plan; grammar page links back',()=>withSite(chromium,{},async(page,url)=>{
   await page.goto(url+'/');await page.waitForURL(url+'/review/');

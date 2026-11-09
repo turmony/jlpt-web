@@ -68,7 +68,10 @@ class StaticStorageTests(unittest.TestCase):
             root = Path(tmp)
             for directory in ('scripts', 'web', 'mobile', 'data'):
                 (root / directory).mkdir(parents=True)
-            for name in ('scripts/build-server.mjs', 'scripts/build-core.mjs', 'mobile/core-markdown.jsx'):
+            (root / 'news-client').mkdir()
+            for name in ('scripts/build-server.mjs', 'scripts/build-core.mjs', 'scripts/build-news-client.mjs',
+                         'mobile/core-markdown.jsx', 'news-client/main.mjs', 'news-client/api.mjs',
+                         'news-client/ui.mjs', 'news-client/ui.css'):
                 (root / name).write_bytes((ROOT / name).read_bytes())
             (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
             for name, content in {'web/papers.html': 'papers', 'mobile/index.html': '<main class="shell">',
@@ -80,5 +83,6 @@ class StaticStorageTests(unittest.TestCase):
             self.assertFalse(os.path.samefile(deployed / 'papers.html', root / 'web/papers.html'))
             self.assertFalse((deployed / 'grammar/image-proxy.mjs').exists())
             self.assertTrue((deployed / 'grammar/core-markdown.mjs').is_file())
+            self.assertIn('JLPT_NEWS', (deployed / 'news-script/client.js').read_text())
             page = (deployed / 'grammar/index.html').read_text()
             self.assertIn('<a href="/papers.html">做题</a><a href="/news-script/">新闻脚本</a><a href="/code/">云开发</a>', page)

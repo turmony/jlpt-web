@@ -1,6 +1,9 @@
 import json
 import os
+import re
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from server.app import Application, create_server
 from server.auth import Auth
@@ -157,8 +160,36 @@ def news_wiring(base):
     app.news = service
 
 
+ARTICLE = Path(__file__).with_name('news_site') / 'article.html'
+
+
+class SampleSite(BaseHTTPRequestHandler):
+    """A Yahoo-like news site on its own port: every /articles/<hex>[/...] path serves article.html
+    (query parameters are read by the page's own script; see the file)."""
+    def do_GET(self):
+        if not re.fullmatch(r'/articles/[0-9a-f]+(/images/\d+)?', self.path.split('?')[0]):
+            self.send_error(404)
+            return
+        body = ARTICLE.read_bytes()
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+sample = ThreadingHTTPServer(('127.0.0.1', 0), SampleSite)
+threading.Thread(target=sample.serve_forever, daemon=True).start()
+site_origin = f'http://127.0.0.1:{sample.server_port}'
+# The sample site is the only news site: loader @match, CORS allow-list and site detection all derive from it.
+app.config['news_sites'] = [{'name': '样例新闻', 'origin': site_origin, 'match': site_origin + '/articles/*',
+                             'path': '^/articles/[0-9a-f]+$', 'parts': ['h1', '.article_body']}]
 news_wiring(base)
 server = create_server(app, ('127.0.0.1', 0))
 app.config['origin'] = f'http://127.0.0.1:{server.server_port}'
-print(app.config['origin'], flush=True)
+print(f"{app.config['origin']} {site_origin}", flush=True)
 server.serve_forever()

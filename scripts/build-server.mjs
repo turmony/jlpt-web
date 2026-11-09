@@ -2,6 +2,7 @@ import {mkdir,copyFile,cp,readdir,readFile,writeFile,chmod} from 'node:fs/promis
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {buildCoreMarkdown} from './build-core.mjs';
+import {buildNewsClient} from './build-news-client.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const output=resolve(process.argv[2] || resolve(root,'server-public'));
 await mkdir(resolve(output,'grammar'),{recursive:true});
@@ -16,6 +17,8 @@ const page=await readFile(resolve(output,'grammar/index.html'),'utf8');
 // Four links no longer fit beside the brand and the reader header on phones, so there they take their own row.
 const navStyle='<style>.shell:has(> nav) .reader-header{padding-right:306px}@media(max-width:573px){.shell>nav{position:static;justify-content:flex-end;flex-wrap:wrap;margin-bottom:8px}.shell:has(> nav) .reader-header{padding-right:0}}</style>';
 await writeFile(resolve(output,'grammar/index.html'),page.replace('</head>',navStyle+'<script src="/launch-home.js"></script></head>').replace('<main class="shell">','<main class="shell"><nav aria-label="学习导航"><a href="/review/">今日安排</a><a href="/papers.html">做题</a><a href="/news-script/">新闻脚本</a><a href="/code/">云开发</a></nav>'));
+// The userscript's main script, served by GET /api/news/client.js.
+await buildNewsClient(resolve(output,'news-script/client.js'));
 // Caddy runs as its own user. Deployment may inherit a restrictive umask;
 // generated static files need the same read access as the existing web assets.
 async function staticPermissions(directory) {
