@@ -614,10 +614,12 @@ unset JLPT_LLM_API_KEY
 - 格式类失败时，只调整 `news_prompts.py` 里模板周围的规则措辞（模板本身照抄设计文档第 5 节），重跑通过后在 `tests/server/test_news_xml.py` 补对应的回归用例。
 - 2026-11-08 用 DeepSeek-Flash（`low`）连跑两次均 6/6 通过，每次 40–60 秒。句子分析要先思考再输出：第二次首段输出在 10–13 秒，第一次单次分析总耗时 20–28 秒（首段约在 20 秒以后），离 30 秒无输出超时余量不大。
 
-**雅虎抽查**（`scripts/news_check.mjs`，取代已删除的 `scripts/news_probe.py`）：在本机起一个 HTTPS 的本站实例（`scripts/news_check_server.py`，自签证书、真实分词、不配置 qoder2api-hub、`news_sites` 用缺省值，并生成一个名为「抽查」的设备令牌），再用 Playwright WebKit（`iPhone 15`）装上同一份加载器，打开真实雅虎文章，检查脚本能否找到正文并标出词。必须先 `npm run build`（需要 `server-public/news-script/client.js`），并使用新闻 venv 的 Python（脚本自己调用 `/srv/jlpt/venv/bin/python -I`，不需要手动指定）；证书与状态目录是临时的，结束或 Ctrl-C 时服务、浏览器和临时目录都会清理。上线前、以及怀疑雅虎改版（脚本找不到正文或标不出词）时运行：
+**雅虎抽查**（`scripts/news_check.mjs`，取代已删除的 `scripts/news_probe.py`）：在本机起一个 HTTPS 的本站实例（`scripts/news_check_server.py`，自签证书、真实分词、不配置 qoder2api-hub、`news_sites` 用缺省值，并生成一个名为「抽查」的设备令牌），再用 Playwright WebKit（`iPhone 15`）装上同一份加载器，打开真实雅虎文章，检查脚本能否找到正文并标出词。要在仓库的开发检出里运行（本机是 `/root/projects/jlpt-web`），不能在 `/srv/jlpt/app` 的发布目录里运行：发布目录没有 `mobile/node_modules`（Playwright 就在那里），也没有 `server-public`。前提：本机有新闻 venv `/srv/jlpt/venv`（脚本自己调用 `/srv/jlpt/venv/bin/python -I`，不需要手动指定）；Playwright 与 WebKit 浏览器已安装（`~/.cache/ms-playwright` 里的浏览器不要删）；每次运行前先 `npm run build` 生成 `server-public/news-script/client.js`。缺 Playwright 或 WebKit 时脚本以退出码 2 退出并提示对应命令。证书与状态目录是临时的，结束或 Ctrl-C 时服务、浏览器和临时目录都会清理。上线前、以及怀疑雅虎改版（脚本找不到正文或标不出词）时运行：
 
 ```bash
-cd /srv/jlpt/app
+cd /root/projects/jlpt-web                                  # 仓库的开发检出
+npm ci && npm ci --prefix mobile                            # 首次或依赖变化时
+npm exec --prefix mobile -- playwright install webkit       # 首次
 npm run build
 node scripts/news_check.mjs --per-feed 1            # 8 个分类各 1 篇，约 2 分钟
 node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--feed 可重复

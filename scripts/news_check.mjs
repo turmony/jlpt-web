@@ -144,15 +144,24 @@ async function main(){
   catch{console.error('server-public/news-script/client.js 不存在，请先运行 npm run build');process.exit(2);}
   try{await access(PYTHON);}
   catch{console.error(`找不到 ${PYTHON}（需要装有 fugashi 的新闻 venv）`);process.exit(2);}
-  const {webkit,devices}=require('playwright');
+  let webkit,devices;
+  try{({webkit,devices}=require('playwright'));}
+  catch{console.error('找不到 Playwright（应在 mobile/node_modules 里）：请先运行 npm ci --prefix mobile');process.exit(2);}
   const tmp=await mkdtemp(join(tmpdir(),'jlpt-news-check-'));
   let server,browser,code=1;
   let cleaning; // one cleanup only, whether it comes from Ctrl-C/SIGTERM or from the end of the run
   const cleanup=()=>cleaning??=(async()=>{server?.stop();await browser?.close().catch(()=>{});await rm(tmp,{recursive:true,force:true});})();
   for(const signal of ['SIGINT','SIGTERM']) process.once(signal,()=>cleanup().finally(()=>process.exit(130)));
   try{
+    // The browser first: a missing WebKit binary is a setup problem (exit 2) found before the server is started.
+    try{browser=await webkit.launch({handleSIGINT:false,handleSIGTERM:false,handleSIGHUP:false});} // our own handler cleans up
+    catch(error){
+      if(/Executable doesn't exist|playwright install/i.test(error.message)){
+        throw Object.assign(new Error('Playwright 没有安装 WebKit 浏览器：请先运行 npm exec --prefix mobile -- playwright install webkit'),{setup:true});
+      }
+      throw error;
+    }
     server=await startServer(tmp);
-    browser=await webkit.launch({handleSIGINT:false,handleSIGTERM:false,handleSIGHUP:false}); // our own handler cleans up
     console.log(['分类','地址','找到正文','词数','重包次数','状态','错误摘要'].join('\t'));
     let total=0,failed=0;
     for(const slug of options.feeds){
@@ -169,7 +178,8 @@ async function main(){
     console.log(`成功 ${total-failed} / 共 ${total}`);
     code=total>0&&failed===0?0:1;
   }catch(error){
-    console.error('抽查中止：'+error.message);
+    if(error.setup){console.error(error.message);code=2;}
+    else console.error('抽查中止：'+error.message);
   }finally{await cleanup();}
   process.exit(code);
 }
