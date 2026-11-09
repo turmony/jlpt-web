@@ -701,3 +701,17 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 - 用户的 iPad 与 iPhone 实机检查（长按、拖选、面板）待进行。
 
 回滚：把 `/srv/jlpt/app` 切回 `20261026-forget/app`、`/srv/jlpt/static` 切回 `20261026-forget-sticker/static`；把 `jlpt.service.bak-20261108-news` 复制回 `/etc/systemd/system/jlpt.service`，执行 `systemctl daemon-reload && systemctl restart jlpt.service`。Caddyfile 可保留，也可用 `Caddyfile.bak-20261108-news` 恢复后执行 `caddy validate` 并 reload。`config.json` 中的 `llm`、`/srv/jlpt/venv`、`state/news/` 对旧版本无影响。
+
+### 上线记录（2026-11-09，新闻用户脚本）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-userscript`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 都切到该目录，`jlpt.service` 已重启（切换前确认没有子进程）。网页提交 `a263051`（合并 `feat/news-userscript`）。上一版本路径在发布目录的 `previous-release.txt`；发布前的 SQLite 一致性备份与 `config.json` 副本在私有的 `backup/`。
+
+- 静态文件必须在源码检出目录里构建：`cd /root/projects/jlpt-web && node scripts/build-server.mjs /srv/jlpt/releases/<名称>/static`。在发布目录的 `app/` 里构建会失败（esbuild 找不到平台二进制，因为共享依赖目录不叫 `node_modules`）。构建会覆盖拷贝来的静态目录，但不会删除旧文件，所以构建后手工删除了 `static/news/`（旧阅读页）。
+- 配置不变：`config.json` 没有 `news_sites`（用缺省的雅虎新闻），`llm`、`study` 保持原值；服务单元与 Caddyfile 未改动。启动时的清理删除了 `state/news/` 下两个旧文章目录，`glossary.sqlite`、`settings.json` 保留（`devices.json` 在首次安装设备时生成）。
+- 所选模型为 DeepSeek-Flash（`settings.json`）。
+
+验证：合并后的 `main` 上，`test:server` 240 项（系统 python，14 项因缺 fugashi 跳过）、`test:browser` 88 项、`test:client` 9 项通过；真实模型测试（`tests/llm`，经网关调用 DeepSeek-Flash）6/6；真实雅虎抽查 8/8。上线后，本机与公网未登录时 `/news-script/`、`/news/`、`/news/read.html`、`/review/`、`/grammar/`、`/papers.html`、`/code/` 均为 303，`/api/news/devices`、`/api/news/client.js`、`/api/news/feeds` 为 401。公网登录后：管理页 200；安装得到带令牌的加载器；带令牌取主脚本 200（66652 字节）；来自 `https://news.yahoo.co.jp` 的预检 204 且带正确的 CORS 头，来自其他来源 403；带令牌的分词 200；只带 Cookie 的雅虎来源 POST 403；模型列表 13 个；令牌不能列设备（403）；作废后令牌返回 401 并附重装地址。验证用的临时设备都已作废，设备列表为空。
+
+**公网入口限制单次响应约 16 秒（未解决，需要决定）：** 经公网地址（HTTP/2 入口）时，单次流式响应在 16.0 秒被切断（读到 `IncompleteRead`），已收到的数据不受影响，但之后的事件都丢失；同一请求直连服务（127.0.0.1:8765）和经本机 Caddy（127.0.0.1:8080）都完整完成。测试方法：用令牌调用 `/api/news/analyze` 与 `/api/news/ask`，分别直连、经 Caddy、经公网。结果：第一个数据事件在 16 秒内到达、总时长不到 16 秒的分析正常完成（单句约 8–10 秒）；两句段落、模型首次输出晚于约 12 秒的分析，在 16 秒被切断，服务器日志里没有记录。把心跳从注释行 `: ping` 改成数据事件 `event: ping` 没有用：心跳到达了，连接仍在 16.0 秒被切断，有数据流动时也一样（16.4 秒被切）。所以这不是心跳形式的问题，也不是本次代码的问题（上一版 20261108-news 用同样的流式方式，当时只做了本机验证）。影响：在 iPad / iPhone 上经公网使用时，较慢的分析和较长的追问可能中途失败。查词（`/api/news/gloss`）通常很短，不受影响。可选的处理方式见交接说明；决定前不要把它当作已验证。
+
+回滚：把 `/srv/jlpt/app` 与 `/srv/jlpt/static` 切回 `/srv/jlpt/releases/20261108-news/` 下对应目录，`systemctl restart jlpt.service`。`config.json`、`/srv/jlpt/venv`、`state/news/` 对旧版本无影响；`state/news/devices.json` 旧版本不读取。
