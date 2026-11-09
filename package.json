@@ -8,7 +8,7 @@
   "scripts": {
     "build": "node scripts/build-server.mjs",
     "test:server": "python3 -m unittest discover -s tests/server -q",
-    "test:browser": "node --test tests/server/browser.test.mjs tests/server/news-userscript.test.mjs",
+    "test:browser": "node --test tests/server/browser.test.mjs tests/server/news-userscript.test.mjs tests/server/news-asahi-selectors.test.mjs",
     "test:client": "node --test tests/news-client/*.test.mjs",
     "test:llm": "python3 -m unittest discover -s tests/llm -v"
   },

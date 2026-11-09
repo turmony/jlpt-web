@@ -134,9 +134,16 @@ function whenLoaded(run) {
   else addEventListener('load', run, {once: true});
 }
 
-function whenParsed(run) {
+export function whenParsed(run) {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run, {once: true});
   else run();
+}
+
+// When the page itself may be touched: after `load` by default, or once parsed for a site with
+// wrap: 'parsed' (server-rendered, so nothing hydrates over our markup; `load` can hang on ads).
+export function whenTouchable(site, run) {
+  if (site.wrap === 'parsed') whenParsed(run);
+  else whenLoaded(run);
 }
 
 // Batches of paragraph texts within the server's per-request limits.
@@ -190,7 +197,7 @@ export class Marker {
       // Ask for tokens right away; the page itself is not touched before `load`.
       const {roots} = findParts(this.site);
       this.request(roots.flatMap(root => blocksOf(root).map(block => block.text)));
-      whenLoaded(() => requestAnimationFrame(() => this.locate()));
+      whenTouchable(this.site, () => requestAnimationFrame(() => this.locate()));
     });
   }
 

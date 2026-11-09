@@ -190,6 +190,29 @@ test('words are marked after load and every tappable character is covered',()=>w
   assert.equal(await dockButton(page).innerText(),'就绪');
 }));
 
+// A never-answering image (?hangload=1) holds the page's `load` event back for 6 s.
+const readyState=page=>page.evaluate(()=>document.readyState);
+
+test('a site with wrap parsed is marked before its load event',()=>withUserscript('iPad (gen 7)',async(page,{site})=>{
+  await page.goto(`${site}/early/${HEX}?hangload=1`,{waitUntil:'domcontentloaded'});
+  await marked(page);
+  assert.notEqual(await readyState(page),'complete');
+  assert.ok(Number(await page.locator('html').getAttribute('data-jlpt-words'))>0);
+  const list=await paragraphs(page);
+  for (const p of list) assert.equal(p.marked,p.text);
+  const select=await page.evaluate(()=>getComputedStyle(document.querySelector('.article_body p')).webkitUserSelect);
+  assert.equal(select,'none'); // the page style goes in with the marks, not at load
+}));
+
+test('a site without wrap waits for the load event',()=>withUserscript('iPad (gen 7)',async(page,{site})=>{
+  await page.goto(`${site}/articles/${HEX}?hangload=1`,{waitUntil:'domcontentloaded'});
+  await page.waitForTimeout(1500);
+  assert.notEqual(await readyState(page),'complete');
+  assert.equal(await page.locator('.jlpt-t').count(),0);
+  await marked(page);
+  assert.equal(await readyState(page),'complete');
+}));
+
 test('a word split by inline elements is one word in two pieces',()=>withUserscript('iPhone 13',async(page,{site})=>{
   await page.goto(`${site}/articles/${HEX}`);
   await marked(page);
@@ -419,6 +442,21 @@ function answer(route,{status=200,json}={}) {
   const headers={'Access-Control-Allow-Origin':request.headers().origin||'*','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'GET, POST'};
   if(request.method()==='OPTIONS') return route.fulfill({status:204,headers});
   return route.fulfill({status,json,headers});
+}
+
+for(const device of NEWS_DEVICES) {
+  test(`the word card has a close button in its top-right corner on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    await tap(page,tok(page,A,0));
+    await card(page).waitFor();
+    const close=card(page).locator('.news-card-close');
+    const [cardBox,closeBox]=await Promise.all([card(page).boundingBox(),close.boundingBox()]);
+    assert.ok(closeBox.x+closeBox.width>=cardBox.x+cardBox.width-1&&closeBox.y<=cardBox.y+1,JSON.stringify({cardBox,closeBox}));
+    assert.ok(closeBox.width>=44&&closeBox.height>=44,JSON.stringify(closeBox));
+    await close.click();
+    await card(page).waitFor({state:'detached'});
+  }));
 }
 
 for(const device of NEWS_DEVICES) {

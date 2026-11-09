@@ -12,7 +12,9 @@ from server.news_sites import DEFAULT_SITES, LOADER_VERSION, allowed_origins, de
 
 # SHA-256 of the loader template (header, body and both overlay variants, placeholders unfilled) per version.
 KNOWN_LOADERS = {2: '19e433483d126383af0f7af072df19ee6051eaaba533980b72461a385b23bc0d',
-                 3: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c'}
+                 3: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c',
+                 # v4 only adds the Asahi sites: the generated @match lines changed, the template did not.
+                 4: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c'}
 
 
 def site(**changes):
@@ -24,7 +26,7 @@ def site(**changes):
 class SitesTests(unittest.TestCase):
     def test_default_sites_and_allowed_origins(self):
         self.assertEqual(sites({}), DEFAULT_SITES)
-        self.assertEqual(allowed_origins({}), {'https://news.yahoo.co.jp'})
+        self.assertEqual(allowed_origins({}), {'https://news.yahoo.co.jp', 'https://www.asahi.com'})
 
     def test_config_sites_override_and_bad_entries_are_refused(self):
         other = site(name='NHK', origin='http://example.jp:8080', match='http://example.jp:8080/n/*')
@@ -44,6 +46,31 @@ class SitesTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError, msg=bad):
                 sites({'news_sites': [bad]})
+
+    def test_wrap_is_optional_and_must_be_load_or_parsed(self):
+        for good in ('load', 'parsed'):
+            self.assertEqual(sites({'news_sites': [site(wrap=good)]})[0]['wrap'], good)
+        self.assertNotIn('wrap', sites({'news_sites': [site()]})[0])
+        for bad in ('', 'ready', 'Parsed', None, True, 1):
+            with self.subTest(wrap=bad):
+                with self.assertRaisesRegex(ValueError, 'wrap'):
+                    sites({'news_sites': [site(wrap=bad)]})
+
+    def test_asahi_sites_cover_both_editions_and_only_article_pages(self):
+        asahi = [entry for entry in DEFAULT_SITES if entry['origin'] == 'https://www.asahi.com']
+        self.assertEqual({entry['match'] for entry in asahi},
+                         {'https://www.asahi.com/sp/articles/*', 'https://www.asahi.com/articles/*'})
+        rx = [re.compile(entry['path']) for entry in asahi]
+        for path in ('/articles/ASVC9368KVC9UTIL01KM.html', '/sp/articles/ASVC9368KVC9UTIL01KM.html'):
+            self.assertEqual(sum(bool(r.search(path)) for r in rx), 1, path)
+        for path in ('/articles/', '/articles/ASVC9368KVC9UTIL01KM.html/x', '/sp/', '/articles/ASVC9368KVC9UTIL01KM',
+                     '/aj/articles/ASVC9368KVC9UTIL01KM.html'):
+            self.assertFalse(any(r.search(path) for r in rx), path)
+        for entry in asahi:
+            self.assertEqual(entry['wrap'], 'parsed')
+            self.assertEqual(entry['parts'], ['main#main h1', 'main#main div:has(> p):not(h1 ~ div *)'])
+        self.assertEqual(sites({}), DEFAULT_SITES)  # every default entry passes the same checks as a configured one
+        sites({'news_sites': DEFAULT_SITES})
 
     def test_origin_must_be_exactly_scheme_host_and_port(self):
         for good in ('https://a.com', 'http://a.com', 'https://a.com:8443', 'http://127.0.0.1:1',

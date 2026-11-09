@@ -623,6 +623,8 @@ unset JLPT_LLM_API_KEY
 - 格式类失败时，只调整 `news_prompts.py` 里模板周围的规则措辞（模板本身照抄设计文档第 5 节），重跑通过后在 `tests/server/test_news_xml.py` 补对应的回归用例。
 - 2026-11-08 用 DeepSeek-Flash（`low`）连跑两次均 6/6 通过，每次 40–60 秒。句子分析要先思考再输出：第二次首段输出在 10–13 秒，第一次单次分析总耗时 20–28 秒（首段约在 20 秒以后），离 30 秒无输出超时余量不大。
 
+**朝日抽查**：同一个脚本加 `--site asahi`（`node scripts/news_check.mjs --site asahi [--per-feed N]`）。文章取自朝日的头条 RSS（`https://www.asahi.com/rss/asahi/newsheadlines.rdf`），每篇打开两次：`iPhone 15`（被转到 `/sp/`）和 `iPad Pro 11 landscape`（电脑版）。脚本只等 DOMContentLoaded，再多等最多 20 秒的 `load`，没等到只在最后一列备注「20 秒内没有 load 事件」，不算失败；正文短于 150 字（取到日期行之类的错误元素）算失败。朝日自己的统计服务会让每页出现几条控制台错误（404、`api.rlcdn.com` 的 CORS 401），不装脚本也一样，不算失败。2026-11-09 实测 6/6 通过：iPhone 365、167、228 词，iPad 368、174、257 词。
+
 **雅虎抽查**（`scripts/news_check.mjs`，取代已删除的 `scripts/news_probe.py`）：在本机起一个 HTTPS 的本站实例（`scripts/news_check_server.py`，自签证书、真实分词、不配置 qoder2api-hub、`news_sites` 用缺省值），再用 Playwright WebKit（`iPhone 15`）装上同一份加载器，打开真实雅虎文章，检查脚本能否找到正文并标出词。要在仓库的开发检出里运行（本机是 `/root/projects/jlpt-web`），不能在 `/srv/jlpt/app` 的发布目录里运行：发布目录没有 `mobile/node_modules`（Playwright 就在那里），也没有 `server-public`。前提：本机有新闻 venv `/srv/jlpt/venv`（脚本自己调用 `/srv/jlpt/venv/bin/python -I`，不需要手动指定）；Playwright 与 WebKit 浏览器已安装（`~/.cache/ms-playwright` 里的浏览器不要删）；每次运行前先 `npm run build` 生成 `server-public/news-script/client.js`。缺 Playwright 或 WebKit 时脚本以退出码 2 退出并提示对应命令。证书与状态目录是临时的，结束或 Ctrl-C 时服务、浏览器和临时目录都会清理。上线前、以及怀疑雅虎改版（脚本找不到正文或标不出词）时运行：
 
 ```bash
@@ -658,7 +660,7 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 ### 新闻网站表（`news_sites`）
 
-`config.json` 的 `news_sites` 是可选项，缺省值就是雅虎新闻，不写也能用：
+`config.json` 的 `news_sites` 是可选项，缺省值是雅虎新闻加朝日新闻（手机版、电脑版共三项，见下），不写也能用。**写了 `news_sites` 就会整体替换缺省表**（不是追加），所以线上配置里没有这一项最省事；要自己写时，把想要的网站都列全。雅虎那一项如下：
 
 ```json
 "news_sites": [
@@ -672,7 +674,10 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 ]
 ```
 
-- `origin`：网站来源，形如 `https://主机[:端口]`，同时是接口允许的跨域来源；`match`：写进加载器 `@match` 的网址模式；`path`：主脚本用来判断当前页是不是文章页的正则（匹配路径部分）；`parts`：文章里要标词的部分，按选择器列出（标题、正文）。
+- `origin`：网站来源，形如 `https://主机[:端口]`，同时是接口允许的跨域来源；`match`：写进加载器 `@match` 的网址模式；`path`：主脚本用来判断当前页是不是文章页的正则（匹配路径部分）；`parts`：文章里要标词的部分，按选择器列出（标题、正文），每个选择器只取页面上第一个匹配的元素。
+- `wrap`（可选，`load` 或 `parsed`，缺省 `load`）：主脚本什么时候动页面。`load` 等窗口 `load` 事件之后，用于 React 站点（水合会丢掉更早包好的词）；`parsed` 在页面解析完（DOMContentLoaded）就开始，用于服务器直出、不会被改写的站点。朝日电脑版的 `load` 会被广告和统计请求拖住，实测 90 秒仍不触发，所以朝日两项都用 `parsed`；写别的值服务启动时报错。
+- **朝日新闻**（2026-11-09 加入）：同一个来源 `https://www.asahi.com` 有两种网址，iPhone 的 Safari 会被 302 到手机版 `/sp/articles/<ID>.html`，iPad（桌面版 UA）和电脑是 `/articles/<ID>.html`，所以是两项（`match` 只能写一条）。页面是服务器直出的静态 HTML，没有 CSP，也没有 React。类名是哈希（电脑版 `nfyQp`、手机版 `Luonh`，会随改版变），所以 `parts` 只用结构：标题 `main#main h1`（页面上第一个 `h1` 是页头 logo）；正文 `main#main div:has(> p):not(h1 ~ div *)`，即 `main` 里第一个直接含 `<p>` 的 div，并排除 `h1` 之后页头块里的内容（付费文章的电脑版页头有一个带「有料記事」的 `<p>`，不排除会取到日期行）。订阅推广框、付费墙块和相关文章列表都在正文之后，不会被取到；手机版正文里会混进一个「ADVERTISEMENT」占位 `<p>`，无害。未登录时付费文章被付费墙截断，只有导语可以查词；在 Safari 里登录朝日会员后页面里是全文（未实测）。依赖 `:has()`，需要 Safari 15.4 以上。
+- 朝日页面改版后脚本找不到正文或标不出词时：先运行 `node scripts/news_check.mjs --site asahi`，再看 `tests/server/news-asahi-selectors.test.mjs` 用的四份结构样本（`tests/server/news_site/asahi-*.html`，电脑/手机 × 免费/付费，正文文字已换成占位句）是否还和真实页面一致。
 - 写错的表会让服务在启动时报错并停止，不会悄悄回到缺省值。
 - `news_debug`（可选，缺省 `true`）：加载器在页面左上角显示调试信息（加载到哪一步、主脚本与分词状态），点「JLPT 调试」收起，点「×」本页隐藏。设为 `false` 不显示；只接受 `true` 或 `false`，写成别的值（如 `"false"`、`0`、`null`）服务在启动时报错并停止。开关写在加载器里：改后需要让设备拿到新加载器才生效（重新放置，或提高 `LOADER_VERSION` 后在 Userscripts 里检查更新）。
 - 加载器版本：脚本名称带加载器版本号（如 `JLPT 新闻查词 v2`），在 Userscripts 的脚本列表里就能看出手机上装的是哪一版。改动加载器文本时必须提高 `server/news_sites.py` 的 `LOADER_VERSION`（`test_loader_version_is_bumped_when_the_loader_changes` 会强制检查），设备在 Userscripts 里点「检查更新」才会换成新版（只有服务器给出的 `@version` 比已装的高才会更新）；主脚本不用任何操作，会自动更新。

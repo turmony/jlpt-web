@@ -2,7 +2,8 @@
 <!-- Query parameters: ?missing=1 removes the body at DOMContentLoaded; ?rerender=<ms> puts the original
      body markup back after <ms>; ?long=1 replaces the body with 250 paragraphs; ?mismatch=1 adds a
      paragraph with ズレ, which the fixture tokenizes wrongly on purpose; ?repeat=1 adds one paragraph
-     twice; ?vanish=<ms> swaps the body for a placeholder after <ms> and renders it back 300 ms later. -->
+     twice; ?vanish=<ms> swaps the body for a placeholder after <ms> and renders it back 300 ms later;
+     ?hangload=1 adds an image that answers only after 6 s, which holds the `load` event back. -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -39,6 +40,9 @@
     // The same paragraph twice at the end of the body (like a repeated caption).
     var last = body();
     if (last) last.insertAdjacentHTML('beforeend', '<p>同じ文です。</p><p>同じ文です。</p>');
+  }
+  if (params.get('hangload') === '1') {
+    document.write('<img src="/hang" width="1" height="1" alt="">');
   }
   var html = body() && body().innerHTML;
   if (params.get('vanish')) {

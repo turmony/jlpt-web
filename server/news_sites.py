@@ -10,10 +10,36 @@ DEFAULT_SITES = [
         "match": "https://news.yahoo.co.jp/articles/*",
         "path": "^/articles/[0-9a-f]+$",
         "parts": ["h1", ".article_body"],
-    }
+    },
+    # Asahi serves two editions from one origin: iPhone Safari is redirected to /sp/articles/, iPad and
+    # desktop get /articles/. Its class names are hashed and differ per edition, so the parts are found by
+    # structure: the headline is the h1 inside <main> (the first h1 on the page is the logo), the body is the
+    # first div in <main> that has <p> children and is not part of the header block after the h1 (on the desktop
+    # edition of a paid article that block holds a <p> with the 有料記事 label); the subscription box and the
+    # related lists come later.
+    {
+        "name": "朝日新闻（手机版）",
+        "origin": "https://www.asahi.com",
+        "match": "https://www.asahi.com/sp/articles/*",
+        "path": r"^/sp/articles/[A-Za-z0-9]+\.html$",
+        "parts": ["main#main h1", "main#main div:has(> p):not(h1 ~ div *)"],
+        "wrap": "parsed",
+    },
+    {
+        "name": "朝日新闻（电脑版）",
+        "origin": "https://www.asahi.com",
+        "match": "https://www.asahi.com/articles/*",
+        "path": r"^/articles/[A-Za-z0-9]+\.html$",
+        "parts": ["main#main h1", "main#main div:has(> p):not(h1 ~ div *)"],
+        "wrap": "parsed",
+    },
 ]
 
 _REQUIRED = ('name', 'origin', 'match', 'path', 'parts')
+# Optional `wrap`: when the main script starts marking words. 'load' (default) waits for the window `load`
+# event, which a React site needs (hydration would throw earlier markup away). 'parsed' starts at
+# DOMContentLoaded, for a server-rendered site whose `load` is held up by ad and tracker requests.
+_WRAP = ('load', 'parsed')
 # Matched with fullmatch: `$` would also accept a trailing newline. No leading zeros, as browsers send it.
 _ORIGIN = re.compile(r'https?://[A-Za-z0-9.-]+(?::([1-9][0-9]{0,4}))?')
 
@@ -41,6 +67,8 @@ def _check(entry):
     parts = entry['parts']
     if not isinstance(parts, list) or not parts or not all(isinstance(p, str) and p for p in parts):
         raise ValueError('news site parts must be a non-empty list of strings')
+    if entry.get('wrap', 'load') not in _WRAP:
+        raise ValueError(f"news site wrap must be one of {', '.join(_WRAP)}: {entry['wrap']!r}")
     return entry
 
 
@@ -77,7 +105,7 @@ def allowed_origins(config):
 # Userscripts only replaces an installed loader (through @updateURL) when the served @version is higher,
 # while the main script updates on every page load. The version is shown in the script name, so a phone's
 # script list tells which loader is installed.
-LOADER_VERSION = 3
+LOADER_VERSION = 4
 
 
 def _line(text):
