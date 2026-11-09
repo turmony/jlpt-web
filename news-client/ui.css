@@ -259,7 +259,21 @@
 }
 /* Base for the card's controls, with no specificity so every control's own rule wins. */
 :where(.news-card) :where(button) { font: inherit; color: inherit; cursor: pointer; }
-.news-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; }
+.news-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding-right: 28px; }
+/* The × sits in the top-right corner; its 44px tap target extends past the card's padding. */
+.news-card-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+}
 .news-card-word { font-size: 22px; font-weight: 600; }
 .news-card-reading { color: var(--accent-ink); font-size: 16px; }
 .news-card-accent { margin-left: 1px; color: var(--muted); font-size: 0.85em; font-weight: 400; }
