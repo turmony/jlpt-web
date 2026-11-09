@@ -87,7 +87,7 @@ class CaddyStreamingTests(unittest.TestCase):
                     try:
                         conn=http.client.HTTPConnection('127.0.0.1',port,timeout=2);conn.request('GET','/login.html');conn.getresponse().read();conn.close();break
                     except OSError:time.sleep(.03)
-                for path in ('/api/news/analyze','/api/news/open','/api/news/ask'):
+                for path in ('/api/news/analyze','/api/news/ask'):
                     # A browser always offers compression; the stream must still arrive event by event.
                     conn=http.client.HTTPConnection('127.0.0.1',port,timeout=5)
                     started=time.monotonic()

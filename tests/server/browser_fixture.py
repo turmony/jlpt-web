@@ -1,7 +1,6 @@
 import json
 import os
 import sys
-import time
 from pathlib import Path
 from server.app import Application, create_server
 from server.auth import Auth
@@ -9,9 +8,7 @@ from server.llm import Hub
 from server.news import NewsService
 import server.news as news_module
 from server.news_text import split_sentences
-from server.news_yahoo import FEEDS, Yahoo
 from tests.server.fake_hub import FakeHub
-from tests.server.news_fixture import ARTICLE_URL, PICKUP_URL, fake_fetch, fake_open, load
 from tests.server.review_fixture import COMPARE, make_study
 
 PAPER = '''# 测试试卷
@@ -50,58 +47,6 @@ app = Application({'state': str(base), 'study': str(base / 'study'), 'static': s
                    'origin': 'http://127.0.0.1', 'secure_cookie': False,
                    'password_hash': Auth.hash_password('browser-test-password')})
 
-
-# ---- Reader article: self-written text, three pages, images, two videos and an unknown block ----
-READER_ID = 'b2c3d4e5f6a7081929304a5b6c7d8e9f00112233'
-READER_URL = 'https://news.yahoo.co.jp/articles/' + READER_ID
-IMAGE_HOST = 'https://newsatcl-pctr.c.yimg.jp/t/reader/'
-
-
-def _png():
-    """A 2x2 opaque PNG, so <img> really decodes in the browser."""
-    import struct
-    import zlib
-
-    def chunk(kind, data):
-        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
-    raw = b''.join(b'\x00' + b'\x80\x60\x20' * 2 for _ in range(2))
-    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 2, 2, 8, 2, 0, 0, 0))
-            + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
-
-
-def _reader_page(n, paragraphs, rich_extra=None):
-    """A Yahoo article page (as news_fixture.load would wrap it) from (head, text, images) tuples."""
-    rich = []
-    items = []
-    for head, text, images in paragraphs:
-        items.append({'head': head, 'textDetails': [{'text': text}],
-                      'objectItems': [{'type': 'image', 'caption': caption, 'credit': credit,
-                                       'resizedViewUrl': {'jpeg': IMAGE_HOST + name}}
-                                      for name, caption, credit in images]})
-        rich.append({'tagName': 'yjrf-paragraph', 'children': [{'tagName': 'p', 'children': [text]}]})
-        rich.extend((rich_extra or {}).get(len(rich), []))
-    state = {'articleDetail': {'headline': '台風が島に接近', 'media': {'mediaName': 'テスト通信'},
-                               'createDateTime': '2026-11-08T15:30:00+09:00', 'author': '記者 太郎',
-                               'currentPage': n, 'maxPage': 3, 'paragraphs': items,
-                               'richBody': {'tagName': 'yjrf-article', 'children': rich}}}
-    page = ('<!DOCTYPE html><html><head><title>t</title></head><body><div id="root"></div>'
-            '<script>window.__PRELOADED_STATE__ = %s</script></body></html>' % json.dumps(state, ensure_ascii=False))
-    return page.encode('utf-8')
-
-
-READER_PAGES = {
-    1: _reader_page(1, [
-        ('台風の接近', '台風は強い勢力で島に接近するおそれがあります。気象庁は早めの準備を呼びかけました。',
-         [('photo1.jpg', '港に並ぶ船。', 'テスト提供')]),
-        ('', '10日(火)から11日(水)にかけて雨が降ります。', []),
-    ], rich_extra={1: [
-        {'tagName': 'yjrf-yvp', 'attributes': {'src': 'https://news.yahoo.co.jp/video/reader/1', 'poster': IMAGE_HOST + 'poster1.jpg'}},
-        {'tagName': 'yjrf-yvp', 'attributes': {'src': 'https://news.yahoo.co.jp/video/reader/2'}},
-        {'tagName': 'yjrf-table', 'children': [{'tagName': 'p', 'children': ['表']}]},
-    ]}),
-    2: _reader_page(2, [('', '%d番目の段落です。町の人々は静かに過ごしています。' % n, []) for n in range(1, 31)]),
-    3: _reader_page(3, [('', '最後の段落の文です。', [])]),
-}
 
 # Readings for the words the browser tests tap; everything else is cut by character class.
 WORDS = {
@@ -190,19 +135,12 @@ class RecordingHub(FakeHub):
 
 
 def news_wiring(base):
-    """Fake Yahoo + FakeHub for the /news/ pages; nothing here touches the network.
+    """A FakeHub behind the news service; nothing here touches the network.
 
     NEWS_HUB_SCRIPT: path of a JSON file, either a list (the FakeHub script) or an object
     {"script": [...], "models": [...]}; unset gives one 'ok' chunk and FakeHub's default models.
-    NEWS_SELECTED_MODEL: model id stored as the page header's selection at start (default none).
-    Controls a test can flip while the server runs, by creating/removing files in the state dir:
-      news-rss-fail     every RSS fetch raises (shows the stale notice once the cache has aged)
-      news-clock-offset a number of seconds added to the news service clock (ages the RSS cache;
-                        120 also gets past the 60 s reuse of a just-opened article)
-      news-hold-page2   fetching page 2 of READER_URL waits while this file exists (progress stays visible)
-      news-page3-fail   page 3 of READER_URL answers 503 (a partial article with a missing page)
-    READER_URL is a three-page article (see READER_PAGES); its two images are served by a fake
-    image host. Tokenizing uses fixture_sentences instead of fugashi.
+    NEWS_SELECTED_MODEL: model id stored as the selected model at start (default none).
+    Tokenizing uses fixture_sentences instead of fugashi.
     What the FakeHub saw is written to the state dir for the browser tests to read:
       news-hub-requests.json  every chat request body, in arrival order (rewritten on each request)
       news-hub-disconnects    the number of chat requests whose client (the news server) hung up early"""
@@ -212,32 +150,8 @@ def news_wiring(base):
     if isinstance(spec, list):
         spec = {'script': spec}
     hub_server = RecordingHub(base, spec.get('script'), spec.get('models'))
-    rss = load('rss').decode('utf-8')
-    mapping = {PICKUP_URL: (200, load('pickup')), ARTICLE_URL: (200, load('single')),
-               READER_URL: (200, READER_PAGES[1]), READER_URL + '?page=2': (200, READER_PAGES[2]),
-               READER_URL + '?page=3': (200, READER_PAGES[3])}
-    for slug in FEEDS:
-        # One distinct headline prefix per category so a test can tell which list is showing.
-        mapping['https://news.yahoo.co.jp/rss/topics/%s.xml' % slug] = (200, rss.replace('見出し', slug + 'の見出し').encode('utf-8'))
-    inner = fake_fetch(mapping)
-    fail, offset = base / 'news-rss-fail', base / 'news-clock-offset'
-    hold, page3_fail = base / 'news-hold-page2', base / 'news-page3-fail'
-
-    def fetch(url):
-        if '/rss/' in url and fail.exists():
-            raise OSError('simulated RSS outage')
-        if url == READER_URL + '?page=2':
-            deadline = time.time() + 20
-            while hold.exists() and time.time() < deadline:
-                time.sleep(0.05)
-        if url == READER_URL + '?page=3' and page3_fail.exists():
-            return 503, b''
-        return inner(url)
-    images = fake_open({IMAGE_HOST + 'photo1.jpg': _png(), IMAGE_HOST + 'poster1.jpg': _png()})
     news_module.to_sentences = fixture_sentences
-    service = NewsService(app.config, base, yahoo=Yahoo(fetch=fetch, sleep=lambda s: None, open_image=images),
-                          hub=Hub(hub_server.base_url, 'fixture-key'))
-    service.clock = lambda: time.time() + (float(offset.read_text()) if offset.exists() else 0)
+    service = NewsService(app.config, base, hub=Hub(hub_server.base_url, 'fixture-key'))
     if os.environ.get('NEWS_SELECTED_MODEL'):
         service.store.save_settings({'model': os.environ['NEWS_SELECTED_MODEL']})
     app.news = service

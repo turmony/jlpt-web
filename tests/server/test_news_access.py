@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from tests.server import test_news_http as base
-from tests.server.news_fixture import ARTICLE_URL as A
 
 ORIGIN = base.ORIGIN
 SITE = 'https://news.example'
@@ -237,15 +236,16 @@ class AccessTests(base.NewsHTTPBase):
         self.assertEqual(self.call('GET', '/api/news/client.js', self.bearer('bad'), cookie=False)[0], 401)
 
     def test_streams_carry_cors_headers_for_token_requests(self):
+        self.use(script=[('chunks', ['<translation>x</translation>'], 0)])
         self.login()
         token = self.install_token()
-        status, response, raw = self.call('POST', '/api/news/open', self.bearer(token, Origin=SITE), {'url': A},
-                                          cookie=False)
+        status, response, raw = self.call('POST', '/api/news/analyze', self.bearer(token, Origin=SITE),
+                                          self.analyze_body(), cookie=False)
         self.assertEqual(status, 200, raw)
         self.assertEqual(response.getheader('Content-Type'), 'text/event-stream')
         self.assertEqual(response.getheader('Access-Control-Allow-Origin'), SITE)
         self.assertEqual(response.getheader('Vary'), 'Origin')
-        self.assertIn(b'event: article', raw)
+        self.assertIn(b'event: done', raw)
 
     def test_logs_never_contain_the_token(self):
         self.login()

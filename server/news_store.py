@@ -1,6 +1,5 @@
-"""Article, image, glossary and settings storage for the news reader, with expiry cleanup."""
+"""Glossary and settings storage for the news reader, with expiry cleanup."""
 import contextlib
-import hashlib
 import json
 import os
 import re
@@ -10,42 +9,10 @@ import threading
 import time
 from pathlib import Path
 
-from server.news_errors import NewsError
-
-ARTICLE_TTL = 7 * 86400
 GLOSS_TTL = 30 * 86400
-IMAGE_MAX = 5 * 1024 * 1024
-TOTAL_MAX = 300 * 1024 * 1024
 
-ID_RE = re.compile(r'[0-9a-f]{8,64}')
-KEY_RE = re.compile(r'[0-9a-f]{40}')
+ID_RE = re.compile(r'[0-9a-f]{8,64}')   # names of the article folders older versions kept
 DEFAULT_SETTINGS = {'model': None}
-
-
-def _check_id(article_id):
-    if not isinstance(article_id, str) or not ID_RE.fullmatch(article_id):
-        raise ValueError('invalid article id')
-    return article_id
-
-
-def _check_index(index):
-    if type(index) is not int or index < 0:
-        raise ValueError('invalid image index')
-    return index
-
-
-def image_key(src):
-    """File name of a downloaded image: a digest of its source URL, so an article rebuilt from
-    stored pages can find the image again without downloading it."""
-    return hashlib.sha1(src.encode('utf-8')).hexdigest()
-
-
-def _check_name(name):
-    """An image file name: a source key (current layout) or an int index (articles saved before
-    images were keyed by source)."""
-    if isinstance(name, str) and KEY_RE.fullmatch(name):
-        return name
-    return str(_check_index(name))
 
 
 class NewsStore:
@@ -55,8 +22,6 @@ class NewsStore:
         self.now = now
         self.dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._flights = {}
-        self._flights_mutex = threading.Lock()
         self._db_path = self.dir / 'glossary.sqlite'
         with self._db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS glossary ('
@@ -83,74 +48,6 @@ class NewsStore:
         finally:
             if tmp.exists():
                 tmp.unlink()
-
-    def _article_dir(self, article_id):
-        return self.dir / _check_id(article_id)
-
-    # --- articles ------------------------------------------------------
-    def save_article(self, article):
-        article_id = _check_id(article.get('id'))
-        path = self.dir / article_id / 'article.json'
-        with self._lock:
-            self._atomic_write(path, json.dumps(article, ensure_ascii=False).encode('utf-8'))
-            stamp = self.now()
-            os.utime(path, (stamp, stamp))
-
-    def load_article(self, article_id):
-        path = self._article_dir(article_id) / 'article.json'
-        with self._lock:
-            try:
-                age = self.now() - path.stat().st_mtime
-                if age > ARTICLE_TTL:
-                    raise KeyError(article_id)
-                return json.loads(path.read_text(encoding='utf-8'))
-            except (FileNotFoundError, ValueError):
-                raise KeyError(article_id) from None
-
-    # --- images --------------------------------------------------------
-    def image_path(self, article_id, name):
-        """images/<source key>, or images/<index> for articles saved before keyed images."""
-        return self._article_dir(article_id) / 'images' / _check_name(name)
-
-    def save_image(self, article_id, name, data, location=None):
-        path = self.image_path(article_id, name)
-        if len(data) > IMAGE_MAX:
-            if location is None and type(name) is int:
-                location = '第 %d 张' % (name + 1)
-            raise NewsError('image', '图片超过 5 MB', location)
-        with self._lock:
-            self._atomic_write(path, data)
-
-    def prune_images(self, article_id, keep):
-        """Delete the article's image files whose names are not in `keep`."""
-        folder = self._article_dir(article_id) / 'images'
-        with self._lock:
-            try:
-                entries = list(folder.iterdir())
-            except FileNotFoundError:
-                return
-            for entry in entries:
-                if entry.name not in keep and not entry.name.endswith('.tmp'):
-                    try:
-                        entry.unlink()
-                    except OSError:
-                        pass
-
-    # --- single flight -------------------------------------------------
-    @contextlib.contextmanager
-    def single_flight(self, key):
-        with self._flights_mutex:
-            entry = self._flights.setdefault(key, [threading.Lock(), 0])
-            entry[1] += 1
-        entry[0].acquire()
-        try:
-            yield
-        finally:
-            entry[0].release()
-            with self._flights_mutex:
-                entry[1] -= 1
-                if entry[1] == 0:
-                    self._flights.pop(key, None)
 
     # --- glossary ------------------------------------------------------
     def glossary_get(self, model, lemma, pos):
@@ -184,40 +81,11 @@ class NewsStore:
                                json.dumps(settings, ensure_ascii=False).encode('utf-8'))
 
     # --- cleanup -------------------------------------------------------
-    @staticmethod
-    def _dir_size(path):
-        total = 0
-        for base, _dirs, files in os.walk(path):
-            for name in files:
-                try:
-                    total += os.path.getsize(os.path.join(base, name))
-                except OSError:
-                    pass
-        return total
-
     def cleanup(self):
+        """Delete the article folders older versions left under news/, then expire old glosses."""
         with self._lock:
-            now = self.now()
-            articles = []
             for entry in self.dir.iterdir():
-                if not entry.is_dir() or not ID_RE.fullmatch(entry.name):
-                    continue
-                marker = entry / 'article.json'
-                try:
-                    mtime = (marker if marker.exists() else entry).stat().st_mtime
-                except OSError:
-                    continue
-                if now - mtime > ARTICLE_TTL:
+                if entry.is_dir() and ID_RE.fullmatch(entry.name):
                     shutil.rmtree(entry, ignore_errors=True)
-                else:
-                    articles.append((mtime, entry.name, entry))
-            articles.sort()
-            sizes = {e: self._dir_size(e) for _, _, e in articles}
-            total = sum(sizes.values())
-            for _mtime, _name, entry in articles:
-                if total <= TOTAL_MAX:
-                    break
-                shutil.rmtree(entry, ignore_errors=True)
-                total -= sizes[entry]
             with self._db() as db:
-                db.execute('DELETE FROM glossary WHERE ts < ?', (now - GLOSS_TTL,))
+                db.execute('DELETE FROM glossary WHERE ts < ?', (self.now() - GLOSS_TTL,))

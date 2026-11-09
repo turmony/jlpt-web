@@ -1,6 +1,6 @@
-"""News reader service: feeds, opening articles, word glosses, sentence analysis and follow-up
-questions. HTTP wiring lives in app.py; everything here is plain Python driven by `emit(event,
-data)` callbacks so the streaming endpoints can be tested without a browser.
+"""News reader service: word glosses, tokenizing, sentence analysis and follow-up questions.
+HTTP wiring lives in app.py; everything here is plain Python driven by `emit(event, data)`
+callbacks so the streaming endpoints can be tested without a browser.
 
 Every failure is a NewsError naming the stage that failed (spec section 6). Errors raised inside a
 stream become an `error` event; each one is logged to stderr as
@@ -18,13 +18,10 @@ from .llm import Hub, R_UNAVAILABLE
 from .news_devices import DeviceStore
 from .news_errors import NewsError
 from .news_prompts import MAX_HISTORY_ROUNDS, analysis_messages, ask_messages, gloss_messages
-from .news_store import ARTICLE_TTL, KEY_RE, NewsStore, image_key
+from .news_store import NewsStore
 from .news_text import TokenizerUnavailable, to_sentences
 from .news_xml import AnalysisParser, parse_gloss
-from .news_yahoo import FEEDS, HOST, Yahoo, article_id_of, validate_url
 
-FEED_TTL = 600
-REUSE_SECONDS = 60          # a second open of the same URL right after the first reuses a complete result
 MODEL_SLOTS = 3
 CLEANUP_INTERVAL = 3600
 PING_GAP = 0.5
@@ -36,9 +33,7 @@ MAX_CHARS = 20000           # in all paragraphs of one tokenize request
 MAX_PARAGRAPH = 4000        # a paragraph sent with an analysis or follow-up
 MAX_TOKENS = 400            # words in that sentence
 MAX_TOKEN = 100             # characters in one word
-KEY_SHOWN = 16              # hex digits of an image's file key given to the page (cache-busting only)
 
-R_EXPIRED = '文章缓存已过期，请重新打开'
 R_NO_MODEL = '请先在页头选择模型'
 R_NO_HUB = '未配置 qoder2api-hub'
 
@@ -46,29 +41,6 @@ _CARD_CUT = re.compile('[：（(]')
 _CARD_SPLIT = re.compile('[／・/]')
 _CARD_TRIM = ' \t\r\n　〜～'
 _LEVEL = re.compile(r'N[1-5]')
-
-
-def _source_ok(source, article_id):
-    """Whether a stored `cache.source` has the shape Yahoo.open(known=...) expects."""
-    if not isinstance(source, dict) or source.get('id') != article_id:
-        return False
-    if not all(isinstance(source.get(key), str) for key in ('url', 'title', 'media', 'published', 'author')):
-        return False
-    try:
-        if article_id_of(validate_url(source['url'])) != article_id:
-            return False
-    except ValueError:
-        return False
-    pages, page_blocks = source.get('pages'), source.get('page_blocks')
-    if not isinstance(pages, dict) or type(pages.get('total')) is not int or not isinstance(page_blocks, list):
-        return False
-    numbers = []
-    for item in page_blocks:
-        if not (isinstance(item, list) and len(item) == 2 and type(item[0]) is int and isinstance(item[1], list)
-                and all(isinstance(block, dict) for block in item[1])):
-            return False
-        numbers.append(item[0])
-    return 1 in numbers
 
 
 class ClientGone(BaseException):
@@ -88,18 +60,6 @@ def sse_frame(event, data=None):
     if event is None:
         return b': ping\n\n'
     return ('event: %s\ndata: %s\n\n' % (event, json.dumps(data, ensure_ascii=False))).encode('utf-8')
-
-
-def sniff_image(data):
-    if data.startswith(b'\xff\xd8\xff'):
-        return 'image/jpeg'
-    if data.startswith(b'\x89PNG\r\n\x1a\n'):
-        return 'image/png'
-    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
-        return 'image/webp'
-    if data[:6] in (b'GIF87a', b'GIF89a'):
-        return 'image/gif'
-    return None
 
 
 def _norm_form(text):
@@ -124,10 +84,6 @@ def match_card(form, cards):
         if any(_norm_form(part) == target for part in _CARD_SPLIT.split(head)):
             return '/grammar/#%s/%d-%d' % (level, number, number)
     return None
-
-
-def _text(sentences):
-    return ''.join(t['s'] for s in sentences for t in s['tokens'])
 
 
 @contextlib.contextmanager
@@ -158,12 +114,11 @@ def start_cleanup(service, interval=CLEANUP_INTERVAL, stop=None):
 
 
 class NewsService:
-    def __init__(self, config, state, yahoo=None, hub=None):
+    def __init__(self, config, state, hub=None):
         self.config = config
         self.store = NewsStore(state)
         self.store.cleanup()
         self.devices = DeviceStore(Path(state) / 'news')
-        self.yahoo = yahoo or Yahoo()
         llm = config.get('llm') or {}
         if hub is None and llm.get('base_url'):
             hub = Hub(llm['base_url'], llm.get('api_key') or '')
@@ -171,9 +126,6 @@ class NewsService:
         self.slots = threading.BoundedSemaphore(MODEL_SLOTS)
         self.clock = time.time
         self._lock = threading.Lock()
-        self._feeds = {}       # slug -> (fetched_at, items)
-        self._recent = {}      # canonical url -> (opened_at, article)
-        self._resolved = {}    # topic (pickup) url -> (opened_at, article id): finds the stored copy
         self._catalog = None
 
     # -- logging & streaming -------------------------------------------------
@@ -205,225 +157,6 @@ class NewsService:
     @staticmethod
     def _progress(emit, stage, text):
         emit('progress', {'stage': stage, 'text': text})
-
-    # -- feeds ---------------------------------------------------------------
-    def feeds(self, slug):
-        if not isinstance(slug, str) or slug not in FEEDS:
-            raise client_error('未知分类')
-        now = self.clock()
-        with self._lock:
-            cached = self._feeds.get(slug)
-        if cached and now - cached[0] < FEED_TTL:
-            return {'items': cached[1], 'stale_minutes': None}
-        try:
-            items = self.yahoo.feed(slug)
-        except NewsError as error:
-            if not cached:
-                raise  # logged once by the route that reports it
-            self.log_error(error, 'https://%s/rss/topics/%s.xml' % (HOST, slug))
-            return {'items': cached[1], 'stale_minutes': int(max(0, now - cached[0]) // 60)}
-        with self._lock:
-            self._feeds[slug] = (now, items)
-        return {'items': items, 'stale_minutes': None}
-
-    # -- opening articles ----------------------------------------------------
-    @staticmethod
-    def check_url(url):
-        try:
-            return validate_url(url)
-        except ValueError as error:
-            raise client_error(str(error))
-
-    def open(self, url, emit):
-        url = self.check_url(url)
-        with self.store.single_flight(url):
-            now = self.clock()
-            with self._lock:
-                self._recent = {k: v for k, v in self._recent.items() if now - v[0] < REUSE_SECONDS}
-                self._resolved = {k: v for k, v in self._resolved.items() if now - v[0] < ARTICLE_TTL}
-                hit = self._recent.get(url)
-                article_id = article_id_of(url) or self._resolved.get(url, (None, None))[1]
-            if hit:
-                article = hit[1]
-            else:
-                # A stored partial copy (missing pages) is refilled: only its missing pages are fetched.
-                article = self._build(url, emit, self._stored_partial(article_id))
-                with self._lock:
-                    if article_id_of(url) is None:
-                        self._resolved[url] = (self.clock(), article['id'])
-                    # A partial article (missing page, failed image) is not reused: 重试 must fetch again.
-                    if not article.get('errors') and not article['pages'].get('missing'):
-                        self._recent[url] = (self.clock(), article)
-        emit('article', article)
-
-    def _stored_partial(self, article_id):
-        """The saved copy of an article that still misses pages and can be refilled, or None."""
-        if not article_id:
-            return None
-        try:
-            saved = self.store.load_article(article_id)
-        except (KeyError, ValueError):
-            return None
-        cache = saved.get('cache')
-        source = cache.get('source') if isinstance(cache, dict) else None
-        pages = saved.get('pages')
-        images = cache.get('images') if isinstance(cache, dict) else None
-        if not (isinstance(pages, dict) and pages.get('missing') and _source_ok(source, article_id)
-                and isinstance(images, list)
-                and all(key is None or (isinstance(key, str) and KEY_RE.fullmatch(key)) for key in images)):
-            return None
-        return saved
-
-    def _build(self, url, emit, previous=None):
-        """Fetch (or, with `previous`, refill) an article, tokenize it, download its images and
-        save it. A refill keeps the stored pages and the images already downloaded for them;
-        sentence ids and image indices are assigned afresh over the whole article."""
-        step = 'yahoo'
-        try:
-            reuse = set()
-            if previous:
-                cache = previous['cache']
-                reuse = {key for key in cache['images'] if isinstance(key, str)
-                         and self.store.image_path(previous['id'], key).is_file()}
-
-            def progress(stage, text):
-                self._progress(emit, stage, text)
-            try:
-                if previous:
-                    raw = self.yahoo.open(url, progress, known=previous['cache']['source'])
-                else:
-                    raw = self.yahoo.open(url, progress)
-            except NewsError:
-                raise
-            except (AttributeError, TypeError, ValueError, KeyError, IndexError) as error:
-                raise NewsError('parse', '正文结构无法识别（雅虎可能改版）：%s' % type(error).__name__, '文章页')
-            errors = list(raw.get('errors') or [])
-            for info in errors:
-                self.log_error(info, url)
-
-            step = 'tokenize'
-            self._progress(emit, 'tokenize', '正在分词…')
-            blocks, images = self._blocks(raw['blocks'])
-
-            step = 'image'
-            keys = [None] * len(images)
-            for index, (src, done, failed) in enumerate(images):
-                key = image_key(src) if isinstance(src, str) else None
-                if key in reuse:
-                    keys[index] = key
-                    done(key)
-                    continue
-                self._progress(emit, 'image', '正在下载图片（第 %d / %d 张）…' % (index + 1, len(images)))
-                try:
-                    keys[index] = self._download(raw['id'], index, src)
-                    done(keys[index])
-                except NewsError as error:
-                    failed()
-                    self.log_error(error, url)
-                    errors.append(error.to_dict())
-
-            step = 'parse'
-            article = {key: raw[key] for key in ('id', 'url', 'title', 'media', 'published', 'author', 'pages')}
-            article.update(blocks=blocks, errors=errors)
-            source = None
-            if 'page_blocks' in raw:
-                source = {key: raw[key] for key in ('id', 'url', 'title', 'media', 'published', 'author',
-                                                    'pages', 'page_blocks')}
-            # `cache` stays on the server: which file holds image n, and the pages as fetched.
-            self.store.save_article(dict(article, cache={'images': keys, 'source': source}))
-            self.store.prune_images(raw['id'], {key for key in keys if key})
-            return article
-        except NewsError:
-            raise
-        except Exception as error:
-            raise NewsError(step, '服务器内部错误：%s' % type(error).__name__, '打开文章')
-
-    def _sentences(self, text, start_id, n):
-        location = '正文第 %d 块' % n
-        try:
-            return to_sentences(text or '', start_id)
-        except TokenizerUnavailable:
-            raise NewsError('tokenize', '分词组件未安装', location, retryable=False)
-        except NewsError:
-            raise
-        except Exception as error:
-            raise NewsError('tokenize', '分词失败：%s' % type(error).__name__, location)
-
-    def _blocks(self, raw_blocks):
-        """Tokenized blocks (sentence ids run through the whole article) and the images to fetch,
-        [(src, on_success(file key), on_failure)] in local image index order. Article images and
-        video posters share one index space: image blocks carry `index`/`ok`, a video's `cover` is
-        its poster's index (null when there is none or it failed). `key` / `cover_key` name the
-        image's content (a prefix of its file key, null when it failed): the page puts it in the
-        image URL, because an index can point at another image after a refill."""
-        blocks, images, next_id = [], [], 0
-        for n, raw in enumerate(raw_blocks, 1):
-            kind = raw.get('type')
-            if kind in ('heading', 'paragraph'):
-                sentences = self._sentences(raw.get('text'), next_id, n)
-                blocks.append({'type': kind, 'sentences': sentences})
-            elif kind == 'image':
-                sentences = self._sentences(raw.get('caption'), next_id, n)
-                block = {'type': 'image', 'index': len(images), 'caption_sentences': sentences,
-                         'credit': raw.get('credit') or '', 'ok': False, 'key': None}
-                images.append((raw.get('src'), lambda key, b=block: b.update(ok=True, key=key[:KEY_SHOWN]),
-                               lambda: None))
-                blocks.append(block)
-            elif kind == 'video':
-                sentences = []
-                block = {'type': 'video', 'url': raw.get('url') or '', 'cover': None, 'cover_key': None}
-                if raw.get('cover'):
-                    block['cover'] = len(images)
-                    images.append((raw['cover'], lambda key, b=block: b.update(cover_key=key[:KEY_SHOWN]),
-                                   lambda b=block: b.update(cover=None)))
-                blocks.append(block)
-            else:
-                sentences = []
-                blocks.append(dict(raw))
-            next_id += len(sentences)
-        return blocks, images
-
-    def _download(self, article_id, index, src):
-        """Download and save image `index`; returns its file key."""
-        location = '第 %d 张' % (index + 1)
-        data = self.yahoo.image(src, location)
-        if not sniff_image(data):
-            raise NewsError('image', '下载的内容不是图片', location, retryable=False)
-        key = image_key(src)
-        self.store.save_image(article_id, key, data, location)
-        return key
-
-    def image(self, article_id, index):
-        """(bytes, mime) of a saved image of a live article; KeyError otherwise."""
-        try:
-            article = self.store.load_article(article_id)
-            self.store.image_path(article_id, index)  # validates the index
-        except ValueError:
-            raise KeyError(article_id)
-        if not any((b.get('type') == 'image' and b.get('index') == index and b.get('ok'))
-                   or (b.get('type') == 'video' and b.get('cover') == index)
-                   for b in article.get('blocks', [])):
-            raise KeyError(index)
-        cache = article.get('cache')
-        if isinstance(cache, dict):
-            keys = cache.get('images')
-            name = keys[index] if isinstance(keys, list) and index < len(keys) else None
-            if not isinstance(name, str):
-                raise KeyError(index)
-        else:
-            name = index  # saved before images were keyed by source
-        try:
-            path = self.store.image_path(article_id, name)
-        except ValueError:
-            raise KeyError(index)
-        try:
-            data = path.read_bytes()
-        except OSError:
-            raise KeyError(index)
-        mime = sniff_image(data)
-        if not mime:
-            raise KeyError(index)
-        return data, mime
 
     # -- models ----------------------------------------------------------------
     def _hub(self):

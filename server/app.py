@@ -289,9 +289,6 @@ def create_server(app, address):
                     except KeyError:
                         return self.reply(404, {'error': '设备不存在'})
                     return self.reply(200, {'ok': True})
-                if path == '/feeds' and not post:
-                    values = parse_qs(query).get('cat', [])
-                    return self.reply(200, svc.feeds(values[0] if len(values) == 1 else None))
                 if path == '/models' and not post:
                     return self.reply(200, svc.models())
                 if path == '/settings' and post:
@@ -299,9 +296,6 @@ def create_server(app, address):
                 if path == '/gloss' and post:
                     data = body()
                     return self.reply(200, svc.gloss(data.get('lemma'), data.get('reading'), data.get('pos')))
-                if path == '/open' and post:
-                    url = svc.check_url(body().get('url'))
-                    return self.sse(lambda emit: svc.open(url, emit), url)
                 if path == '/tokenize' and post:
                     return self.reply(200, svc.tokenize(body()))
                 if path == '/analyze' and post:
@@ -310,16 +304,6 @@ def create_server(app, address):
                 if path == '/ask' and post:
                     args = svc.ask_args(body())
                     return self.sse(lambda emit: svc.ask(*args, emit=emit))
-                match = re.fullmatch(r'/image/([0-9a-f]{8,64})/(\d{1,4})', path)
-                if match and not post:
-                    index = int(match[2])
-                    try:
-                        data, mime = svc.image(match[1], index)
-                    except KeyError:
-                        error = NewsError('image', '图片不存在或已过期', '第 %d 张' % (index + 1), retryable=False)
-                        svc.log_error(error, self.path)
-                        return self.reply(404, {'error': error.to_dict()})
-                    return self.reply(200, data, mime, headers={'Cache-Control': 'private, max-age=604800'})
             except NewsError as error:
                 svc.log_error(error, self.path)
                 return self.reply(news.http_status(error), {'error': error.to_dict()})

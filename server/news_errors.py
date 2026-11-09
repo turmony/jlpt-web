@@ -3,11 +3,8 @@ import secrets
 from datetime import datetime
 
 STAGES = {
-    'client': '网页→服务器',
-    'yahoo': '抓取雅虎',
-    'parse': '解析正文',
+    'client': '脚本→服务器',
     'tokenize': '切句分词',
-    'image': '下载图片',
     'gateway': '服务器→qoder2api-hub',
     'model': '模型生成',
     'format': '解析回复',
