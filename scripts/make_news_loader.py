@@ -4,7 +4,7 @@
 
 Only `origin`, `news_sites` and `news_debug` are read from the config; nothing else is printed or written.
 The file name carries the loader version (jlpt-news-v3.user.js), so a copy in the Files app is recognisable;
-without --out, older jlpt-news*.user.js files in build/ are removed. The file is the same text GET /api/news/loader.user.js serves, so after this first placement Userscripts
+without --out, older jlpt-news*.user.js files in the output directory are removed. The file is the same text GET /api/news/loader.user.js serves, so after this first placement Userscripts
 updates the loader itself ("check for updates") whenever the served @version is higher.
 """
 import argparse
@@ -21,7 +21,8 @@ from server.news_sites import LOADER_VERSION, debug_enabled, loader_script, site
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--config', default='/srv/jlpt/state/config.json')
-    parser.add_argument('--out', help='default: build/jlpt-news-v<LOADER_VERSION>.user.js')
+    parser.add_argument('--out', help='exact output file; default: <out-dir>/jlpt-news-v<LOADER_VERSION>.user.js')
+    parser.add_argument('--out-dir', default=str(ROOT / 'build'), help='default: build/ in the repository')
     args = parser.parse_args(argv)
     try:
         config = json.loads(Path(args.config).read_text(encoding='utf-8'))
@@ -29,7 +30,7 @@ def main(argv=None):
         text = loader_script(origin, sites(config), debug=debug_enabled(config))
     except (OSError, ValueError, KeyError) as error:
         sys.exit(f'无法生成加载器：{type(error).__name__}: {error}')
-    out = Path(args.out) if args.out else ROOT / 'build' / f'jlpt-news-v{LOADER_VERSION}.user.js'
+    out = Path(args.out) if args.out else Path(args.out_dir) / f'jlpt-news-v{LOADER_VERSION}.user.js'
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding='utf-8')
     if not args.out:  # an old version next to the new one would run twice if both got placed

@@ -742,3 +742,15 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 258 项（14 项因缺 fugashi 跳过）、`test:client` 13 项、`news-userscript` 浏览器测试 66 项通过；上线后公网端到端检查全部通过，新加载器头部 `@name` 为 `JLPT 新闻查词 v2`，临时设备已作废。
 
 回滚：把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回 `20261109-news-debug` 下对应目录并重启服务。
+
+### 上线记录（2026-11-09，取消令牌）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-no-token`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 已切换，`jlpt.service` 已重启（切换前确认无子进程）。网页提交 `69ee85c`（合并 `feat/news-no-token`）及其后的文件名带版本号提交。上一版本为 `20261109-news-loader-v2`，路径在发布目录的 `previous-release.txt`，发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。静态文件在源码检出里构建，`grammar/images` 用硬链接复用上一版，相对上一版静态目录只少了 `news-script/index.html` 和 `manage.mjs`。
+
+内容：取消令牌与设备管理，删除 `/news-script/` 管理页和各页导航里的入口；新增公开的 `GET /api/news/loader.user.js`（加载器 v3，头部带 `@updateURL` / `@downloadURL`）；`/api/news/*` 接受登录 Cookie 或站点表内的 `Origin`；新增配置项 `news_online_update`（线上 `config.json` 未设置，缺省开启）；`scripts/make_news_loader.py` 在本机生成 `build/jlpt-news-v3.user.js`，文件名带版本号。配置、服务单元、Caddyfile 均未改动。
+
+验证：`test:server` 246 项（news venv，含 fugashi）、`test:client` 13 项、`test:browser`（`browser.test.mjs` 与 `news-userscript.test.mjs`）87 项通过；上线前真实雅虎抽查（`--feed it --per-feed 1`）成功。上线后公网检查：`loader.user.js` 不登录 200，且与本机生成的文件逐字节一致；`client.js` 带雅虎来源 200（67702 字节），无来源或来自其他网站 401；雅虎来源的预检 204（允许 `Authorization, Content-Type`），其他来源 403；雅虎来源的分词 200，其他来源 POST 403；`/api/news/devices`、旧安装地址未登录 401（登录后为 404）；`/news-script/`、`/review/`、`/grammar/`、`/papers.html`、`/code/` 未登录 303。雅虎来源的单句分析走公网 5 次，约 5–8 秒完成，事件以 `done` 结束。
+
+未验证：Userscripts 的「检查更新」是否按 `@downloadURL` 原地替换（需真机）；公网 16 秒限制照旧（见上一条记录）。
+
+回滚：把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回 `20261109-news-loader-v2` 下对应目录并重启服务；旧版需要令牌，回滚后设备上的 v3 加载器（不发令牌）会得到 401，需要重新生成旧版加载器的设备安装一次。`state/news/devices.json` 没有被改动，回滚后旧令牌仍然有效。

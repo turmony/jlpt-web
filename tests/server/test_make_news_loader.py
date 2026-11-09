@@ -30,23 +30,20 @@ class MakeLoaderTests(unittest.TestCase):
             self.assertNotIn('secret-must-not-leak', done.stdout + done.stderr + out.read_text(encoding='utf-8'))
             self.assertIn(out.name, done.stdout)
 
-    def test_default_output_is_named_after_the_version_and_drops_older_copies(self):
-        build = ROOT / 'build'
-        existed = build.exists()
-        stale = build / 'jlpt-news-v1.user.js'
-        try:
-            build.mkdir(exist_ok=True)
+    def test_default_name_has_the_version_and_older_copies_are_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / 'build'  # never the repository's own build/: that holds the real loader
+            out_dir.mkdir()
+            stale = out_dir / 'jlpt-news-v1.user.js'
             stale.write_text('old', encoding='utf-8')
-            with tempfile.TemporaryDirectory() as tmp:
-                self.make(tmp)
-            self.assertTrue((build / f'jlpt-news-v{LOADER_VERSION}.user.js').is_file())
+            unrelated = out_dir / 'notes.txt'
+            unrelated.write_text('keep', encoding='utf-8')
+            done = self.make(tmp, '--out-dir', str(out_dir))
+            named = out_dir / f'jlpt-news-v{LOADER_VERSION}.user.js'
+            self.assertTrue(named.is_file())
+            self.assertIn(named.name, done.stdout)
             self.assertFalse(stale.exists())
-        finally:
-            stale.unlink(missing_ok=True)
-            if not existed:
-                for f in build.glob('*'):
-                    f.unlink()
-                build.rmdir()
+            self.assertTrue(unrelated.exists())
 
 
 if __name__ == '__main__':
