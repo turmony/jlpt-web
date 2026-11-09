@@ -79,7 +79,7 @@ _BODY = r"""(function () {
   const CONFIG = @CONFIG@;
 
   // The failure button is built lazily: at document-start <body> may not exist yet.
-  function showFailure(reason, withLink) {
+  function showFailure(message, withLink) {
     const mount = () => {
       const host = document.createElement('jlpt-news-loader');
       const root = host.attachShadow({ mode: 'closed' });
@@ -96,7 +96,7 @@ _BODY = r"""(function () {
       const panel = document.createElement('div');
       panel.className = 'p';
       panel.hidden = true;
-      panel.append('加载主脚本失败：' + reason);
+      panel.append(message);
       if (withLink) {
         panel.append(document.createElement('br'));
         const link = document.createElement('a');
@@ -121,15 +121,28 @@ _BODY = r"""(function () {
     script.remove();
   }
 
+  function describe(error) {
+    return String((error && error.message) || error);
+  }
+
   function run(code) {
+    let start;
     try {
-      new Function('JLPT_NEWS', code)(CONFIG);
+      start = new Function('JLPT_NEWS', code);
     } catch (error) {
       // Some extension environments forbid eval; fall back to a page <script>.
-      if (error && error.name === 'EvalError') inject(code);
-      else throw error;
+      if (error && error.name === 'EvalError') return inject(code);
+      throw error;
+    }
+    // Kept apart from the eval check, so an error from the running script never runs it twice.
+    try {
+      start(CONFIG);
+    } catch (error) {
+      showFailure('主脚本出错：' + describe(error), false);
     }
   }
+
+  const failed = (reason, withLink) => showFailure('加载主脚本失败：' + reason, withLink);
 
   async function main() {
     let code;
@@ -138,16 +151,16 @@ _BODY = r"""(function () {
         headers: { Authorization: 'Bearer ' + CONFIG.token },
         cache: 'no-store',
       });
-      if (response.status === 401) return showFailure('令牌已失效，请重新安装脚本', true);
-      if (!response.ok) return showFailure('服务器返回 ' + response.status, false);
+      if (response.status === 401) return failed('令牌已失效，请重新安装脚本', true);
+      if (!response.ok) return failed('服务器返回 ' + response.status, false);
       code = await response.text();
     } catch (error) {
-      return showFailure('网络连接失败', false);
+      return failed('网络连接失败', false);
     }
     run(code);
   }
 
-  main();
+  main().catch((error) => failed(describe(error), false));
 })();
 """
 

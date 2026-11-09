@@ -1,4 +1,5 @@
 import copy
+import json
 import re
 import subprocess
 import tempfile
@@ -91,6 +92,66 @@ class SitesTests(unittest.TestCase):
                 path.write_text(text, encoding='utf-8')
                 done = subprocess.run(['node', '--check', str(path)], capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
+
+
+HARNESS = Path(__file__).with_name('news_loader_harness.mjs')
+COUNT = "globalThis.__runs = (globalThis.__runs || 0) + 1; globalThis.__token = JLPT_NEWS.token;"
+
+
+class LoaderRunTests(unittest.TestCase):
+    """Executes the generated loader in Node with a stubbed fetch and DOM."""
+
+    def run_loader(self, **scenario):
+        text = loader_script('https://jlpt.example', 'tok-run', [DEFAULT_SITES[0]])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'loader.user.js'
+            path.write_text(text, encoding='utf-8')
+            done = subprocess.run(['node', str(HARNESS), str(path), json.dumps(scenario)],
+                                  capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        report = json.loads(done.stdout)
+        self.assertEqual(report['unhandled'], [], 'every failure must reach the failure button')
+        return report
+
+    def test_success_runs_the_main_script_once_with_the_config(self):
+        report = self.run_loader(body=COUNT)
+        self.assertEqual(report['requests'], [{'url': 'https://jlpt.example/api/news/client.js',
+                                               'authorization': 'Bearer tok-run'}])
+        self.assertEqual((report['runs'], report['injected'], report['failures']), (1, 0, []))
+        self.assertEqual(report['token'], 'tok-run')
+
+    def test_revoked_token_shows_reason_and_install_link(self):
+        report = self.run_loader(status=401, body=COUNT)
+        self.assertEqual(report['runs'], 0)
+        self.assertEqual(report['failures'], [{'text': '加载主脚本失败：令牌已失效，请重新安装脚本',
+                                               'links': ['https://jlpt.example/news-script/']}])
+
+    def test_server_error_and_network_error(self):
+        report = self.run_loader(status=500, body=COUNT)
+        self.assertEqual(report['failures'], [{'text': '加载主脚本失败：服务器返回 500', 'links': []}])
+        report = self.run_loader(networkError=True)
+        self.assertEqual(report['failures'], [{'text': '加载主脚本失败：网络连接失败', 'links': []}])
+
+    def test_main_script_error_shows_the_failure_button(self):
+        report = self.run_loader(body=COUNT + " throw new Error('boom');")
+        self.assertEqual(report['runs'], 1)
+        self.assertEqual(report['failures'], [{'text': '主脚本出错：boom', 'links': []}])
+
+    def test_eval_error_thrown_by_a_running_main_script_does_not_run_it_again(self):
+        report = self.run_loader(body=COUNT + " throw new EvalError('later');")
+        self.assertEqual((report['runs'], report['injected']), (1, 0))
+        self.assertEqual(report['failures'], [{'text': '主脚本出错：later', 'links': []}])
+
+    def test_without_eval_the_main_script_is_injected_once(self):
+        report = self.run_loader(body=COUNT, noEval=True)
+        self.assertEqual((report['runs'], report['injected'], report['failures']), (1, 1, []))
+        self.assertEqual(report['token'], 'tok-run')
+
+    def test_unparsable_main_script_is_reported(self):
+        report = self.run_loader(body='this is not javascript (')
+        self.assertEqual(report['runs'], 0)
+        self.assertEqual(len(report['failures']), 1)
+        self.assertTrue(report['failures'][0]['text'].startswith('加载主脚本失败：'), report['failures'])
 
 
 if __name__ == '__main__':
