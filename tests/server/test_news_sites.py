@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import re
 import subprocess
@@ -6,7 +7,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from server.news_sites import DEFAULT_SITES, allowed_origins, debug_enabled, loader_script, sites
+from server import news_sites
+from server.news_sites import DEFAULT_SITES, LOADER_VERSION, allowed_origins, debug_enabled, loader_script, sites
+
+# SHA-256 of the loader template (header, body and both overlay variants, placeholders unfilled) per version.
+KNOWN_LOADERS = {2: '19e433483d126383af0f7af072df19ee6051eaaba533980b72461a385b23bc0d'}
 
 
 def site(**changes):
@@ -61,7 +66,10 @@ class SitesTests(unittest.TestCase):
         second = site(name='NHK', origin='https://www3.nhk.or.jp', match='https://www3.nhk.or.jp/news/*')
         text = loader_script('https://jlpt.example', 'tok-123', [DEFAULT_SITES[0], second])
         self.assertTrue(text.startswith('// ==UserScript==\n'))
-        self.assertIn('// @name         JLPT 新闻查词', text)
+        self.assertIn(f'\n// @name         JLPT 新闻查词 v{LOADER_VERSION}\n', text)
+        self.assertIn(f'\n// @version      {LOADER_VERSION}\n', text)
+        self.assertIn(f'加载器已运行 v{LOADER_VERSION} 页面 ', text)
+        self.assertNotIn('@VERSION@', text)
         self.assertIn('// @namespace    https://jlpt.example', text)
         self.assertIn('// @match        https://news.yahoo.co.jp/articles/*', text)
         self.assertIn('// @match        https://www3.nhk.or.jp/news/*', text)
@@ -105,6 +113,29 @@ class SitesTests(unittest.TestCase):
         # A site name that looks like the placeholder stays a name.
         named = loader_script('https://jlpt.example', 'tok', [site(name='@DEBUG@')], debug=False)
         self.assertEqual(config_of(named)['sites'][0]['name'], '@DEBUG@')
+
+    def test_values_that_look_like_placeholders_stay_text(self):
+        for fake in ('@VERSION@', '@BASE@', '@MATCHES@', '@CONFIG@'):
+            for debug in (True, False):
+                with self.subTest(fake=fake, debug=debug):
+                    text = loader_script('https://jlpt.example/' + fake, 'tok', [site(name=fake, match='https://a.example/' + fake)],
+                                         debug=debug)
+                    self.assertEqual(config_of(text)['sites'][0]['name'], fake)
+                    self.assertEqual(config_of(text)['base'], 'https://jlpt.example/' + fake)
+                    self.assertIn(f'\n// @name         JLPT 新闻查词 v{LOADER_VERSION}\n', text)
+                    self.assertIn(f'\n// @version      {LOADER_VERSION}\n', text)
+                    self.assertIn('\n// @namespace    https://jlpt.example/' + fake + '\n', text)
+                    self.assertIn('\n// @match        https://a.example/' + fake + '\n', text)
+                    self.assertEqual(text.count('// @match'), 1)
+
+    def test_loader_version_is_bumped_when_the_loader_changes(self):
+        template = ''.join(getattr(news_sites, name) for name in ('_HEADER', '_BODY', '_DEBUG_ON', '_DEBUG_OFF'))
+        digest = hashlib.sha256(template.encode('utf-8')).hexdigest()
+        self.assertEqual(max(KNOWN_LOADERS), LOADER_VERSION)
+        self.assertEqual(
+            KNOWN_LOADERS.get(LOADER_VERSION), digest,
+            f'loader text changed: bump LOADER_VERSION in server/news_sites.py and add the new hash here '
+            f'(KNOWN_LOADERS[{LOADER_VERSION + 1}] = {digest!r}); current LOADER_VERSION={LOADER_VERSION}')
 
     def test_news_debug_must_be_a_boolean(self):
         self.assertIs(debug_enabled({}), True)
@@ -197,7 +228,7 @@ class LoaderRunTests(unittest.TestCase):
 SAY = ("(typeof JLPT_NEWS.debug === 'function' ? JLPT_NEWS.debug('来自主脚本', 'ok') : "
        "document.dispatchEvent(new CustomEvent('jlpt-news-debug', "
        "{detail: JSON.stringify({message: '来自主脚本', level: 'ok'})})));")
-START = [('加载器已运行 v1 页面 /articles/abc123 readyState=loading', ''), ('匹配的网站: 雅虎新闻', 'ok'),
+START = [(f'加载器已运行 v{LOADER_VERSION} 页面 /articles/abc123 readyState=loading', ''), ('匹配的网站: 雅虎新闻', 'ok'),
          ('正在取主脚本…', '')]
 
 
@@ -265,14 +296,14 @@ class LoaderDebugTests(unittest.TestCase):
     def test_a_page_outside_the_site_table_says_so(self):
         report = self.run_loader(body=COUNT, url='https://news.yahoo.co.jp/articles/abc123/images/000?token=x')
         lines = self.lines(report)
-        self.assertEqual(lines[:2], [('加载器已运行 v1 页面 /articles/abc123/images/000 readyState=loading', ''),
+        self.assertEqual(lines[:2], [(f'加载器已运行 v{LOADER_VERSION} 页面 /articles/abc123/images/000 readyState=loading', ''),
                                      ('当前页面不在网站表内', 'warn')])
         self.assertNotIn('token=x', json.dumps(report['debug'], ensure_ascii=False))
 
     def test_the_overlay_waits_for_the_document_element(self):
         body = COUNT
         report = self.run_loader(body=body, lateRoot=True)
-        self.assertEqual(self.lines(report)[0], ('加载器已运行 v1 页面 /articles/abc123 readyState=loading', ''))
+        self.assertEqual(self.lines(report)[0], (f'加载器已运行 v{LOADER_VERSION} 页面 /articles/abc123 readyState=loading', ''))
         self.assertEqual(self.lines(report)[-1], ('主脚本已执行', 'ok'))
         # A first readystatechange may still come without the root: the overlay waits for the next one.
         report = self.run_loader(body=body, lateRoot='twice')

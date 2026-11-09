@@ -68,7 +68,10 @@ async function withUserscript(device,run,{hub,select,name='iPad'}={}) {
     const loader=await install.text();
     await context.addInitScript(loader);
     const token=JSON.parse(loader.match(/^  const CONFIG = (.*);$/m)[1]).token;
-    await run(page,{app,site,tmp,context,token});
+    // The script name carries the loader version, as the same number in @version and the overlay.
+    const version=loader.match(/^\/\/ @version +(\d+)$/m)[1];
+    assert.equal(loader.match(/^\/\/ @name +(.*)$/m)[1],`JLPT 新闻查词 v${version}`);
+    await run(page,{app,site,tmp,context,token,version});
     assert.deepEqual(errors,[]);
   } finally {await browser?.close();await fixture.stop();await hubFile?.remove();}
 }
@@ -108,14 +111,14 @@ const debugLines=page=>page.locator('jlpt-news-debug .l > div').allInnerTexts();
 const lineIndex=(lines,rx)=>lines.findIndex(line=>rx.test(line));
 
 for(const device of ['iPhone 13','iPad Pro 11']) {
-  test(`the debug overlay traces loading and stays out of the way on ${device}`,()=>withUserscript(device,async(page,{site,token})=>{
+  test(`the debug overlay traces loading and stays out of the way on ${device}`,()=>withUserscript(device,async(page,{site,token,version})=>{
     await page.goto(`${site}/articles/${HEX}`);
     await marked(page);
     await page.locator('jlpt-news-debug .l > div',{hasText:/状态: 就绪/}).waitFor();
     await page.locator('jlpt-news-debug .l > div',{hasText:/已标出 \d+ 个词/}).waitFor();
     const lines=await debugLines(page);
     for(const line of lines) assert.match(line,/^\+\d+ms /);
-    const order=[/加载器已运行 v1 页面 \/articles\/[0-9a-f]+ readyState=/,/匹配的网站: 样例新闻/,/正在取主脚本…/,/主脚本已取到: \d+ 字节/,
+    const order=[new RegExp(`加载器已运行 v${version} 页面 /articles/[0-9a-f]+ readyState=`),/匹配的网站: 样例新闻/,/正在取主脚本…/,/主脚本已取到: \d+ 字节/,
       /执行方式: new Function/,/主脚本已运行/,/站点已匹配: 样例新闻/,/主脚本已执行/,/状态: 就绪/];
     const at=order.map(rx=>lineIndex(lines,rx));
     assert.ok(at.every((n,k)=>n>=0&&(k===0||n>at[k-1])),JSON.stringify({at,lines}));
@@ -160,12 +163,12 @@ for(const device of ['iPhone 13','iPad Pro 11']) {
   }));
 }
 
-test('the debug overlay on a page outside the site table stops after the fetch',()=>withUserscript('iPhone 13',async(page,{site,token})=>{
+test('the debug overlay on a page outside the site table stops after the fetch',()=>withUserscript('iPhone 13',async(page,{site,token,version})=>{
   await page.goto(`${site}/articles/${HEX}/images/000`);
   await page.locator('jlpt-news-debug .l > div',{hasText:'主脚本已执行'}).waitFor();
   await page.waitForTimeout(300);
   const lines=await debugLines(page);
-  const order=[/加载器已运行 v1 页面 \/articles\/[0-9a-f]+\/images\/000 /,/当前页面不在网站表内/,/主脚本已取到: \d+ 字节/,
+  const order=[new RegExp(`加载器已运行 v${version} 页面 /articles/[0-9a-f]+/images/000 `),/当前页面不在网站表内/,/主脚本已取到: \d+ 字节/,
     new RegExp(`当前页面路径不匹配 \\(/articles/${HEX}/images/000\\)`),/主脚本已执行/];
   const at=order.map(rx=>lineIndex(lines,rx));
   assert.ok(at.every((n,k)=>n>=0&&(k===0||n>at[k-1])),JSON.stringify({at,lines}));
