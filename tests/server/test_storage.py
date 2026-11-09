@@ -63,22 +63,63 @@ class DependencyStorageTests(unittest.TestCase):
 
 
 class StaticStorageTests(unittest.TestCase):
+    MARKER = 'copied-tree-marker-7f3a'
+
+    def source_tree(self, root):
+        """A minimal copy of the repository that build-server.mjs can build on its own."""
+        for directory in ('scripts', 'web', 'mobile', 'data'):
+            (root / directory).mkdir(parents=True)
+        for name in ('scripts/build-server.mjs', 'scripts/build-core.mjs', 'scripts/build-news-client.mjs',
+                     'mobile/core-markdown.jsx'):
+            (root / name).write_bytes((ROOT / name).read_bytes())
+        (root / 'news-client').mkdir()
+        for source in (ROOT / 'news-client').iterdir():
+            if source.is_file():
+                (root / 'news-client' / source.name).write_bytes(source.read_bytes())
+        # Proves the build bundles this tree's client, not the one in the current directory.
+        with (root / 'news-client/main.mjs').open('a') as main:
+            main.write("\nglobalThis.__buildMarker = '%s';\n" % self.MARKER)
+        (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
+        for name, content in {'web/papers.html': 'papers', 'mobile/index.html': '<main class="shell">',
+                              'mobile/image-proxy.mjs': 'cloudflare only', 'data/catalog.json': '{}'}.items():
+            (root / name).write_text(content)
+
     def test_build_copies_pages_and_adds_navigation_without_linking_sources(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as elsewhere:
             root = Path(tmp)
-            for directory in ('scripts', 'web', 'mobile', 'data'):
-                (root / directory).mkdir(parents=True)
-            for name in ('scripts/build-server.mjs', 'scripts/build-core.mjs', 'mobile/core-markdown.jsx'):
-                (root / name).write_bytes((ROOT / name).read_bytes())
-            (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
-            for name, content in {'web/papers.html': 'papers', 'mobile/index.html': '<main class="shell">',
-                                  'mobile/image-proxy.mjs': 'cloudflare only', 'data/catalog.json': '{}'}.items():
-                (root / name).write_text(content)
+            self.source_tree(root)
             deployed = root / 'deployment/static'
-            subprocess.run(['node', str(root / 'scripts/build-server.mjs'), str(deployed)], check=True, capture_output=True)
+            subprocess.run(['node', str(root / 'scripts/build-server.mjs'), str(deployed)], check=True,
+                           capture_output=True, cwd=elsewhere)
             self.assertEqual(safe_file(deployed, 'papers.html').read_text(), 'papers')
             self.assertFalse(os.path.samefile(deployed / 'papers.html', root / 'web/papers.html'))
             self.assertFalse((deployed / 'grammar/image-proxy.mjs').exists())
             self.assertTrue((deployed / 'grammar/core-markdown.mjs').is_file())
+            client = (deployed / 'news-script/client.js').read_text()
+            self.assertIn('JLPT_NEWS', client)
+            self.assertIn(self.MARKER, client)
             page = (deployed / 'grammar/index.html').read_text()
-            self.assertIn('<a href="/papers.html">做题</a><a href="/news/">新闻</a><a href="/code/">云开发</a>', page)
+            self.assertIn('<a href="/papers.html">做题</a><a href="/news-script/">新闻脚本</a><a href="/code/">云开发</a>', page)
+
+
+class NewsClientBuildTests(unittest.TestCase):
+    def test_repository_build_works_from_another_directory(self):
+        with tempfile.TemporaryDirectory() as elsewhere, tempfile.TemporaryDirectory() as out:
+            done = subprocess.run(['node', str(ROOT / 'scripts/build-server.mjs'), out], capture_output=True,
+                                  text=True, cwd=elsewhere)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertIn('JLPT_NEWS', (Path(out) / 'news-script/client.js').read_text())
+
+    def test_failed_client_build_exits_loudly_and_leaves_no_stale_client(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as elsewhere:
+            root = Path(tmp)
+            StaticStorageTests().source_tree(root)
+            (root / 'news-client/main.mjs').write_text('import {missing} from "./nowhere.mjs";\n')
+            deployed = root / 'deployment/static'
+            (deployed / 'news-script').mkdir(parents=True)
+            (deployed / 'news-script/client.js').write_text('stale JLPT_NEWS build')
+            done = subprocess.run(['node', str(root / 'scripts/build-server.mjs'), str(deployed)],
+                                  capture_output=True, text=True, cwd=elsewhere)
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn('news-script/client.js', done.stderr)
+            self.assertFalse((deployed / 'news-script/client.js').exists())

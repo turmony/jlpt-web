@@ -1,0 +1,312 @@
+/* Styles inside the <jlpt-news> shadow root; the host page's CSS cannot reach them. */
+:host {
+  all: initial;
+}
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  pointer-events: none;
+  font: 14px/1.5 -apple-system, "Hiragino Sans", "PingFang SC", sans-serif;
+  color: #222;
+}
+.layer > * {
+  pointer-events: auto;
+}
+.news-error-line {
+  all: unset;
+  cursor: pointer;
+  color: #b3261e;
+}
+.news-error-detail {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.news-error-detail dt { float: left; clear: left; margin-right: 8px; color: #666; }
+.news-error-detail dd { margin: 0; }
+.news-error-install { color: #1a73e8; }
+.news-error-retry { margin-left: 4px; }
+.news-progress { margin: 0; color: #666; }
+
+/* Bottom-right status button and its menu (dock.mjs). */
+.news-dock {
+  position: absolute;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.news-dock > * { pointer-events: auto; }
+.news-dock-button {
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 50%;
+  background: #1a73e8;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.news-dock-button[data-state=tokenizing] { background: #5f6368; }
+.news-dock-button[data-state=error] { background: #b3261e; }
+.news-dock-menu {
+  max-width: min(360px, calc(100vw - 24px));
+  max-height: 60vh;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+.news-dock-menu[hidden] { display: none; }
+.news-dock-errors:not(:empty) { margin-bottom: 8px; }
+.news-dock-errors .news-error + .news-error { margin-top: 6px; }
+.news-dock-action { font: inherit; }
+
+/* 「模型：××」 at the top of the dock menu. */
+.news-model-row { margin-bottom: 8px; }
+.news-model {
+  max-width: 100%;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid #c4c7c5;
+  border-radius: 999px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.news-model[aria-expanded="true"] { border-color: #1a73e8; }
+.news-model-panel { margin-top: 6px; }
+.news-model-panel[hidden] { display: none; }
+.news-model-list { list-style: none; margin: 0; padding: 0; }
+.news-model-list button {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.news-model-list button[aria-current="true"] { border-color: #1a73e8; background: #e8f0fe; }
+.news-model-problem:not(:empty) { padding: 6px 4px 2px; }
+
+/* Word card (wordcard.mjs), fixed next to the tapped word. */
+.news-card {
+  position: fixed;
+  z-index: 3; /* above the panel and the dock */
+  width: min(320px, calc(100vw - 16px));
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1px solid #dadce0;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+  font-size: 15px;
+  line-height: 1.6;
+}
+/* Base for the card's controls, with no specificity so every control's own rule wins. */
+:where(.news-card) :where(button) { font: inherit; color: inherit; cursor: pointer; }
+.news-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; }
+.news-card-word { font-size: 22px; font-weight: 600; }
+.news-card-reading { color: #1a73e8; font-size: 16px; }
+.news-card-speak {
+  margin-left: auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 4px 10px;
+  border: 0;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+}
+.news-card-pos, .news-card-lemma { color: #666; font-size: 14px; }
+.news-card-meaning { margin: 6px 0 10px; overflow-wrap: anywhere; }
+.news-card-meaning .news-progress, .news-card-meaning .news-error { margin: 0; }
+.news-card-role {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #c4c7c5;
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+/* Analysis panel (panel.mjs): a bottom sheet (half height, dragged up to full screen); a column over
+   the right 35% on wide landscape screens, so the article on the left stays tappable. */
+.news-panel {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: var(--sheet-height, 55vh);
+  max-height: 100%;
+  border: 1px solid #dadce0;
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: #fff;
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.18);
+}
+.news-panel.is-full { height: var(--sheet-height, 100vh); border-radius: 0; padding-top: env(safe-area-inset-top); }
+.news-panel[hidden] { display: none; }
+@supports (height: 1dvh) {
+  .news-panel { height: var(--sheet-height, 55dvh); }
+  .news-panel.is-full { height: var(--sheet-height, 100dvh); }
+}
+/* Base for the panel's controls, with no specificity so every control's own rule wins. */
+:where(.news-panel) :where(button, input) { font: inherit; color: inherit; }
+.news-panel-head {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  min-height: 44px;
+  padding: 0 max(6px, env(safe-area-inset-right)) 0 6px;
+}
+.news-panel-handle { position: absolute; inset: 0; cursor: grab; touch-action: none; }
+.news-panel.is-dragging .news-panel-handle { cursor: grabbing; }
+.news-panel-handle::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 40px;
+  height: 5px;
+  margin-left: -20px;
+  border-radius: 3px;
+  background: #c4c7c5;
+}
+.news-panel-close {
+  position: relative;
+  z-index: 1;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #666;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.news-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 max(18px, env(safe-area-inset-right)) 12px max(18px, env(safe-area-inset-left));
+  font-size: 16px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.news-panel-section h3 { margin: 14px 0 4px; color: #666; font-size: 13px; font-weight: 600; }
+.news-panel-section:first-child h3 { margin-top: 0; }
+.news-panel-section p { margin: 0; }
+.news-panel-sentence { font-size: 17px; line-height: 1.9; }
+/* Same colour as the selected part on the page (.jlpt-part, main.mjs). */
+.news-panel-part { border-radius: 3px; background: #ffd54f; color: inherit; }
+.news-panel-selection { margin-top: 12px; }
+.news-selection-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+.news-selection-text { font-size: 17px; font-weight: 600; }
+.news-selection-reading { color: #1a73e8; }
+.news-selection-meaning { margin-top: 2px; }
+.news-grammar { list-style: none; margin: 0; padding: 0; }
+.news-grammar-line { display: flex; align-items: center; gap: 10px; }
+.news-grammar-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-height: 40px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.news-grammar-form { flex: 0 0 auto; max-width: 50%; font-weight: 600; }
+.news-grammar-level { flex: 0 0 auto; color: #1a73e8; font-size: 13px; }
+.news-grammar-brief { min-width: 0; color: #666; font-size: 15px; }
+.news-grammar-card { flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 40px; color: #1a73e8; font-size: 14px; }
+.news-grammar-detail { padding: 0 0 8px 14px; font-size: 15px; }
+.news-panel-status .news-progress, .news-panel-status .news-error { margin: 12px 0 0; }
+.news-extra-text { white-space: pre-wrap; color: #666; font-size: 15px; }
+.news-chat-round { margin: 0 0 10px; }
+.news-chat-a { white-space: pre-wrap; }
+.news-chat-slot .news-progress, .news-chat-slot .news-error { margin: 2px 0 0; }
+.news-ask {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 8px max(16px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: #f8f9fa;
+}
+.news-ask-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid #c4c7c5;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 16px; /* 16px or more: iOS does not zoom the page on focus */
+}
+.news-ask-send {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #1a73e8;
+  color: #fff;
+  cursor: pointer;
+}
+.news-ask-send:disabled { background: #c4c7c5; cursor: default; }
+@media (min-width: 900px) and (orientation: landscape) {
+  .news-panel, .news-panel.is-full {
+    top: 0;
+    left: auto;
+    width: 35vw;
+    height: auto;
+    border: 0;
+    border-left: 1px solid #dadce0;
+    border-radius: 0;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.12);
+    padding-top: env(safe-area-inset-top);
+  }
+  .news-panel-handle { display: none; }
+}
+
+/* The dock keeps out of the open panel's way: left of the column, above the sheet, hidden while the
+   sheet is full screen or being dragged. It stays above the panel so its menu is never covered. */
+.news-dock { z-index: 2; }
+.layer.panel-wide .news-dock { right: calc(35vw + 12px); }
+.layer.panel-open:not(.panel-wide) .news-dock { bottom: calc(55vh + 12px); }
+.layer.panel-open:not(.panel-wide) .news-dock-menu { max-height: calc(45vh - 88px); }
+@supports (height: 1dvh) {
+  .layer.panel-open:not(.panel-wide) .news-dock { bottom: calc(55dvh + 12px); }
+  .layer.panel-open:not(.panel-wide) .news-dock-menu { max-height: calc(45dvh - 88px); }
+}
+.layer.panel-full .news-dock, .layer.panel-dragging .news-dock { visibility: hidden; }

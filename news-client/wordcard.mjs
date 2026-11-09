@@ -1,11 +1,13 @@
-import {errorLine, NewsFailure, postJSON, progressLine} from '/news/api.mjs';
-
 // The word card shown next to a tapped word: surface, reading and 朗读 on the first line, then the
-// part of speech, the model's meaning (progress while loading, an error line with 重试 on failure)
-// and 「在本句中的作用」, which fires news:select-part {sentenceId, start: index, end: index} on
-// document. Only one card exists; tapping elsewhere, Escape or a resize closes it.
-// Rapid taps: a lookup is sent LOOKUP_DELAY ms after the tap, so a word tapped over within that time is
-// never asked for, and a newer tap aborts the older request so only the last word's answer is shown.
+// part of speech, the model's meaning (progress while loading, an error line on failure, with 重试
+// when it can be retried) and 「在本句中的作用」, which fires jlpt:select-part
+// {sentenceId, start: index, end: index} on document. Only one card exists, in the <jlpt-news>
+// shadow root's layer, fixed at the word's viewport position; tapping elsewhere, Escape or
+// scrolling the page closes it.
+// Rapid taps: a lookup is sent LOOKUP_DELAY ms after the tap, so a word tapped over within that time
+// is never asked for, and a newer tap aborts the older request so only the last word's answer is shown.
+import {clientInfo, errorLine, NewsFailure, postJSON, progressLine} from './api.mjs';
+
 export const LOOKUP_DELAY = 150;
 
 const POS = {
@@ -14,7 +16,8 @@ const POS = {
   '接頭辞': '接头词', '接尾辞': '接尾词', '補助記号': '符号', '記号': '符号',
 };
 
-let current = null; // {root, tokenEl, token, controller, timer}
+let layer = null;
+let current = null; // {root, tokenEl, token, sentenceId, index, controller, timer, scroll}
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -46,9 +49,18 @@ export function closeWordCard() {
   current = null;
 }
 
+// After a re-render the tapped piece is gone but the word comes back with the same sentence id
+// and index: the card follows its new piece. Only a word that is no longer on the page closes it.
+function anchor(state) {
+  if (state.tokenEl.isConnected) return true;
+  const piece = document.querySelector(`.jlpt-t[data-s="${state.sentenceId}"][data-i="${state.index}"]`);
+  if (piece) state.tokenEl = piece;
+  return !!piece;
+}
+
 // Below the word when it fits, otherwise above it; always inside the viewport.
 function place(state) {
-  if (!state.tokenEl.isConnected) return closeWordCard();
+  if (!anchor(state)) return closeWordCard();
   const rect = state.tokenEl.getClientRects()[0] || state.tokenEl.getBoundingClientRect();
   const width = document.documentElement.clientWidth;
   const height = window.innerHeight;
@@ -60,13 +72,13 @@ function place(state) {
   if (top + cardHeight > height - margin && rect.top - gap - cardHeight >= margin) top = rect.top - gap - cardHeight;
   top = Math.max(margin, Math.min(top, height - margin - cardHeight));
   const left = Math.max(margin, Math.min(rect.left, width - margin - cardWidth));
-  state.root.style.left = `${left + window.scrollX}px`;
-  state.root.style.top = `${top + window.scrollY}px`;
+  state.root.style.left = `${left}px`;
+  state.root.style.top = `${top}px`;
 }
 
 function failureInfo(error) {
   if (error instanceof NewsFailure) return error.info;
-  return {stage: 'client', stage_label: '网页→服务器', location: '', reason: '网页出错', retryable: true, request_id: '', time: ''};
+  return clientInfo(`脚本出错：${error?.message || error}`, '/api/news/gloss');
 }
 
 function lookup(state, meaning) {
@@ -128,21 +140,35 @@ export function showWordCard(tokenEl, token, sentenceId, index) {
   role.type = 'button';
   role.addEventListener('click', () => {
     closeWordCard();
-    document.dispatchEvent(new CustomEvent('news:select-part', {detail: {sentenceId, start: index, end: index}}));
+    document.dispatchEvent(new CustomEvent('jlpt:select-part', {detail: {sentenceId, start: index, end: index}}));
   });
   root.append(meaning, role);
-  document.body.append(root);
+  layer.append(root);
 
-  const state = current = {root, tokenEl, token, controller: new AbortController(), timer: 0};
+  const state = current = {root, tokenEl, token, sentenceId, index, controller: new AbortController(), timer: 0, scroll: [scrollX, scrollY]};
   lookup(state, meaning);
 }
 
-// A press anywhere but the card or another word closes it (a word tap replaces it instead).
-document.addEventListener('pointerdown', event => {
-  if (!current) return;
-  const target = event.target instanceof Element ? event.target : null;
-  if (target && (current.root.contains(target) || target.closest('.news-word'))) return;
-  closeWordCard();
-}, true);
-document.addEventListener('keydown', event => { if (event.key === 'Escape') closeWordCard(); });
-window.addEventListener('resize', () => { if (current) place(current); });
+// Called after the page was re-wrapped: moves an open card to its word's new piece.
+export function anchorWordCard() {
+  if (current) place(current);
+}
+
+// `into`: the shadow root's layer (ui.mjs) the card is put in.
+export function mountWordCard(into) {
+  layer = into;
+  // A press anywhere but the card or another word closes it (a word tap replaces it instead).
+  document.addEventListener('pointerdown', event => {
+    if (!current || event.composedPath().includes(current.root)) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('.jlpt-word')) return;
+    closeWordCard();
+  }, true);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') closeWordCard(); });
+  window.addEventListener('resize', () => { if (current) place(current); });
+  // Only a real move counts: a scroll event that arrives late for a scroll made before the card
+  // opened leaves it alone.
+  window.addEventListener('scroll', () => {
+    if (current && (scrollX !== current.scroll[0] || scrollY !== current.scroll[1])) closeWordCard();
+  }, {passive: true});
+}

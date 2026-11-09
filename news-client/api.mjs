@@ -1,6 +1,26 @@
-// Shared by the news pages: JSON and Server-Sent-Events calls, plus the one-line error display.
+// Shared by the news userscript: JSON and Server-Sent-Events calls to the JLPT server (a different
+// origin from the news page), plus the one-line error display.
 // Every failure carries the same dict the server sends (stage, stage_label, location, reason,
-// retryable, request_id, time); failures the page detects itself are stage 'client' or 'stream'.
+// retryable, request_id, time); failures the script detects itself are stage 'client', 'stream',
+// or one of the script stages 'loader', 'locate', 'mark'.
+
+const config = {base: '', token: '', install: ''};
+
+// Every later request goes to base + path with the device token.
+export function configure({base, token, install}) {
+  config.base = String(base || '').replace(/\/+$/, '');
+  config.token = token || '';
+  config.install = install || '';
+}
+
+// The full address of a page on the JLPT site, e.g. a grammar card link.
+export function siteUrl(path) {
+  return config.base + path;
+}
+
+function headers(extra) {
+  return {...extra, Authorization: 'Bearer ' + config.token};
+}
 
 export class NewsFailure extends Error {
   constructor(info) {
@@ -15,9 +35,16 @@ function clock() {
   return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
-// Errors the browser makes up itself have no request id: the server never saw the request.
-function clientInfo(reason, path = '', retryable = true) {
-  return {stage: 'client', stage_label: '网页→服务器', location: path.split('?')[0], reason, retryable, request_id: '', time: clock()};
+// Errors the script makes up itself have no request id: the server never saw the request.
+export function clientInfo(reason, location = '', retryable = true) {
+  return {stage: 'client', stage_label: '脚本→服务器', location: location.split('?')[0], reason, retryable, request_id: '', time: clock()};
+}
+
+const SCRIPT_STAGES = {loader: '加载主脚本', locate: '找到正文', mark: '标出词'};
+
+// A failure inside the script itself; stage is 'loader', 'locate' or 'mark'.
+export function scriptInfo(stage, reason, location = '', retryable = true) {
+  return {stage, stage_label: SCRIPT_STAGES[stage], location, reason, retryable, request_id: '', time: clock()};
 }
 
 function streamInfo() {
@@ -28,16 +55,15 @@ function isInfo(value) {
   return value && typeof value === 'object' && typeof value.stage === 'string' && typeof value.reason === 'string';
 }
 
-function loginExpired(path) {
-  location.href = '/login.html';
-  return clientInfo('登录已过期', path, false);
-}
-
 // The failure for a non-2xx reply: the server's error dict when it has one, else a client error.
+// A 401 means the device token was revoked; its failure always links to the reinstall page.
 async function failureOf(response, path) {
-  if (response.status === 401) return loginExpired(path);
   let body = null;
   try { body = await response.json(); } catch {}
+  if (response.status === 401) {
+    const info = body && isInfo(body.error) ? body.error : clientInfo('令牌已失效，请重新安装脚本', path, false);
+    return {...info, install: info.install || config.install || config.base + '/news-script/'};
+  }
   if (body && isInfo(body.error)) return body.error;
   const text = body && typeof body.error === 'string' ? `：${body.error}` : '';
   return clientInfo(`服务器返回 ${response.status}${text}`, path);
@@ -46,7 +72,7 @@ async function failureOf(response, path) {
 async function request(path, init) {
   let response;
   try {
-    response = await fetch(path, init);
+    response = await fetch(config.base + path, init);
   } catch (error) {
     throw new NewsFailure(clientInfo('网络连接失败', path));
   }
@@ -59,12 +85,12 @@ async function request(path, init) {
 }
 
 export function getJSON(path) {
-  return request(path, {});
+  return request(path, {headers: headers()});
 }
 
 // `signal` (optional) aborts the request; the caller should then ignore the resulting failure.
 export function postJSON(path, body, {signal} = {}) {
-  return request(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal});
+  return request(path, {method: 'POST', headers: headers({'Content-Type': 'application/json'}), body: JSON.stringify(body), signal});
 }
 
 // Incremental Server-Sent-Events parser: push(text) with decoded chunks of any size.
@@ -104,7 +130,7 @@ const TERMINAL = new Set(['article', 'done', 'error']);
 // POST `body` to an SSE endpoint. Resolves when the stream has ended. Exactly one of article, done
 // or error is the last event; a stream that ends without one is reported as stage 'stream'.
 // Aborting through `signal` ends quietly: no error event, and nothing is delivered after it.
-// An exception thrown by `onEvent` is a page bug, not a stream failure: it rejects the returned
+// An exception thrown by `onEvent` is a script bug, not a stream failure: it rejects the returned
 // promise (after the stream is cancelled) and is never turned into an error event.
 export async function streamSSE(path, body, {signal, onEvent}) {
   let finished = false;
@@ -115,7 +141,7 @@ export async function streamSSE(path, body, {signal, onEvent}) {
   };
   let response;
   try {
-    response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal});
+    response = await fetch(config.base + path, {method: 'POST', headers: headers({'Content-Type': 'application/json'}), body: JSON.stringify(body), signal});
   } catch {
     return emit('error', clientInfo('网络连接失败', path));
   }
@@ -173,6 +199,13 @@ export function errorLine(info, onRetry) {
     line.setAttribute('aria-expanded', String(!detail.hidden));
   });
   root.append(line);
+  if (info.install) {
+    const link = node('a', 'news-error-install', '重新安装');
+    link.href = info.install;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    root.append('　', link);
+  }
   if (info.retryable && onRetry) {
     const retry = node('button', 'news-error-retry', '重试');
     retry.type = 'button';
@@ -183,7 +216,7 @@ export function errorLine(info, onRetry) {
   return root;
 }
 
-// A waiting message such as 正在抓取雅虎（第 2 / 3 页）…; change its textContent as stages move on.
+// A waiting message such as 正在分析…; change its textContent as stages move on.
 export function progressLine(text) {
   const line = node('p', 'news-progress', text);
   line.setAttribute('role', 'status');

@@ -14,7 +14,7 @@ def main():
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
     app = Application(config)
-    start_cleanup(app.news)  # hourly expiry of news articles, images and glosses
+    start_cleanup(app.news)  # hourly expiry of glosses
     server = create_server(app, (args.host, args.port))
 
     def stop(*_):
