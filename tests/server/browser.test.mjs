@@ -612,15 +612,16 @@ test('a 401 from the news api returns to the login page',()=>withNews('iPhone 13
   await page.waitForURL(url+'/login.html');
 }));
 
-test('nav links to news from the review, papers and grammar pages',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
-  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).getAttribute('href'),'/news/');
+test('nav links to the news script page from the review, papers and grammar pages',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
+  const link=()=>page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻脚本'});
+  assert.equal(await link().getAttribute('href'),'/news-script/');
   await page.goto(url+'/papers.html');
-  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).getAttribute('href'),'/news/');
+  assert.equal(await link().getAttribute('href'),'/news-script/');
   await page.goto(url+'/grammar/');await page.locator('#start-reading:not([disabled])').waitFor();
-  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).getAttribute('href'),'/news/');
-  await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻'}).click();
-  await page.waitForURL(url+'/news/');
-  assert.equal(await page.locator('.news-header h1').innerText(),'新闻');
+  assert.equal(await link().getAttribute('href'),'/news-script/');
+  await link().click();
+  await page.waitForURL(url+'/news-script/');
+  assert.equal(await page.locator('h1').innerText(),'新闻脚本');
 }));
 
 test('the news api module parses chunked event streams and reports interrupted ones',()=>withNews('iPhone 13',async(page,url)=>{
