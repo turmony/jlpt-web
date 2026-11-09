@@ -673,7 +673,7 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 ### 状态目录
 
-新闻在 `state/news/` 里只有三个文件：`glossary.sqlite`（查词释义，30 天过期）、`settings.json`（所选模型）、`devices.json`（设备令牌的 SHA-256，令牌本身不落盘）。旧版留下的文章与图片目录由服务启动时的清理自动删除，不需要手动处理。
+新闻在 `state/news/` 里只有三个文件：`glossary.sqlite`（查词释义，30 天过期）、`settings.json`（所选模型）、`devices.json`（设备令牌的 SHA-256，令牌本身不落盘）。`devices.json` 读不出来（损坏或格式不对）时，服务把它改名为 `devices.json.corrupt-<时间>` 留作排查，并在日志里记一行；之后所有设备的旧令牌都失效，各自重装一次加载器即可。旧版留下的文章与图片目录由服务启动时的清理自动删除，不需要手动处理。
 
 ### 回滚
 

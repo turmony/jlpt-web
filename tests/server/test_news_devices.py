@@ -1,8 +1,10 @@
 import hashlib
+import io
 import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from server.news_devices import DeviceStore
 
@@ -88,6 +90,44 @@ class DeviceTests(unittest.TestCase):
         for bad in ['', 'x', None]:
             with self.subTest(token=bad):
                 self.assertIsNone(self.store.check(bad))
+
+    def corrupt(self, content):
+        """Write a broken devices.json; return (the token issued before, the stderr log of the next check)."""
+        _device, token = self.store.install('iPad')
+        (self.dir / 'devices.json').write_text(content, encoding='utf-8')
+        log = io.StringIO()
+        with mock.patch('sys.stderr', log):
+            self.assertIsNone(self.store.check(token))
+        return token, log.getvalue()
+
+    def set_aside(self):
+        return sorted(self.dir.glob('devices.json.corrupt-*'))
+
+    def test_unreadable_file_is_set_aside_and_the_store_starts_empty(self):
+        for content in ('{"devices": [', '', '[]', 'null', '{}', '{"devices": {}}', '{"devices": [1]}',
+                        '{"devices": [{"id": "a"}]}',
+                        '{"devices": [{"id": "a", "name": "x", "installed": 1, "last_used": null, "hash": 5}]}'):
+            with self.subTest(content=content):
+                for old in self.set_aside():
+                    old.unlink()
+                token, log = self.corrupt(content)
+                kept = self.set_aside()
+                self.assertEqual(len(kept), 1)
+                self.assertEqual(kept[0].read_text(encoding='utf-8'), content)  # kept for diagnosis
+                self.assertFalse((self.dir / 'devices.json').exists())
+                self.assertIn('devices.json', log)
+                self.assertIn(kept[0].name, log)
+                self.assertNotIn(token, log)
+                self.assertEqual(self.store.list(), [])
+                device, new_token = self.store.install('iPhone')
+                self.assertEqual(self.store.check(new_token), device['id'])
+                self.assertIsNone(self.store.check(token))
+                self.assertEqual(self.set_aside(), kept)
+
+    def test_each_corrupt_file_is_kept_under_its_own_name(self):
+        self.corrupt('first broken')
+        self.corrupt('second broken')
+        self.assertEqual(sorted(p.read_text() for p in self.set_aside()), ['first broken', 'second broken'])
 
     def test_list_has_no_secrets(self):
         self.store.install('iPad')

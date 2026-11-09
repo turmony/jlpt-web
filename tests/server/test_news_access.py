@@ -256,6 +256,11 @@ class AccessTests(base.NewsHTTPBase):
         self.assertEqual(self.token_status(good, '/api/news/client.js'), 503)
         (Path(self.config['state']) / 'news' / 'devices.json').write_text('{"devices": [', encoding='utf-8')
         self.assertEqual(self.token_status(good), 401)  # unreadable device list: fail closed
+        news_dir = Path(self.config['state']) / 'news'
+        self.assertEqual(len(list(news_dir.glob('devices.json.corrupt-*'))), 1)
+        fresh = self.install_token('iPhone')  # and the device can simply be reinstalled
+        self.assertEqual(self.token_status(fresh), 200)
+        self.assertEqual(self.token_status(good), 401)
         logged = self.stderr.getvalue()
         self.assertIn('令牌已失效', logged)
         for secret in (good, bad, 'Bearer'):

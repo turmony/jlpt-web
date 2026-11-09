@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import secrets
+import sys
 import threading
 import time
 import unicodedata
@@ -17,6 +18,19 @@ FILE_NAME = 'devices.json'
 
 def _digest(token):
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def _valid(data):
+    """The device list of a parsed devices.json; ValueError when it has any other shape."""
+    devices = data.get('devices') if isinstance(data, dict) else None
+    if not isinstance(devices, list):
+        raise ValueError('no device list')
+    for d in devices:
+        if not isinstance(d, dict) or not all(isinstance(d.get(k), str) for k in ('id', 'name', 'hash')) \
+                or not isinstance(d.get('installed'), (int, float)) \
+                or not (d.get('last_used') is None or isinstance(d.get('last_used'), (int, float))):
+            raise ValueError('bad device record')
+    return devices
 
 
 def _clean_name(name):
@@ -36,9 +50,28 @@ class DeviceStore:
         self.lock = threading.Lock()
 
     def _load(self):
-        if not self.file.exists():
+        try:
+            text = self.file.read_text(encoding='utf-8')
+        except FileNotFoundError:
             return []
-        return json.loads(self.file.read_text(encoding='utf-8'))['devices']
+        try:
+            return _valid(json.loads(text))
+        except ValueError as error:  # JSONDecodeError and UnicodeDecodeError are ValueErrors too
+            self._set_aside(error)
+            return []
+
+    def _set_aside(self, error):
+        """Keep an unreadable devices.json for diagnosis and start empty: every device must reinstall."""
+        stamp = time.strftime('%Y%m%d-%H%M%S', time.localtime(self.now()))
+        aside = self.dir / f'{FILE_NAME}.corrupt-{stamp}'
+        n = 1
+        while aside.exists():
+            n += 1
+            aside = self.dir / f'{FILE_NAME}.corrupt-{stamp}-{n}'
+        os.replace(self.file, aside)
+        sys.stderr.write('news devices: %s is unreadable (%s), moved to %s; every device must reinstall\n'
+                         % (FILE_NAME, type(error).__name__, aside.name))
+        sys.stderr.flush()
 
     def _save(self, devices):
         tmp = self.file.with_name(FILE_NAME + '.tmp')
