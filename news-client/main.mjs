@@ -11,12 +11,15 @@ import {mountWordCard} from './wordcard.mjs';
 import {mountPanel} from './panel.mjs';
 
 // The page's own DOM cannot be styled from the shadow root: the selected sentence (.jlpt-sel, pale
-// yellow) and the selected part (.jlpt-part, deeper yellow) are styled from the page's <head>.
+// yellow) and the selected part (.jlpt-part, deeper yellow) are styled from the page's <head>; grey while
+// lifting the finger would cancel the selection (.jlpt-cancel).
 // While the bottom sheet is open (panel.mjs) the page can scroll its end above the sheet.
 const PAGE_CSS = parts => `${parts} { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none }
 .jlpt-t { -webkit-tap-highlight-color: transparent }
 .jlpt-sel { background: #fff3b0; touch-action: none }
 .jlpt-part { background: #ffd54f }
+.jlpt-sel.jlpt-cancel { background: #e0e0e0 }
+.jlpt-part.jlpt-cancel { background: #bdbdbd }
 html[data-jlpt-panel="sheet"] { padding-bottom: calc(55vh + 48px) }`;
 
 const STATES = {tokenizing: '分词中', ready: '就绪', error: '出错'};

@@ -9,7 +9,10 @@
 //   drag on an already selected sentence (a new touch) -> the same part selection, from the touched word
 //   drag anywhere else                  -> the page scrolls as usual
 // While a part is being selected after a long press, a loupe (loupe.mjs) shows the text around the word
-// under the finger. Moving more than 10 px before the 500 ms are up cancels the press. Both events are CustomEvents on document; this module
+// under the finger. A finger farther than CANCEL_DISTANCE_PX from every word of the sentence turns the
+// selection into a cancel (highlight greyed, loupe red): lifting it there selects and analyses nothing and
+// the earlier selection stays; moving back near the sentence takes the cancel back.
+// Moving more than 10 px before the 500 ms are up cancels the press. Both events are CustomEvents on document; this module
 // listens to them as well (whoever fires them) and keeps the highlight in step: every piece of the
 // selected sentence gets .jlpt-sel, the pieces of the selected part's words .jlpt-part (a word cut
 // by inline elements has several pieces). After a re-render the new pieces are painted again.
@@ -18,6 +21,7 @@ import {anchorWordCard, closeWordCard, showWordCard} from './wordcard.mjs';
 
 export const LONG_PRESS_MS = 500;
 export const MOVE_TOLERANCE_PX = 10;
+export const CANCEL_DISTANCE_PX = 100;
 
 let marker = null;
 let roots = () => [];
@@ -37,9 +41,10 @@ export function clearSelection() {
 }
 
 // ---- Selection state ----
-function highlight(sentenceId, start, end) {
+function highlight(sentenceId, start, end, cancel = false) {
   for (const element of document.querySelectorAll('.jlpt-sel')) element.classList.remove('jlpt-sel');
   for (const element of document.querySelectorAll('.jlpt-part')) element.classList.remove('jlpt-part');
+  for (const element of document.querySelectorAll('.jlpt-cancel')) element.classList.remove('jlpt-cancel');
   const found = sentenceId == null ? null : marker.sentence(sentenceId);
   if (!found) return;
   found.spans.forEach((pieces, index) => {
@@ -47,6 +52,7 @@ function highlight(sentenceId, start, end) {
     for (const span of pieces) {
       span.classList.add('jlpt-sel');
       if (part) span.classList.add('jlpt-part');
+      if (cancel) span.classList.add('jlpt-cancel');
     }
   });
 }
@@ -124,6 +130,19 @@ function trimmed(sentenceId, start, end) {
   return start <= end ? [start, end] : null;
 }
 
+// How far (px) the point is from the nearest word of the sentence; 0 on a word.
+function distanceFrom(sentenceId, x, y) {
+  const found = marker.sentence(sentenceId);
+  let nearest = Infinity;
+  for (const span of found ? found.spans.flat() : []) {
+    if (!span.isConnected) continue;
+    for (const rect of span.getClientRects()) {
+      nearest = Math.min(nearest, Math.hypot(Math.max(rect.left - x, 0, x - rect.right), Math.max(rect.top - y, 0, y - rect.bottom)));
+    }
+  }
+  return nearest;
+}
+
 function endPress() {
   if (press) clearTimeout(press.timer);
   press = null;
@@ -167,8 +186,9 @@ function onPointerMove(event) {
   event.preventDefault();
   const index = indexAt(press.sentenceId, event.clientX, event.clientY);
   const [low, high] = [Math.min(press.index, index), Math.max(press.index, index)];
-  highlight(press.sentenceId, low, high);
-  showLoupe(marker.sentence(press.sentenceId), {start: low, end: high, focus: index, x: event.clientX});
+  const cancel = distanceFrom(press.sentenceId, event.clientX, event.clientY) > CANCEL_DISTANCE_PX;
+  highlight(press.sentenceId, low, high, cancel);
+  showLoupe(marker.sentence(press.sentenceId), {start: low, end: high, focus: index, x: event.clientX, cancel});
 }
 
 function onPointerUp(event) {
@@ -183,6 +203,8 @@ function onPointerUp(event) {
     if (!el || !el.classList.contains('jlpt-word')) return;
     showWordCard(el, found.tokens[state.index], state.sentenceId, state.index);
   } else if (state.mode === 'drag') {
+    // Lifted far from the sentence: nothing is selected, the earlier selection (if any) comes back.
+    if (distanceFrom(state.sentenceId, event.clientX, event.clientY) > CANCEL_DISTANCE_PX) return paint();
     const index = indexAt(state.sentenceId, event.clientX, event.clientY);
     const range = trimmed(state.sentenceId, Math.min(state.index, index), Math.max(state.index, index));
     if (range) fire('jlpt:select-part', {sentenceId: state.sentenceId, start: range[0], end: range[1]});
