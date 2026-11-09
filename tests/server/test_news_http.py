@@ -255,7 +255,7 @@ class TokenizeTests(NewsHTTPBase):
         for text, sentences in zip(paragraphs, body['paragraphs']):
             for sentence in sentences:
                 self.assertEqual(list(sentence), ['tokens'])  # no sentence ids
-                self.assertEqual(set(sentence['tokens'][0]), {'s', 'r', 'l', 'p', 't'})
+                self.assertEqual(set(sentence['tokens'][0]) - {'a'}, {'s', 'r', 'l', 'p', 't'})
             self.assertEqual(''.join(t['s'] for s in sentences for t in s['tokens']), text)
         self.assertEqual(''.join(t['s'] for t in body['paragraphs'][0][1]['tokens']), '明日は雨。')
 

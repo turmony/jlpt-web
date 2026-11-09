@@ -352,16 +352,13 @@ const NEWS_DEVICES=['iPad Pro 11','iPhone 13'];
 const failure=(stage,stage_label,reason,extra={})=>({error:{stage,stage_label,location:null,reason,retryable:true,request_id:'n-20261108-a3f9',time:'15:42:07',...extra}});
 const GLOSS_HUB=[['chunks',['<gloss><meaning>势力；力量，强度</meaning></gloss>'],0]];
 
-// Opens the sample article, waits for the marks and records the selection events and speech.
+// Opens the sample article, waits for the marks and records the selection events.
 async function openArticle(page,site,query='') {
   await page.goto(`${site}/articles/${HEX}${query}`);
   await marked(page);
   await page.evaluate(()=>{
     window.__events=[];
     for(const name of ['jlpt:select-sentence','jlpt:select-part']) document.addEventListener(name,event=>window.__events.push([name,event.detail]));
-    window.__spoken=[];
-    // On the prototype: WebKit may drop an expando on the speechSynthesis wrapper between calls.
-    if(window.SpeechSynthesis) SpeechSynthesis.prototype.speak=utterance=>window.__spoken.push([utterance.text,utterance.lang]);
   });
 }
 // Sentence ids by the start of their text (first sentence on the page that starts so).
@@ -425,6 +422,37 @@ function answer(route,{status=200,json}={}) {
 }
 
 for(const device of NEWS_DEVICES) {
+  test(`the word card shows the pitch accent number where it belongs on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A,B,D]=await ids(page,'台風は強い勢力で島に接近する','気象庁は','雨は');
+    const accent=()=>card(page).locator('.news-card-accent');
+    // A noun: after the reading, in the first line.
+    await tap(page,tok(page,A,0));
+    await card(page).waitFor();
+    assert.equal(await accent().innerText(),'音调 [3]');
+    assert.equal(await card(page).locator('.news-card-head .news-card-accent').count(),1);
+    await page.keyboard.press('Escape');
+    // A particle has none: no accent element at all.
+    await tap(page,tok(page,A,1));
+    await card(page).waitFor();
+    assert.equal(await card(page).locator('.news-card-word').innerText(),'は');
+    assert.equal(await accent().count(),0);
+    await page.keyboard.press('Escape');
+    // An inflected word: the number belongs to its 原形 and is shown on that line, not in the first line.
+    await tap(page,tok(page,B,6));
+    await card(page).waitFor();
+    assert.equal(await card(page).locator('.news-card-word').innerText(),'呼びかけ');
+    assert.match(await card(page).locator('.news-card-lemma').innerText(),/原形：呼びかける\s+音调 \[4\]/);
+    assert.equal(await card(page).locator('.news-card-head .news-card-accent').count(),0);
+    assert.equal(await accent().count(),1);
+    await page.keyboard.press('Escape');
+    // Two accents are both shown.
+    const day=await page.evaluate(id=>[...document.querySelectorAll(`.jlpt-t[data-s="${id}"]`)].find(el=>el.textContent==='日')?.dataset.i,D);
+    await tap(page,tok(page,D,Number(day)));
+    await card(page).waitFor();
+    assert.equal(await accent().innerText(),'音调 [1] / [2]');
+  }));
+
   test(`tap word shows reading and gloss; rapid taps keep only last on ${device}`,()=>withUserscript(device,async(page,{site})=>{
     await openArticle(page,site);
     const [A,C]=await ids(page,'台風は強い勢力で島に接近する','港に並ぶ船は');
@@ -440,9 +468,11 @@ for(const device of NEWS_DEVICES) {
     const box=await card(page).boundingBox();const wordBox=await word.boundingBox();const view=page.viewportSize();
     assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=view.width&&box.y+box.height<=view.height,JSON.stringify([box,view]));
     assert.ok(Math.min(Math.abs(box.y-(wordBox.y+wordBox.height)),Math.abs(box.y+box.height-wordBox.y))<=16,JSON.stringify([box,wordBox]));
-    assert.deepEqual(await styleOf(card(page).getByRole('button',{name:'朗读'}),'fontSize'),['18px']);
-    await card(page).getByRole('button',{name:'朗读'}).click();
-    assert.deepEqual(await page.evaluate(()=>window.__spoken),[['勢力','ja-JP']]);
+    // The pitch accent number is shown in words; there is no read-aloud button and no sound.
+    assert.equal(await card(page).locator('.news-card-accent').innerText(),'音调 [1]');
+    assert.equal(await card(page).locator('.news-card-head .news-card-accent').count(),1);
+    assert.deepEqual(await card(page).locator('button').allInnerTexts(),['在本句中的作用']);
+    assert.doesNotMatch(await card(page).innerText(),/🔊/);
     // Tapping elsewhere closes the card.
     await tap(page,tok(page,A,13));
     assert.equal(await card(page).count(),0);
