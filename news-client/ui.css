@@ -123,7 +123,7 @@
 .news-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; }
 .news-card-word { font-size: 22px; font-weight: 600; }
 .news-card-reading { color: #1a73e8; font-size: 16px; }
-.news-card-accent { color: #666; font-size: 14px; }
+.news-card-accent { margin-left: 1px; color: #666; font-size: 0.85em; font-weight: 400; }
 .news-card-pos, .news-card-lemma { color: #666; font-size: 14px; }
 .news-card-meaning { margin: 6px 0 10px; overflow-wrap: anywhere; }
 .news-card-meaning .news-progress, .news-card-meaning .news-error { margin: 0; }

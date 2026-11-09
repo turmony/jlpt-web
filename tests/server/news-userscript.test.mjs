@@ -426,11 +426,21 @@ for(const device of NEWS_DEVICES) {
     await openArticle(page,site);
     const [A,B,D]=await ids(page,'台風は強い勢力で島に接近する','気象庁は','雨は');
     const accent=()=>card(page).locator('.news-card-accent');
-    // A noun: after the reading, in the first line.
+    // A noun: right behind the reading, in the same element and line, no gap between them.
     await tap(page,tok(page,A,0));
     await card(page).waitFor();
-    assert.equal(await accent().innerText(),'音调 [3]');
-    assert.equal(await card(page).locator('.news-card-head .news-card-accent').count(),1);
+    assert.equal(await accent().innerText(),'[3]');
+    assert.equal(await card(page).locator('.news-card-reading').innerText(),'たいふう[3]');
+    assert.equal(await accent().evaluate(node=>node.parentElement.className),'news-card-reading');
+    const [readingBox,numberBox]=await Promise.all([card(page).locator('.news-card-reading').boundingBox(),accent().boundingBox()]);
+    assert.ok(numberBox.x+numberBox.width<=readingBox.x+readingBox.width+1&&numberBox.x>=readingBox.x+readingBox.width-numberBox.width-6,JSON.stringify({readingBox,numberBox}));
+    assert.ok(Math.abs(numberBox.y+numberBox.height/2-(readingBox.y+readingBox.height/2))<=readingBox.height,JSON.stringify({readingBox,numberBox}));
+    await page.keyboard.press('Escape');
+    // A word shown without a reading (kana only) carries the number behind the word itself.
+    await tap(page,tok(page,A,8));
+    await card(page).waitFor();
+    assert.equal(await card(page).locator('.news-card-reading').count(),0);
+    assert.equal(await card(page).locator('.news-card-word').innerText(),'する[0]');
     await page.keyboard.press('Escape');
     // A particle has none: no accent element at all.
     await tap(page,tok(page,A,1));
@@ -438,19 +448,19 @@ for(const device of NEWS_DEVICES) {
     assert.equal(await card(page).locator('.news-card-word').innerText(),'は');
     assert.equal(await accent().count(),0);
     await page.keyboard.press('Escape');
-    // An inflected word: the number belongs to its 原形 and is shown on that line, not in the first line.
+    // An inflected word: the dictionary form's number, right behind the reading; the 原形 line has none.
     await tap(page,tok(page,B,6));
     await card(page).waitFor();
     assert.equal(await card(page).locator('.news-card-word').innerText(),'呼びかけ');
-    assert.match(await card(page).locator('.news-card-lemma').innerText(),/原形：呼びかける\s+音调 \[4\]/);
-    assert.equal(await card(page).locator('.news-card-head .news-card-accent').count(),0);
+    assert.equal(await card(page).locator('.news-card-reading').innerText(),'よびかけ[4]');
+    assert.equal(await card(page).locator('.news-card-lemma').innerText(),'原形：呼びかける');
     assert.equal(await accent().count(),1);
     await page.keyboard.press('Escape');
     // Two accents are both shown.
     const day=await page.evaluate(id=>[...document.querySelectorAll(`.jlpt-t[data-s="${id}"]`)].find(el=>el.textContent==='日')?.dataset.i,D);
     await tap(page,tok(page,D,Number(day)));
     await card(page).waitFor();
-    assert.equal(await accent().innerText(),'音调 [1] / [2]');
+    assert.equal(await accent().innerText(),'[1]/[2]');
   }));
 
   test(`tap word shows reading and gloss; rapid taps keep only last on ${device}`,()=>withUserscript(device,async(page,{site})=>{
@@ -461,16 +471,16 @@ for(const device of NEWS_DEVICES) {
     await tap(page,word);
     await card(page).waitFor();
     assert.equal(await card(page).locator('.news-card-word').innerText(),'勢力');
-    assert.equal(await card(page).locator('.news-card-reading').innerText(),'せいりょく');
+    assert.equal(await card(page).locator('.news-card-reading').innerText(),'せいりょく[1]');
     assert.equal(await card(page).locator('.news-card-pos').innerText(),'名词');
     await card(page).locator('.news-card-meaning',{hasText:'势力；力量，强度'}).waitFor();
     // The card sits next to the word and inside the viewport.
     const box=await card(page).boundingBox();const wordBox=await word.boundingBox();const view=page.viewportSize();
     assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=view.width&&box.y+box.height<=view.height,JSON.stringify([box,view]));
     assert.ok(Math.min(Math.abs(box.y-(wordBox.y+wordBox.height)),Math.abs(box.y+box.height-wordBox.y))<=16,JSON.stringify([box,wordBox]));
-    // The pitch accent number is shown in words; there is no read-aloud button and no sound.
-    assert.equal(await card(page).locator('.news-card-accent').innerText(),'音调 [1]');
-    assert.equal(await card(page).locator('.news-card-head .news-card-accent').count(),1);
+    // The pitch accent number is right behind the reading; there is no read-aloud button and no sound.
+    assert.equal(await card(page).locator('.news-card-accent').innerText(),'[1]');
+    assert.equal(await card(page).locator('.news-card-reading').innerText(),'せいりょく[1]');
     assert.deepEqual(await card(page).locator('button').allInnerTexts(),['在本句中的作用']);
     assert.doesNotMatch(await card(page).innerText(),/🔊/);
     // Tapping elsewhere closes the card.
