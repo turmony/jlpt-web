@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 
 from .llm import Hub, R_UNAVAILABLE
-from .news_devices import DeviceStore
 from .news_errors import NewsError
 from .news_prompts import MAX_HISTORY_ROUNDS, analysis_messages, ask_messages, gloss_messages
 from .news_store import NewsStore
@@ -118,7 +117,6 @@ class NewsService:
         self.config = config
         self.store = NewsStore(state)
         self.store.cleanup()
-        self.devices = DeviceStore(Path(state) / 'news')
         llm = config.get('llm') or {}
         if hub is None and llm.get('base_url'):
             hub = Hub(llm['base_url'], llm.get('api_key') or '')

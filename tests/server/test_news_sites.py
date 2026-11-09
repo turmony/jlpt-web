@@ -8,10 +8,11 @@ import unittest
 from pathlib import Path
 
 from server import news_sites
-from server.news_sites import DEFAULT_SITES, LOADER_VERSION, allowed_origins, debug_enabled, loader_script, sites
+from server.news_sites import DEFAULT_SITES, LOADER_VERSION, allowed_origins, debug_enabled, loader_script, online_update_enabled, sites
 
 # SHA-256 of the loader template (header, body and both overlay variants, placeholders unfilled) per version.
-KNOWN_LOADERS = {2: '19e433483d126383af0f7af072df19ee6051eaaba533980b72461a385b23bc0d'}
+KNOWN_LOADERS = {2: '19e433483d126383af0f7af072df19ee6051eaaba533980b72461a385b23bc0d',
+                 3: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c'}
 
 
 def site(**changes):
@@ -64,7 +65,7 @@ class SitesTests(unittest.TestCase):
 
     def test_loader_has_metadata_matches_and_config(self):
         second = site(name='NHK', origin='https://www3.nhk.or.jp', match='https://www3.nhk.or.jp/news/*')
-        text = loader_script('https://jlpt.example', 'tok-123', [DEFAULT_SITES[0], second])
+        text = loader_script('https://jlpt.example', [DEFAULT_SITES[0], second])
         self.assertTrue(text.startswith('// ==UserScript==\n'))
         self.assertIn(f'\n// @name         JLPT 新闻查词 v{LOADER_VERSION}\n', text)
         self.assertIn(f'\n// @version      {LOADER_VERSION}\n', text)
@@ -77,15 +78,18 @@ class SitesTests(unittest.TestCase):
         self.assertIn('// @inject-into  content', text)
         self.assertIn('// @noframes', text)
         self.assertIn('// ==/UserScript==', text)
-        self.assertIn('tok-123', text)
+        self.assertIn('// @updateURL    https://jlpt.example/api/news/loader.user.js\n', text)
+        self.assertIn('// @downloadURL  https://jlpt.example/api/news/loader.user.js\n', text)
+        self.assertNotIn('token', text.lower())
+        self.assertNotIn('Authorization', text)
         self.assertIn('/api/news/client.js', text)
-        self.assertIn('https://jlpt.example/news-script/', text)
-        for words in ('加载主脚本失败：', '令牌已失效，请重新安装脚本', '服务器返回 ', '网络连接失败'):
+        self.assertNotIn('/news-script/', text)
+        for words in ('加载主脚本失败：', '服务器返回 ', '网络连接失败'):
             self.assertIn(words, text)
 
     def test_loader_escapes_script_end(self):
         evil = site(name='</script>\n// @match evil', match='https://news.yahoo.co.jp/a\n// @grant GM_xmlhttpRequest')
-        text = loader_script('https://jlpt.example', 'tok', [evil])
+        text = loader_script('https://jlpt.example', [evil])
         self.assertNotIn('</script>', text.lower())
         head = text.split('// ==/UserScript==')[0]
         for line in head.splitlines():
@@ -94,7 +98,7 @@ class SitesTests(unittest.TestCase):
 
     def test_loader_is_valid_javascript(self):
         for name, debug in (('雅虎新闻', True), ('</script>', True), ('@DEBUG@', True), ('雅虎新闻', False)):
-            text = loader_script('https://jlpt.example', 'tok', [site(name=name)], debug=debug)
+            text = loader_script('https://jlpt.example', [site(name=name)], debug=debug)
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / 'loader.user.js'
                 path.write_text(text, encoding='utf-8')
@@ -102,8 +106,8 @@ class SitesTests(unittest.TestCase):
             self.assertEqual(done.returncode, 0, done.stderr)
 
     def test_debug_switch_controls_the_overlay_and_config(self):
-        on = loader_script('https://jlpt.example', 'tok', [DEFAULT_SITES[0]])
-        off = loader_script('https://jlpt.example', 'tok', [DEFAULT_SITES[0]], debug=False)
+        on = loader_script('https://jlpt.example', [DEFAULT_SITES[0]])
+        off = loader_script('https://jlpt.example', [DEFAULT_SITES[0]], debug=False)
         self.assertIs(config_of(on)['debug'], True)
         self.assertIs(config_of(off)['debug'], False)
         for marker in ("'jlpt-news-debug'", "mode: 'open'", 'JLPT 调试', '2147483647', 'safe-area-inset-top'):
@@ -111,14 +115,14 @@ class SitesTests(unittest.TestCase):
         for marker in ('jlpt-news-debug', "mode: 'open'", 'JLPT 调试', 'safe-area-inset-top'):
             self.assertNotIn(marker, off)
         # A site name that looks like the placeholder stays a name.
-        named = loader_script('https://jlpt.example', 'tok', [site(name='@DEBUG@')], debug=False)
+        named = loader_script('https://jlpt.example', [site(name='@DEBUG@')], debug=False)
         self.assertEqual(config_of(named)['sites'][0]['name'], '@DEBUG@')
 
     def test_values_that_look_like_placeholders_stay_text(self):
         for fake in ('@VERSION@', '@BASE@', '@MATCHES@', '@CONFIG@'):
             for debug in (True, False):
                 with self.subTest(fake=fake, debug=debug):
-                    text = loader_script('https://jlpt.example/' + fake, 'tok', [site(name=fake, match='https://a.example/' + fake)],
+                    text = loader_script('https://jlpt.example/' + fake, [site(name=fake, match='https://a.example/' + fake)],
                                          debug=debug)
                     self.assertEqual(config_of(text)['sites'][0]['name'], fake)
                     self.assertEqual(config_of(text)['base'], 'https://jlpt.example/' + fake)
@@ -146,16 +150,23 @@ class SitesTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'news_debug'):
                     debug_enabled({'news_debug': bad})
 
-    def test_token_is_only_used_in_the_authorization_header(self):
+    def test_the_loader_carries_no_credentials_and_its_debug_lines_hide_the_config(self):
         for debug in (True, False):
-            text = loader_script('https://jlpt.example', 'tok', [DEFAULT_SITES[0]], debug=debug)
+            text = loader_script('https://jlpt.example', [DEFAULT_SITES[0]], debug=debug)
+            self.assertNotIn('token', json.dumps(config_of(text)))
             body = text.split('// ==/UserScript==')[1]
-            uses = [line.strip() for line in body.splitlines() if 'CONFIG.token' in line]
-            self.assertEqual(uses, ["headers: { Authorization: 'Bearer ' + CONFIG.token },"])
             for line in body.splitlines():
                 if 'debug(' in line:
-                    for secret in ('token', 'Authorization', 'cookie', 'CONFIG)', 'CONFIG.base', 'CONFIG.install'):
+                    for secret in ('Authorization', 'cookie', 'CONFIG)', 'CONFIG.base'):
                         self.assertNotIn(secret, line)
+
+    def test_online_update_must_be_a_boolean(self):
+        self.assertIs(online_update_enabled({}), True)
+        self.assertIs(online_update_enabled({'news_online_update': False}), False)
+        for bad in ('false', 0, None, []):
+            with self.subTest(value=bad):
+                with self.assertRaisesRegex(ValueError, 'news_online_update'):
+                    online_update_enabled({'news_online_update': bad})
 
 
 def config_of(text):
@@ -163,14 +174,14 @@ def config_of(text):
 
 
 HARNESS = Path(__file__).with_name('news_loader_harness.mjs')
-COUNT = "globalThis.__runs = (globalThis.__runs || 0) + 1; globalThis.__token = JLPT_NEWS.token;"
+COUNT = "globalThis.__runs = (globalThis.__runs || 0) + 1; globalThis.__base = JLPT_NEWS.base;"
 
 
 class LoaderRunTests(unittest.TestCase):
     """Executes the generated loader in Node with a stubbed fetch and DOM."""
 
     def run_loader(self, debug=True, **scenario):
-        text = loader_script('https://jlpt.example', 'tok-run', [DEFAULT_SITES[0]], debug=debug)
+        text = loader_script('https://jlpt.example', [DEFAULT_SITES[0]], debug=debug)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'loader.user.js'
             path.write_text(text, encoding='utf-8')
@@ -179,21 +190,18 @@ class LoaderRunTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         report = json.loads(done.stdout)
         self.assertEqual(report['unhandled'], [], 'every failure must reach the failure button')
-        self.assertNotIn('tok-run', json.dumps(report['debug'], ensure_ascii=False))
         return report
 
     def test_success_runs_the_main_script_once_with_the_config(self):
         report = self.run_loader(body=COUNT)
-        self.assertEqual(report['requests'], [{'url': 'https://jlpt.example/api/news/client.js',
-                                               'authorization': 'Bearer tok-run'}])
+        self.assertEqual(report['requests'], [{'url': 'https://jlpt.example/api/news/client.js'}])  # no Authorization
         self.assertEqual((report['runs'], report['injected'], report['failures']), (1, 0, []))
-        self.assertEqual(report['token'], 'tok-run')
+        self.assertEqual(report['base'], 'https://jlpt.example')
 
-    def test_revoked_token_shows_reason_and_install_link(self):
+    def test_a_refusal_is_an_ordinary_server_error(self):
         report = self.run_loader(status=401, body=COUNT)
         self.assertEqual(report['runs'], 0)
-        self.assertEqual(report['failures'], [{'text': '加载主脚本失败：令牌已失效，请重新安装脚本',
-                                               'links': ['https://jlpt.example/news-script/']}])
+        self.assertEqual(report['failures'], [{'text': '加载主脚本失败：服务器返回 401', 'links': []}])
 
     def test_server_error_and_network_error(self):
         report = self.run_loader(status=500, body=COUNT)
@@ -214,7 +222,7 @@ class LoaderRunTests(unittest.TestCase):
     def test_without_eval_the_main_script_is_injected_once(self):
         report = self.run_loader(body=COUNT, noEval=True)
         self.assertEqual((report['runs'], report['injected'], report['failures']), (1, 1, []))
-        self.assertEqual(report['token'], 'tok-run')
+        self.assertEqual(report['base'], 'https://jlpt.example')
 
     def test_unparsable_main_script_is_reported(self):
         report = self.run_loader(body='this is not javascript (')
@@ -257,7 +265,7 @@ class LoaderDebugTests(unittest.TestCase):
         self.assertEqual(report['failures'], [])
 
     def test_failed_fetches_are_red_lines_beside_the_failure_button(self):
-        for scenario, line in (({'status': 401}, '加载主脚本失败: 令牌已失效，请重新安装脚本'),
+        for scenario, line in (({'status': 401}, '加载主脚本失败: 服务器返回 401'),
                                ({'status': 500}, '加载主脚本失败: 服务器返回 500'),
                                ({'networkError': True}, '加载主脚本失败: 网络连接失败（Failed to fetch）')):
             with self.subTest(scenario=scenario):
@@ -318,12 +326,11 @@ class LoaderDebugTests(unittest.TestCase):
                 self.assertIsNone(report['debug'])
                 self.assertEqual(len(report['requests']), 1)
                 self.assertEqual((report['runs'], report['failures'], report['pageErrors']), (1, [], []))
-                self.assertEqual(report['token'], 'tok-run')
+                self.assertEqual(report['base'], 'https://jlpt.example')
                 report = self.run_loader(body=COUNT, noEval=True, brokenOverlay=broken)
                 self.assertEqual((report['runs'], report['injected'], report['failures']), (1, 1, []))
                 report = self.run_loader(status=401, brokenOverlay=broken)
-                self.assertEqual(report['failures'], [{'text': '加载主脚本失败：令牌已失效，请重新安装脚本',
-                                                       'links': ['https://jlpt.example/news-script/']}])
+                self.assertEqual(report['failures'], [{'text': '加载主脚本失败：服务器返回 401', 'links': []}])
                 report = self.run_loader(networkError=True, brokenOverlay=broken)
                 self.assertEqual(report['failures'], [{'text': '加载主脚本失败：网络连接失败', 'links': []}])
 

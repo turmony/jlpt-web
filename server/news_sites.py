@@ -61,14 +61,23 @@ def debug_enabled(config):
     return value
 
 
+def online_update_enabled(config):
+    """`news_online_update`: whether the server hands out the loader and the main script. Optional, default true."""
+    value = config.get('news_online_update', True)
+    if not isinstance(value, bool):
+        raise ValueError(f'news_online_update must be true or false, not {value!r}')
+    return value
+
+
 def allowed_origins(config):
     return {entry['origin'] for entry in sites(config)}
 
 
 # Bump this whenever the generated loader text changes (the header, the overlay or the loader code):
-# an installed loader only updates when the user reinstalls it, while the main script updates without a
-# reinstall. The version is shown in the script name, so a phone's script list tells which loader is installed.
-LOADER_VERSION = 2
+# Userscripts only replaces an installed loader (through @updateURL) when the served @version is higher,
+# while the main script updates on every page load. The version is shown in the script name, so a phone's
+# script list tells which loader is installed.
+LOADER_VERSION = 3
 
 
 def _line(text):
@@ -80,7 +89,9 @@ _HEADER = """// ==UserScript==
 // @name         JLPT 新闻查词 v@VERSION@
 // @namespace    @BASE@
 // @version      @VERSION@
-// @description  在新闻页面上查词、分析句子（令牌只属于这台设备）
+// @description  在新闻页面上查词、分析句子
+// @updateURL    @BASE@/api/news/loader.user.js
+// @downloadURL  @BASE@/api/news/loader.user.js
 @MATCHES@
 // @run-at       document-start
 // @inject-into  content
@@ -92,7 +103,7 @@ _HEADER = """// ==UserScript==
 # the time since the loader started, how far loading got. Only its two buttons take taps; the text
 # lets taps through to the page. The main script adds lines through JLPT_NEWS.debug, or through the
 # 'jlpt-news-debug' event when it runs as an injected <script> (functions do not survive the JSON).
-# Never shows the token, the request headers or CONFIG itself.
+# Never shows the request headers or CONFIG itself.
 _DEBUG_ON = r"""  const debug = (function () {
     // A debug aid must never stop loading: if the overlay cannot be built, lines go nowhere.
     const quiet = function () {};
@@ -218,7 +229,7 @@ _BODY = r"""(function () {
   const CONFIG = @CONFIG@;
 @DEBUG@
   // The failure button is built lazily: at document-start <body> may not exist yet.
-  function showFailure(message, withLink) {
+  function showFailure(message) {
     const mount = () => {
       const host = document.createElement('jlpt-news-loader');
       const root = host.attachShadow({ mode: 'closed' });
@@ -228,7 +239,7 @@ _BODY = r"""(function () {
         'border:0;border-radius:50%;background:#d93025;color:#fff;font:bold 20px sans-serif;cursor:pointer}' +
         '.p{position:fixed;right:16px;bottom:64px;z-index:2147483647;max-width:260px;padding:10px 12px;' +
         'border-radius:8px;background:#fff;color:#222;font:14px/1.5 sans-serif;box-shadow:0 2px 10px #0004}' +
-        '.p[hidden]{display:none}.p a{color:#1a73e8;word-break:break-all}';
+        '.p[hidden]{display:none}';
       const button = document.createElement('button');
       button.className = 'b';
       button.textContent = '!';
@@ -236,14 +247,6 @@ _BODY = r"""(function () {
       panel.className = 'p';
       panel.hidden = true;
       panel.append(message);
-      if (withLink) {
-        panel.append(document.createElement('br'));
-        const link = document.createElement('a');
-        link.href = CONFIG.install;
-        link.textContent = '重新安装';
-        link.target = '_blank';
-        panel.append(link);
-      }
       button.addEventListener('click', () => { panel.hidden = !panel.hidden; });
       root.append(style, button, panel);
       document.documentElement.append(host);
@@ -284,13 +287,13 @@ _BODY = r"""(function () {
       debug('主脚本已执行', 'ok');
     } catch (error) {
       debug('主脚本出错: ' + describe(error), 'error');
-      showFailure('主脚本出错：' + describe(error), false);
+      showFailure('主脚本出错：' + describe(error));
     }
   }
 
-  const failed = (reason, withLink, detail) => {
+  const failed = (reason, detail) => {
     debug('加载主脚本失败: ' + reason + (detail ? '（' + detail + '）' : ''), 'error');
-    showFailure('加载主脚本失败：' + reason, withLink);
+    showFailure('加载主脚本失败：' + reason);
   };
 
   function size(text) {
@@ -301,30 +304,25 @@ _BODY = r"""(function () {
     let code;
     debug('正在取主脚本…');
     try {
-      const response = await fetch(CONFIG.base + '/api/news/client.js', {
-        headers: { Authorization: 'Bearer ' + CONFIG.token },
-        cache: 'no-store',
-      });
-      if (response.status === 401) return failed('令牌已失效，请重新安装脚本', true);
-      if (!response.ok) return failed('服务器返回 ' + response.status, false);
+      const response = await fetch(CONFIG.base + '/api/news/client.js', { cache: 'no-store' });
+      if (!response.ok) return failed('服务器返回 ' + response.status);
       code = await response.text();
     } catch (error) {
-      return failed('网络连接失败', false, describe(error));
+      return failed('网络连接失败', describe(error));
     }
     debug('主脚本已取到: ' + size(code) + ' 字节', 'ok');
     run(code);
   }
 
-  main().catch((error) => failed(describe(error), false));
+  main().catch((error) => failed(describe(error)));
 })();
 """
 
 
-def loader_script(base, token, site_list, debug=True):
-    """The device's `.user.js`. With debug, the loader shows its on-screen trace (see _DEBUG_ON)."""
+def loader_script(base, site_list, debug=True):
+    """The loader `.user.js`, the same for every device. With debug, it shows its on-screen trace (see _DEBUG_ON)."""
     base = base.rstrip('/')
-    config = {'base': base, 'token': token, 'sites': site_list, 'install': base + '/news-script/',
-              'debug': bool(debug)}
+    config = {'base': base, 'sites': site_list, 'debug': bool(debug)}
     # Keep the JSON from ever closing or confusing an inline <script>.
     config_json = json.dumps(config, ensure_ascii=False).replace('</', '<\\/').replace('<!--', '<\\!--')
     matches = '\n'.join(f"// @match        {_line(entry['match'])}" for entry in site_list)

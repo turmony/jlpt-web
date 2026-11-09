@@ -42,8 +42,7 @@ def main():
     context.load_cert_chain(cert, key)
     # Handshake in the request thread, not in accept(): a client that connects and stays silent must not block the server.
     server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
-    _, token = app.news.devices.install('抽查')
-    print(json.dumps({'base': base, 'loader': loader_script(base, token, sites(config))}, ensure_ascii=False), flush=True)
+    print(json.dumps({'base': base, 'loader': loader_script(base, sites(config))}, ensure_ascii=False), flush=True)
 
     def stop(*_):
         raise KeyboardInterrupt

@@ -4,22 +4,16 @@
 // retryable, request_id, time); failures the script detects itself are stage 'client', 'stream',
 // or one of the script stages 'loader', 'locate', 'mark'.
 
-const config = {base: '', token: '', install: ''};
+const config = {base: ''};
 
-// Every later request goes to base + path with the device token.
-export function configure({base, token, install}) {
+// Every later request goes to base + path.
+export function configure({base}) {
   config.base = String(base || '').replace(/\/+$/, '');
-  config.token = token || '';
-  config.install = install || '';
 }
 
 // The full address of a page on the JLPT site, e.g. a grammar card link.
 export function siteUrl(path) {
   return config.base + path;
-}
-
-function headers(extra) {
-  return {...extra, Authorization: 'Bearer ' + config.token};
 }
 
 export class NewsFailure extends Error {
@@ -56,14 +50,9 @@ function isInfo(value) {
 }
 
 // The failure for a non-2xx reply: the server's error dict when it has one, else a client error.
-// A 401 means the device token was revoked; its failure always links to the reinstall page.
 async function failureOf(response, path) {
   let body = null;
   try { body = await response.json(); } catch {}
-  if (response.status === 401) {
-    const info = body && isInfo(body.error) ? body.error : clientInfo('令牌已失效，请重新安装脚本', path, false);
-    return {...info, install: info.install || config.install || config.base + '/news-script/'};
-  }
   if (body && isInfo(body.error)) return body.error;
   const text = body && typeof body.error === 'string' ? `：${body.error}` : '';
   return clientInfo(`服务器返回 ${response.status}${text}`, path);
@@ -85,12 +74,12 @@ async function request(path, init) {
 }
 
 export function getJSON(path) {
-  return request(path, {headers: headers()});
+  return request(path);
 }
 
 // `signal` (optional) aborts the request; the caller should then ignore the resulting failure.
 export function postJSON(path, body, {signal} = {}) {
-  return request(path, {method: 'POST', headers: headers({'Content-Type': 'application/json'}), body: JSON.stringify(body), signal});
+  return request(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal});
 }
 
 // Incremental Server-Sent-Events parser: push(text) with decoded chunks of any size.
@@ -141,7 +130,7 @@ export async function streamSSE(path, body, {signal, onEvent}) {
   };
   let response;
   try {
-    response = await fetch(config.base + path, {method: 'POST', headers: headers({'Content-Type': 'application/json'}), body: JSON.stringify(body), signal});
+    response = await fetch(config.base + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal});
   } catch {
     return emit('error', clientInfo('网络连接失败', path));
   }
@@ -199,13 +188,6 @@ export function errorLine(info, onRetry) {
     line.setAttribute('aria-expanded', String(!detail.hidden));
   });
   root.append(line);
-  if (info.install) {
-    const link = node('a', 'news-error-install', '重新安装');
-    link.href = info.install;
-    link.target = '_blank';
-    link.rel = 'noopener';
-    root.append('　', link);
-  }
   if (info.retryable && onRetry) {
     const retry = node('button', 'news-error-retry', '重试');
     retry.type = 'button';

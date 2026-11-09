@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from . import news, papers, review
 from .auth import Auth, YEAR
 from .news_errors import NewsError
-from .news_sites import allowed_origins, debug_enabled, loader_script, sites
+from .news_sites import allowed_origins, debug_enabled, loader_script, online_update_enabled, sites
 from .papers import safe_file
 from .store import Store, Conflict
 
@@ -28,6 +28,7 @@ class Application:
         self.auth_lock = threading.Lock()
         sites(config)  # a bad news_sites table stops the server at start-up
         debug_enabled(config)  # so does a news_debug that is not true or false
+        online_update_enabled(config)  # and a news_online_update that is not
         self.news = news.NewsService(config, state)
 
 
@@ -61,10 +62,10 @@ def create_server(app, address):
                 self.wfile.write(body)
 
         cors_origin = None
-        via_token = False
 
         def cors_headers(self, preflight=False):
             # Only origins from the news site table; no credentials, so cookies never cross sites.
+            # Authorization stays allowed: loaders installed before tokens were dropped still send it (ignored).
             if self.cors_origin:
                 self.send_header('Access-Control-Allow-Origin', self.cors_origin)
                 self.send_header('Vary', 'Origin')
@@ -80,16 +81,6 @@ def create_server(app, address):
             except ValueError:
                 return None
             return origin if origin and path.startswith('/api/news/') and origin in listed else None
-
-        def device(self):
-            """The device id for `Authorization: Bearer <token>`, or None. Never raises, never logs the token."""
-            header = self.headers.get('Authorization') or ''
-            token = header[len('Bearer '):] if header.startswith('Bearer ') else ''
-            try:
-                return app.news.devices.check(token)
-            except Exception as error:
-                app.news.log_error({'stage': 'client', 'reason': '令牌检查失败：' + type(error).__name__}, self.path)
-                return None
 
         def token(self):
             try:
@@ -153,11 +144,10 @@ def create_server(app, address):
             path = unquote(parsed.path)
             post = self.command == 'POST'
             news_path = path.startswith('/api/news/')
-            self.via_token = False
             self.cors_origin = self.listed_origin(path)
-            # A token request is judged by its token below (a bad one earns the 401 the script can act on).
-            token_mode = news_path and self.headers.get('Authorization') is not None
-            if post and self.headers.get('Origin') != app.config['origin'] and not (token_mode and self.cors_origin):
+            # No tokens while the userscript is under development: a news request from a site in the table
+            # needs no login (its page cannot send our cookie). Anything else follows the usual rules.
+            if post and self.headers.get('Origin') != app.config['origin'] and not self.cors_origin:
                 self.close_connection = True
                 return self.reply(403, {'error': '请求来源不匹配'})
             if path == '/api/login' and post:
@@ -176,14 +166,10 @@ def create_server(app, address):
                 return self.reply(200, {'ok': True}, headers={'Set-Cookie': self.cookie(token)})
             if path in ('/login.html', '/login.mjs', '/site.css') and not post:
                 return self.static(path)
+            if path == '/api/news/loader.user.js' and not post:  # public: Userscripts fetches it without our cookie
+                return self.news_route(path[len('/api/news'):], post)
             token = self.token()
-            if token_mode:
-                if self.device() is None:
-                    error = NewsError('client', '令牌已失效，请重新安装脚本', retryable=False)
-                    app.news.log_error(error, self.path)
-                    return self.reply(401, {'error': dict(error.to_dict(), install=app.config['origin'] + '/news-script/')})
-                self.via_token = True
-            elif not app.auth.check(token):
+            if not (news_path and self.cors_origin) and not app.auth.check(token):
                 return self.reply(401, {'error': '请登录'})
             if path == '/auth/check':
                 return self.reply(200, {'ok': True})
@@ -194,7 +180,7 @@ def create_server(app, address):
             if path == '/api/session':
                 return self.reply(200, {'ok': True})
             if path.startswith('/api/news/'):
-                return self.news_route(path[len('/api/news'):], parsed.query, post)
+                return self.news_route(path[len('/api/news'):], post)
             if path.startswith('/api/review/'):
                 return self.review(path[len('/api/review'):], parsed.query, post)
             if path == '/api/quiz/papers' and not post:
@@ -247,7 +233,7 @@ def create_server(app, address):
                     return self.reply(200, review.submit_review(study, review_id, self.json_body().get('answers')))
             self.reply(404, {'error': '页面不存在'})
 
-        def news_route(self, path, query, post):
+        def news_route(self, path, post):
             svc = app.news
 
             def body():
@@ -256,41 +242,18 @@ def create_server(app, address):
                 except (ValueError, TypeError) as error:
                     raise news.client_error(str(error) or '请求格式不对')
             try:
-                raw = urlsplit(self.path).path[len('/api/news'):]  # still percent-encoded
-                if path == '/client.js' and not post:
+                if path in ('/client.js', '/loader.user.js') and not post:
+                    if not online_update_enabled(app.config):
+                        return self.reply(404, {'error': '在线更新已关闭'})
+                    if path == '/loader.user.js':
+                        script = loader_script(app.config['origin'], sites(app.config), debug=debug_enabled(app.config))
+                        return self.reply(200, script.encode('utf-8'), 'text/javascript; charset=utf-8')
                     file = Path(app.config['static']) / 'news-script' / 'client.js'
                     try:
                         code = file.read_bytes()
                     except OSError:
                         return self.reply(503, {'error': '主脚本未构建'})
                     return self.reply(200, code, 'text/javascript; charset=utf-8')
-                install = re.fullmatch(r'/install/([^/]+)/jlpt-news\.user\.js', raw)
-                if install or path in ('/devices', '/devices/revoke'):
-                    if self.via_token:
-                        return self.reply(403, {'error': '令牌不能管理设备'})
-                if install and self.command == 'GET':  # a HEAD must not mint a token
-                    try:
-                        name = unquote(install[1], errors='strict')
-                    except UnicodeDecodeError:
-                        raise ValueError('设备名称无效')
-                    _device, token = svc.devices.install(name)
-                    headers = {}
-                    if parse_qs(query).get('download') == ['1']:
-                        headers['Content-Disposition'] = 'attachment; filename="jlpt-news.user.js"'
-                    script = loader_script(app.config['origin'], token, sites(app.config),
-                                           debug=debug_enabled(app.config))
-                    return self.reply(200, script.encode('utf-8'), 'text/javascript; charset=utf-8', headers)
-                if path == '/devices' and not post:
-                    return self.reply(200, {'devices': svc.devices.list()})
-                if path == '/devices/revoke' and post:
-                    device_id = body().get('id')
-                    if not isinstance(device_id, str):
-                        raise news.client_error('设备编号无效')
-                    try:
-                        svc.devices.revoke(device_id)
-                    except KeyError:
-                        return self.reply(404, {'error': '设备不存在'})
-                    return self.reply(200, {'ok': True})
                 if path == '/models' and not post:
                     return self.reply(200, svc.models())
                 if path == '/settings' and post:

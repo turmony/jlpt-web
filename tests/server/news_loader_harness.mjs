@@ -11,7 +11,7 @@ import vm from 'node:vm';
 
 const [loaderPath, scenarioText] = process.argv.slice(2);
 const scenario = JSON.parse(scenarioText);
-const report = {requests: [], injected: 0, failures: [], unhandled: [], pageErrors: [], listenerErrors: [], runs: 0, token: null, debug: null};
+const report = {requests: [], injected: 0, failures: [], unhandled: [], pageErrors: [], listenerErrors: [], runs: 0, base: null, debug: null};
 
 process.on('unhandledRejection', (error) => report.unhandled.push(String(error && error.message || error)));
 process.on('uncaughtException', (error) => report.unhandled.push(String(error && error.message || error)));
@@ -145,6 +145,6 @@ for (const host of documentElement.children) {
   report.failures.push({text: panel.children.filter((c) => typeof c === 'string').join(''), links});
 }
 report.runs = vm.runInContext('globalThis.__runs || 0', context);
-report.token = vm.runInContext('globalThis.__token || null', context);
+report.base = vm.runInContext('globalThis.__base || null', context);
 report.debugType = vm.runInContext('globalThis.__debugType || null', context);
 console.log(JSON.stringify(report));
