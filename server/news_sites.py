@@ -65,15 +65,21 @@ def allowed_origins(config):
     return {entry['origin'] for entry in sites(config)}
 
 
+# Bump this whenever the generated loader text changes (the header, the overlay or the loader code):
+# an installed loader only updates when the user reinstalls it, while the main script updates without a
+# reinstall. The version is shown in the script name, so a phone's script list tells which loader is installed.
+LOADER_VERSION = 2
+
+
 def _line(text):
     """Collapse any line breaks so a value stays on one `//` metadata line."""
     return ' '.join(str(text).split())
 
 
 _HEADER = """// ==UserScript==
-// @name         JLPT 新闻查词
+// @name         JLPT 新闻查词 v@VERSION@
 // @namespace    @BASE@
-// @version      1
+// @version      @VERSION@
 // @description  在新闻页面上查词、分析句子（令牌只属于这台设备）
 @MATCHES@
 // @run-at       document-start
@@ -189,7 +195,7 @@ _DEBUG_ON = r"""  const debug = (function () {
         if (!injectedEnded) debug('注入的主脚本没有运行（可能被网页的安全策略拦截）', 'error');
       };
 
-      debug('加载器已运行 v1 页面 ' + location.pathname + ' readyState=' + document.readyState);
+      debug('加载器已运行 v@VERSION@ 页面 ' + location.pathname + ' readyState=' + document.readyState);
       try {
         const site = CONFIG.sites.find((s) => s.origin === location.origin && new RegExp(s.path).test(location.pathname));
         if (site) debug('匹配的网站: ' + site.name, 'ok');
@@ -322,7 +328,9 @@ def loader_script(base, token, site_list, debug=True):
     # Keep the JSON from ever closing or confusing an inline <script>.
     config_json = json.dumps(config, ensure_ascii=False).replace('</', '<\\/').replace('<!--', '<\\!--')
     matches = '\n'.join(f"// @match        {_line(entry['match'])}" for entry in site_list)
-    header = _HEADER.replace('@BASE@', _line(base)).replace('@MATCHES@', matches)
-    # The placeholder for the debug code goes first: the config may contain any text.
-    body = _BODY.replace('@DEBUG@', _DEBUG_ON if debug else _DEBUG_OFF)
+    # One pass over the header, so a value that looks like another placeholder stays text.
+    values = {'@VERSION@': str(LOADER_VERSION), '@BASE@': _line(base), '@MATCHES@': matches}
+    header = re.sub('@VERSION@|@BASE@|@MATCHES@', lambda found: values[found[0]], _HEADER)
+    # The placeholder for the debug code goes first: the config may contain any text, so it goes last.
+    body = _BODY.replace('@DEBUG@', _DEBUG_ON if debug else _DEBUG_OFF).replace('@VERSION@', str(LOADER_VERSION))
     return header + body.replace('@CONFIG@', config_json)
