@@ -637,11 +637,11 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 没有令牌、没有设备列表，也没有管理页；所有设备用同一个加载器。每台要用的 iPad / iPhone 手动放置**一次**，之后加载器和主脚本都通过网络更新：
 
 1. 在 App Store 安装 Userscripts，在 Safari 设置里启用扩展，并允许它在 `news.yahoo.co.jp` 上运行。
-2. 在服务器的仓库检出里生成加载器：`python3 scripts/make_news_loader.py`。它只读 `/srv/jlpt/state/config.json` 里的 `origin`、`news_sites`、`news_debug`（可用 `--config` 指定别的配置，`--out` 指定输出），写出 `build/jlpt-news.user.js`（`build/` 已被 git 忽略）。内容与 `GET /api/news/loader.user.js` 完全相同。
-3. 把这个文件放进设备上 Userscripts 的脚本文件夹，只此一次。再次生成同名文件覆盖即可，不要另存成带 `(1)` 的副本。
+2. 在服务器的仓库检出里生成加载器：`python3 scripts/make_news_loader.py`。它只读 `/srv/jlpt/state/config.json` 里的 `origin`、`news_sites`、`news_debug`（可用 `--config` 指定别的配置，`--out` 指定输出），写出 `build/jlpt-news-v<版本>.user.js`（如 `jlpt-news-v3.user.js`，`build/` 已被 git 忽略；文件名带加载器版本号，`build/` 里更老的版本文件会被删除）。内容与 `GET /api/news/loader.user.js` 完全相同。
+3. 把这个文件放进设备上 Userscripts 的脚本文件夹，只此一次。以后换了新版本文件（文件名里的版本号变了），**先删掉脚本文件夹里旧版本的文件**再放新的，否则两个版本的加载器会同时运行；不要另存成带 `(1)` 的副本。
 4. 以后加载器升版本（`LOADER_VERSION` 提高）后，在 Userscripts 里点「检查更新」：它按头部的 `@updateURL` / `@downloadURL`（都是 `/api/news/loader.user.js`，**不需要登录**）原地替换，不会产生重复文件。主脚本每次打开文章页都由加载器从 `/api/news/client.js` 取最新版，不用任何操作。
 
-> 「检查更新原地替换、不产生重复」依赖 Userscripts 对 `@downloadURL` 的处理，上线后要在真机上实测一次；若不行，退路是重新放置同名文件。
+> 「检查更新原地替换、不产生重复」依赖 Userscripts 对 `@downloadURL` 的处理，上线后要在真机上实测一次；若不行，退路是删掉旧版本文件、放置新版本文件。
 
 已按旧流程（带令牌的加载器）装过的设备不必立刻处理：旧加载器仍会发 `Authorization` 头，服务器忽略它，照常工作；只是没有自更新能力，想要时按上面第 2、3 步放置一次 v3 即可。
 
