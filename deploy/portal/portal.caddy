@@ -1,0 +1,12 @@
+# Navigation page for turmony.site / www.turmony.site (served over the Cloudflare Tunnel).
+# Only the exact root path on those two hosts; every other host/path keeps its normal behaviour.
+@portal {
+    host turmony.site www.turmony.site
+    path / /index.html
+}
+handle @portal {
+    root * /srv/portal
+    rewrite * /index.html
+    header Cache-Control "no-store"
+    file_server
+}
