@@ -309,3 +309,27 @@
   .layer.panel-open:not(.panel-wide) .news-dock-menu { max-height: calc(45dvh - 88px); }
 }
 .layer.panel-full .news-dock, .layer.panel-dragging .news-dock { visibility: hidden; }
+
+/* Loupe while selecting a part by long press and drag (loupe.mjs): larger text around the word under
+   the finger. Colours as on the page (.jlpt-sel, .jlpt-part in main.mjs). Never takes a touch. */
+.layer > .news-loupe {
+  position: fixed;
+  z-index: 4; /* above the card, the panel and the dock */
+  box-sizing: border-box;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #fff;
+  color: #222;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  font-size: 24px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.news-loupe[hidden] { display: none; }
+.news-loupe-text { overflow: hidden; white-space: nowrap; }
+.news-loupe-text[data-left=true]::before, .news-loupe-text[data-right=true]::after { content: "…"; color: #888; }
+.news-loupe-word { margin: 0 1px; padding: 0 1px; border-radius: 3px; background: #fff3b0; }
+.news-loupe-word.part { background: #ffd54f; }
+.news-loupe-word.focus { font-weight: 700; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }

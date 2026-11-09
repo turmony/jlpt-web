@@ -8,10 +8,12 @@
 //                                          jlpt:select-part {sentenceId, start, end}
 //   drag on an already selected sentence (a new touch) -> the same part selection, from the touched word
 //   drag anywhere else                  -> the page scrolls as usual
-// Moving more than 10 px before the 500 ms are up cancels the press. Both events are CustomEvents on document; this module
+// While a part is being selected after a long press, a loupe (loupe.mjs) shows the text around the word
+// under the finger. Moving more than 10 px before the 500 ms are up cancels the press. Both events are CustomEvents on document; this module
 // listens to them as well (whoever fires them) and keeps the highlight in step: every piece of the
 // selected sentence gets .jlpt-sel, the pieces of the selected part's words .jlpt-part (a word cut
 // by inline elements has several pieces). After a re-render the new pieces are painted again.
+import {hideLoupe, showLoupe} from './loupe.mjs';
 import {anchorWordCard, closeWordCard, showWordCard} from './wordcard.mjs';
 
 export const LONG_PRESS_MS = 500;
@@ -125,6 +127,7 @@ function trimmed(sentenceId, start, end) {
 function endPress() {
   if (press) clearTimeout(press.timer);
   press = null;
+  hideLoupe();
 }
 
 function onPointerDown(event) {
@@ -144,6 +147,7 @@ function onPointerDown(event) {
     state.mode = 'held';
     closeWordCard();
     highlight(sentenceId, null, null);
+    showLoupe(marker.sentence(sentenceId), {start: null, end: null, focus: state.index, x: state.x});
   }, LONG_PRESS_MS);
 }
 
@@ -162,7 +166,9 @@ function onPointerMove(event) {
   if (press.mode !== 'drag') return;
   event.preventDefault();
   const index = indexAt(press.sentenceId, event.clientX, event.clientY);
-  highlight(press.sentenceId, Math.min(press.index, index), Math.max(press.index, index));
+  const [low, high] = [Math.min(press.index, index), Math.max(press.index, index)];
+  highlight(press.sentenceId, low, high);
+  showLoupe(marker.sentence(press.sentenceId), {start: low, end: high, focus: index, x: event.clientX});
 }
 
 function onPointerUp(event) {

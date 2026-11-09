@@ -5,6 +5,7 @@ import {configureDebug, debug} from './debug.mjs';
 import {mountUi, injectPageStyle} from './ui.mjs';
 import {mountDock} from './dock.mjs';
 import {Marker} from './marks.mjs';
+import {mountLoupe} from './loupe.mjs';
 import {mountReader} from './reader.mjs';
 import {mountWordCard} from './wordcard.mjs';
 import {mountPanel} from './panel.mjs';
@@ -54,6 +55,7 @@ if (!site) {
   marker = new Marker(site, {onStatus: status => { dock.setStatus(status); logStatus(status); }});
   const logStatus = statusLogger(marker); // onStatus is first called by marker.start()
   mountWordCard(layer);
+  mountLoupe(layer);
   mountPanel(layer, marker);
   mountReader(marker, () => marker.roots);
   // The page itself is left alone until `load` (see marks.mjs); the style goes in with the marks.

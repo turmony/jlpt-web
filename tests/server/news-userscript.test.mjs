@@ -656,6 +656,74 @@ for(const device of NEWS_DEVICES) {
     assert.deepEqual(await events(page),[]);
   }));
 
+  test(`a loupe above the selection follows a long-press drag and goes away on release on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    const loupe=page.locator('jlpt-news .news-loupe');
+    const centre=locator=>locator.evaluate(node=>node.scrollIntoView({block:'center'}));
+    const wordText=index=>tok(page,A,index).evaluate(node=>node.closest('[data-s]') ? [...document.querySelectorAll(`.jlpt-t[data-s="${node.dataset.s}"][data-i="${node.dataset.i}"]`)].map(piece=>piece.textContent).join('') : '');
+    const view=page.viewportSize();
+    // A tap or a plain scroll shows no loupe.
+    await centre(tok(page,A,2));
+    await tap(page,tok(page,A,2));
+    assert.equal(await loupe.count(),0);
+    await page.keyboard.press('Escape');
+    // Held: the loupe is up at once, with the pressed word bold and the whole sentence pale.
+    const from=await at(tok(page,A,2),0.7),to=await at(tok(page,A,5),0.2);
+    await pointer(page,'pointerdown',from);await page.waitForTimeout(650);
+    await loupe.waitFor();
+    assert.equal(await loupe.locator('.news-loupe-word.focus').innerText(),await wordText(2));
+    assert.equal(await loupe.locator('.news-loupe-word.part').count(),0);
+    assert.equal(await loupe.evaluate(node=>getComputedStyle(node).pointerEvents),'none');
+    assert.equal(await loupe.getAttribute('aria-hidden'),'true');
+    const firstLine=await tok(page,A,2).boundingBox();
+    let box=await loupe.boundingBox();
+    assert.ok(box.x>=0&&box.x+box.width<=view.width&&box.y>=0&&box.y+box.height<=firstLine.y+1,JSON.stringify({box,firstLine,view}));
+    // Larger than the page text, and more than the one word: neighbours fill the line.
+    assert.ok(parseFloat(await loupe.evaluate(node=>getComputedStyle(node).fontSize))>=22);
+    assert.ok(await loupe.locator('.news-loupe-word').count()>=3);
+    assert.match(await loupe.innerText(),new RegExp(await wordText(3)));
+    // Dragging: the part is marked, the word under the finger is bold, and the bubble follows.
+    for(let step=1;step<=6;step++) {await page.waitForTimeout(15);await pointer(page,'pointermove',[from[0]+(to[0]-from[0])*step/6,from[1]+(to[1]-from[1])*step/6]);}
+    assert.equal(await loupe.locator('.news-loupe-word.focus').innerText(),await wordText(5));
+    const partWords=await loupe.locator('.news-loupe-word.part').allInnerTexts();
+    assert.equal(partWords.join(''),[await wordText(2),await wordText(3),await wordText(4),await wordText(5)].join(''));
+    box=await loupe.boundingBox();
+    assert.ok(box.x>=0&&box.x+box.width<=view.width&&box.y+box.height<=firstLine.y+1,JSON.stringify({box,firstLine}));
+    assert.ok(Math.abs(box.x-Math.max(8,Math.min(to[0]-box.width/2,view.width-8-box.width)))<=1,'centred on the finger, kept inside the screen');
+    assert.deepEqual(await events(page),[]);
+    await pointer(page,'pointerup',to);
+    assert.equal(await loupe.count(),0);
+    assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:2,end:5}]);
+    // A plain long press shows it too, and the release takes it away; so does a cancelled touch.
+    await pointer(page,'pointerdown',from);await page.waitForTimeout(650);
+    await loupe.waitFor();
+    await pointer(page,'pointerup',from);
+    assert.equal(await loupe.count(),0);
+    await pointer(page,'pointerdown',from);await page.waitForTimeout(650);
+    await loupe.waitFor();
+    await pointer(page,'pointercancel',from);
+    assert.equal(await loupe.count(),0);
+  }));
+
+  test(`the loupe goes below the selection when there is no room above it on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    const loupe=page.locator('jlpt-news .news-loupe');
+    // The sentence at the very top of the viewport (the sample page cannot scroll that far, so its content is shifted up).
+    await tok(page,A,2).evaluate(node=>{const y=node.getBoundingClientRect().top;document.body.style.position='relative';document.body.style.top=`${14-y}px`;});
+    const from=await at(tok(page,A,2),0.5),to=await at(tok(page,A,5),0.2);
+    const line=await tok(page,A,2).boundingBox();
+    assert.ok(line.y<60,JSON.stringify(line));
+    await pointer(page,'pointerdown',from);await page.waitForTimeout(650);
+    for(let step=1;step<=4;step++) {await page.waitForTimeout(15);await pointer(page,'pointermove',[from[0]+(to[0]-from[0])*step/4,from[1]+(to[1]-from[1])*step/4]);}
+    await loupe.waitFor();
+    const box=await loupe.boundingBox();
+    assert.ok(box.y>=line.y+line.height&&box.y+box.height<=page.viewportSize().height,JSON.stringify({box,line}));
+    await pointer(page,'pointerup',to);
+    assert.equal(await loupe.count(),0);
+  }));
+
   test(`drag past sentence end clamps to sentence on ${device}`,()=>withUserscript(device,async(page,{site})=>{
     await openArticle(page,site);
     const [H,A,B]=await ids(page,'台風は強い勢力で島に接近','台風は強い勢力で島に接近する','気象庁は');
