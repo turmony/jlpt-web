@@ -95,6 +95,13 @@ def _lemma(feature, surface):
     return head or lemma
 
 
+def _accent(feature):
+    """UniDic aType: the pitch-accent number(s) of the dictionary form, e.g. '3' or '2,0' ('' when unknown).
+    For an inflected word it is the accent of the lemma, not of the surface form."""
+    numbers = [n.strip() for n in _field(feature, 'aType').split(',')]
+    return ','.join(numbers) if numbers and all(n.isdigit() for n in numbers) else ''
+
+
 def _tappable(surface, pos1, pos2):
     if pos1 in UNTAPPABLE_POS or pos2 == '数詞':
         return False
@@ -104,7 +111,8 @@ def _tappable(surface, pos1, pos2):
 
 
 def tokenize(sentence):
-    """Return [{'s','r','l','p','t'}]: surface, hiragana reading, lemma, pos1, tappable."""
+    """Return [{'s','r','l','p','t'}]: surface, hiragana reading, lemma, pos1, tappable. A token whose
+    pitch accent is known also has 'a' (the number as text, '2,0' when the dictionary gives two)."""
     tagger = _get_tagger()
     with _lock:  # a MeCab tagger is not documented as thread-safe
         words = [(w.surface, w.feature) for w in tagger(sentence)]
@@ -124,13 +132,17 @@ def tokenize(sentence):
         gap(start)
         pos = start + len(surface)
         pos1, pos2 = _field(feature, 'pos1'), _field(feature, 'pos2')
-        tokens.append({
+        token = {
             's': surface,
             'r': _hiragana(_field(feature, 'kana')),
             'l': _lemma(feature, surface),
             'p': pos1,
             't': _tappable(surface, pos1, pos2),
-        })
+        }
+        accent = _accent(feature)
+        if accent:
+            token['a'] = accent
+        tokens.append(token)
     gap(len(sentence))
     return tokens
 

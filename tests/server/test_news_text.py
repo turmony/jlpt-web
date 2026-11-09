@@ -33,6 +33,20 @@ class NewsTextTests(unittest.TestCase):
         self.assertFalse(by['10']['t'])
         self.assertTrue(by['は']['t'])  # particles are tappable
 
+    def test_tokens_carry_the_pitch_accent_number_when_known(self):
+        by = {t['s']: t for t in self.tokenize('台風は強い勢力で島に接近する。')}
+        self.assertEqual({s: by[s].get('a') for s in ('台風', '強い', '勢力', '島', '接近')},
+                         {'台風': '3', '強い': '2', '勢力': '1', '島': '2', '接近': '0'})
+        self.assertNotIn('a', by['は'])  # particles have none
+        self.assertNotIn('a', by['。'])
+        # An inflected word carries the accent of its dictionary form.
+        verb = {t['l']: t for t in self.tokenize('ご飯を食べました')}['食べる']
+        self.assertEqual(verb['a'], '2')
+        # Two accents are kept together, as text.
+        self.assertEqual({t['s']: t.get('a') for t in self.tokenize('明日会議を開く')}['明日'], '2,0')
+        for t in self.tokenize('台風は強い勢力で島に接近する。ぴよぴよ XYZ123'):
+            self.assertTrue(all(part.isdigit() for part in t.get('a', '0').split(',')), t)
+
     def test_symbols_and_fullwidth_digits_are_not_tappable(self):
         by = {t['s']: t for t in self.tokenize('割合は３．５％だった')}
         for s in ('３', '．', '５', '％'):
@@ -49,7 +63,7 @@ class NewsTextTests(unittest.TestCase):
 
     def test_every_token_has_all_fields(self):
         for t in self.tokenize('ぴよぴよ XYZ123 ほげふがうー'):
-            self.assertEqual(set(t), {'s', 'r', 'l', 'p', 't'})
+            self.assertEqual(set(t) - {'a'}, {'s', 'r', 'l', 'p', 't'})
             self.assertTrue(all(isinstance(t[k], str) for k in 'srlp'))
             self.assertIsInstance(t['t'], bool)
 
