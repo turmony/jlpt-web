@@ -878,3 +878,15 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 注意：`feat/news-asahi` 分支（朝日新闻适配）的提交里带了本次新增的关闭按钮测试，但没有实现，也没有改上面那条旧断言；合并该分支前要先合入 main，否则这几项测试会失败。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261109-news-modern-ui/static`，不需要重启。
+
+### 上线记录（2026-11-09，适配朝日新闻）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-asahi`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 都已切换，`jlpt.service` 已重启（切换前确认无子进程）。网页提交 `dda2f1a`（合并 `feat/news-asahi`）。上一版本为 app `20261109-news-resumable-jobs/app`、static `20261109-news-card-close/static`。发布前 SQLite 一致性备份与 `config.json` 在发布目录的 `backup/`。线上 `config.json` 没有 `news_sites`，所以默认表（雅虎加朝日两项）直接生效，配置未改。
+
+内容：网站表加朝日新闻手机版（`/sp/articles/*`）和电脑版（`/articles/*`），可选字段 `wrap`（`load`/`parsed`）让朝日在页面解析完就包词，加载器升到 v4。选择器与依据见上文「新闻网站表」。**设备上要在 Userscripts 里点一次「检查更新」**，加载器 v4 才带有朝日的 `@match`；之后朝日文章页才会运行脚本。
+
+验证：`test:server` 265 项（news venv，4 项按环境条件跳过）、`test:browser` 110 项、`test:client` 27 项通过；`scripts/news_check.mjs --site asahi` 对真实朝日文章 6/6（iPhone 365/167/228 词，iPad 368/174/257 词）。上线后公网：加载器 200，`@name` 为 `JLPT 新闻查词 v4`，三条 `@match`；带朝日来源取 `client.js` 200，与发布目录逐字节一致；无来源 401；朝日来源的预检 204 并回 `access-control-allow-origin: https://www.asahi.com`，陌生来源 403；带朝日来源的分词请求 200，音调字段正常；未登录首页 303；服务日志无错误。**未验证：** 真机 Userscripts 在朝日页面上的实际表现；登录朝日会员后付费文章是否显示全文；多页长文翻页。
+
+安全提示：`/api/news/*` 只看 `Origin` 是否在网站表里，不要凭证（见上文「没有鉴权」）。加入 `www.asahi.com` 后，朝日页面上的任何脚本（含广告脚本）都能调用分词、分析和追问，消耗模型额度。
+
+回滚：把 `/srv/jlpt/app` 切回 `20261109-news-resumable-jobs/app`、`/srv/jlpt/static` 切回 `20261109-news-card-close/static`，`systemctl restart jlpt.service`。回滚后朝日来源被拒；已装 v4 加载器的设备在朝日页面上会显示加载失败按钮，雅虎不受影响。
