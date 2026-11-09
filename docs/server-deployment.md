@@ -669,7 +669,7 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 - 在 iPad 与 iPhone 上，分别在一篇雅虎文章里试：点词（查词卡）、长按选句、拖选、打开面板（分析）、追问各一次。
 - 打开一篇多页文章，翻到第 2 页后确认词仍被标出。
-- 页头选择模型（建议 DeepSeek-Flash）后再试分析与追问；`tests/llm/` 的真实模型测试见上。
+- 点右下角按钮，在菜单里选择模型（建议 DeepSeek-Flash）后再试分析与追问；`tests/llm/` 的真实模型测试见上。
 
 ### 状态目录
 

@@ -34,7 +34,7 @@ MAX_PARAGRAPH = 4000        # a paragraph sent with an analysis or follow-up
 MAX_TOKENS = 400            # words in that sentence
 MAX_TOKEN = 100             # characters in one word
 
-R_NO_MODEL = '请先在页头选择模型'
+R_NO_MODEL = '请先点右下角按钮，在菜单里选择模型'
 R_NO_HUB = '未配置 qoder2api-hub'
 
 _CARD_CUT = re.compile('[：（(]')

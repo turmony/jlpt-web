@@ -232,9 +232,9 @@ class ModelTests(NewsHTTPBase):
         err = self.sse('/api/news/analyze', self.analyze_body())[-1]
         self.assertEqual(err[0], 'error')
         self.assertEqual((err[1]['stage'], err[1]['reason'], err[1]['retryable']),
-                         ('model', '请先在页头选择模型', False))
+                         ('model', '请先点右下角按钮，在菜单里选择模型', False))
         err = self.json('/api/news/gloss', {'lemma': '本', 'reading': 'ほん', 'pos': '名詞'}, status=502)['error']
-        self.assertEqual(err['reason'], '请先在页头选择模型')
+        self.assertEqual(err['reason'], '请先点右下角按钮，在菜单里选择模型')
         self.assertEqual(self.fake.requests, [])
 
     def test_selected_model_gone_reports_unavailable(self):

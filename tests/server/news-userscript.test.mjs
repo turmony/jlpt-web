@@ -997,7 +997,7 @@ for(const device of NEWS_DEVICES) {
     // No model chosen: one error line, nothing to retry, no automatic model switch.
     await pressSentence(page,A);
     await status.locator('.news-error-line').waitFor();
-    assert.equal(await status.innerText(),'模型生成失败（句子分析）：请先在页头选择模型');
+    assert.equal(await status.innerText(),'模型生成失败（句子分析）：请先点右下角按钮，在菜单里选择模型');
     assert.deepEqual(await styleOf(status.locator('.news-error-line'),'color'),[RED]);
     assert.deepEqual(await headings(page),['原文']);
     // The dock stays reachable while the panel is open.
