@@ -3,6 +3,7 @@
 import {configure} from './api.mjs';
 import {configureDebug, debug} from './debug.mjs';
 import {mountUi, injectPageStyle} from './ui.mjs';
+import {mountTheme} from './theme.mjs';
 import {mountDock} from './dock.mjs';
 import {Marker} from './marks.mjs';
 import {mountLoupe} from './loupe.mjs';
@@ -53,6 +54,7 @@ if (!site) {
   debug(`站点已匹配: ${site.name}`, 'ok');
   configure({base: JLPT_NEWS.base});
   const {layer} = mountUi();
+  mountTheme(layer);
   let marker;
   const dock = mountDock(layer, {onRetokenize: () => marker.retokenize()});
   marker = new Marker(site, {onStatus: status => { dock.setStatus(status); logStatus(status); }});

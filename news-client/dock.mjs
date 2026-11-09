@@ -1,8 +1,10 @@
 // The small round button at the bottom right: shows how marking the page is going and opens a
 // menu with the model every news request uses (「模型：××」, a list of the models qoder2api-hub
-// offers; choosing one is saved on the server), the error lines and 重新分词. Lives in the
+// offers; choosing one is saved on the server), the 外观 switch (follow the page / light / dark,
+// theme.mjs), the error lines and 重新分词. Lives in the
 // <jlpt-news> shadow root's layer.
 import {clientInfo, errorLine, getJSON, NewsFailure, postJSON} from './api.mjs';
+import {getThemeMode, onThemeMode, setThemeMode} from './theme.mjs';
 
 const LABELS = {tokenizing: '分词中…', ready: '就绪', error: '出错'};
 
@@ -90,6 +92,27 @@ function modelRow() {
   return {row, load, close: () => setOpen(false)};
 }
 
+const THEMES = [['auto', '跟随页面'], ['light', '浅色'], ['dark', '深色']];
+
+// The 「外观」 row: three buttons in a segmented control; the pressed one is the current mode.
+function themeRow() {
+  const row = node('div', 'news-theme');
+  row.setAttribute('role', 'group');
+  row.setAttribute('aria-label', '外观');
+  const buttons = THEMES.map(([mode, label]) => {
+    const button = node('button', 'news-theme-option', label);
+    button.type = 'button';
+    button.dataset.mode = mode;
+    button.addEventListener('click', () => setThemeMode(mode));
+    return button;
+  });
+  const show = mode => { for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.mode === mode)); };
+  onThemeMode(show);
+  show(getThemeMode());
+  row.append(...buttons);
+  return row;
+}
+
 // -> {setStatus({state, errors})}
 export function mountDock(layer, {onRetokenize}) {
   const dock = node('div', 'news-dock');
@@ -100,7 +123,7 @@ export function mountDock(layer, {onRetokenize}) {
   const retokenize = node('button', 'news-dock-action', '重新分词');
   retokenize.type = 'button';
   retokenize.addEventListener('click', () => onRetokenize());
-  menu.append(model.row, errors, retokenize);
+  menu.append(model.row, themeRow(), errors, retokenize);
   const button = node('button', 'news-dock-button');
   button.type = 'button';
   button.setAttribute('aria-expanded', 'false');
