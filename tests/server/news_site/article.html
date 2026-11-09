@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- Query parameters: ?missing=1 removes the body at DOMContentLoaded; ?rerender=<ms> puts the original
      body markup back after <ms>; ?long=1 replaces the body with 250 paragraphs; ?mismatch=1 adds a
-     paragraph with ズレ, which the fixture tokenizes wrongly on purpose. -->
+     paragraph with ズレ, which the fixture tokenizes wrongly on purpose; ?repeat=1 adds one paragraph
+     twice; ?vanish=<ms> swaps the body for a placeholder after <ms> and renders it back 300 ms later. -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -34,7 +35,24 @@
     var first = body() && body().querySelector('p');
     if (first) first.insertAdjacentHTML('afterend', '<p>ここで分詞がズレます。</p>');
   }
+  if (params.get('repeat') === '1') {
+    // The same paragraph twice at the end of the body (like a repeated caption).
+    var last = body();
+    if (last) last.insertAdjacentHTML('beforeend', '<p>同じ文です。</p><p>同じ文です。</p>');
+  }
   var html = body() && body().innerHTML;
+  if (params.get('vanish')) {
+    // Like a Suspense fallback: the body is swapped for an empty placeholder, then rendered
+    // again inside it 300 ms later.
+    setTimeout(function () {
+      var el = body();
+      if (!el) return;
+      var holder = document.createElement('div');
+      holder.className = 'placeholder';
+      el.replaceWith(holder);
+      setTimeout(function () { holder.innerHTML = '<div class="article_body">' + html + '</div>'; }, 300);
+    }, Number(params.get('vanish')));
+  }
   if (params.get('missing') === '1') {
     document.addEventListener('DOMContentLoaded', function () { var el = body(); if (el) el.remove(); });
   }

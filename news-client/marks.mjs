@@ -161,14 +161,16 @@ export class Marker {
   constructor(site, {onStatus}) {
     this.site = site;
     this.onStatus = onStatus;
-    this.cache = new Map();      // paragraph text -> [{id, tokens}]
+    // paragraph text -> {tokens: one token list per sentence, uses: [[sentence ids]]}: one id set
+    // per copy of that text on the page, so identical paragraphs keep apart and a re-render of
+    // the k-th copy gets the ids it had.
+    this.cache = new Map();
     this.pending = new Map();    // paragraph text -> Promise of its tokenize request
     this.unfit = new Map();      // paragraph text -> its 标出词 error
     this.unsent = new Set();     // paragraph texts whose request failed (until 重新分词)
     this.requestErrors = [];
     this.locateError = null;
     this.sentences = new Map();  // id -> {id, paragraph, tokens, spans}
-    this.wrapped = new Set();    // paragraph texts wrapped at least once
     this.nextId = 1;
     this.inflight = 0;
     this.roots = [];
@@ -208,7 +210,6 @@ export class Marker {
     this.cache.clear();
     this.unfit.clear();
     this.unsent.clear();
-    this.wrapped.clear();
     this.sentences.clear();
     this.requestErrors = [];
     if (this.locateError) return this.locate();
@@ -234,7 +235,10 @@ export class Marker {
     this.listeners.push(callback);
   }
 
+  // Whether a page change may need a pass. While a part is gone (a remount in progress), any
+  // change may be the one that brings it back.
   affects(target) {
+    if (this.roots.length < this.site.parts.length) return true;
     if (target.nodeType !== Node.ELEMENT_NODE) target = target.parentNode;
     if (!target) return false;
     return this.roots.some(root => !root.isConnected || root.contains(target) || target.contains(root));
@@ -248,8 +252,16 @@ export class Marker {
     });
   }
 
+  // Whether some piece of sentence `id` is on the page now.
+  showing(id) {
+    return !!this.sentences.get(id)?.spans.some(pieces => pieces.some(span => span.isConnected));
+  }
+
   // One pass: wrap every unmarked paragraph that has tokens; ask for the ones that do not.
+  // Once the parts were found, a part that goes missing later is not an error: the pass just
+  // marks what is there, and the observer brings the rest back when it returns.
   scan() {
+    const before = new Set(this.sentences.keys()); // a re-wrap reuses ids wrapped before this pass
     const {roots} = findParts(this.site);
     this.roots = roots;
     const blocks = roots.flatMap(root => blocksOf(root));
@@ -258,17 +270,25 @@ export class Marker {
     blocks.forEach((block, n) => {
       const text = block.text;
       if (this.unfit.has(text) || this.unsent.has(text)) return;
-      const sentences = this.cache.get(text);
-      if (!sentences) return ask.push(text);
+      const entry = this.cache.get(text);
+      if (!entry) return ask.push(text);
+      // The first id set no copy on the page shows now (copies earlier in this pass included).
+      let ids = entry.uses.find(set => !set.some(id => this.showing(id)));
+      const fresh = !ids;
+      if (fresh) ids = entry.tokens.map((_, j) => this.nextId + j);
+      const sentences = entry.tokens.map((tokens, j) => ({id: ids[j], tokens}));
       const records = sentences.map(({id, tokens}) => ({id, paragraph: text, tokens, spans: tokens.map(() => [])}));
       const byId = new Map(records.map(record => [record.id, record]));
       if (!wrapBlock(block, sentences, (span, id, i) => byId.get(id).spans[i].push(span))) {
         this.unfit.set(text, scriptInfo('mark', '分词结果和原文对不上', `第 ${n + 1} 段`));
         return;
       }
+      if (fresh) {
+        this.nextId += ids.length;
+        entry.uses.push(ids);
+      }
       for (const record of records) this.sentences.set(record.id, record);
-      if (this.wrapped.has(text)) rewrapped.push(...records.map(record => record.id));
-      this.wrapped.add(text);
+      if (ids.some(id => before.has(id))) rewrapped.push(...ids);
     });
     this.observer.takeRecords(); // our own wrapping is not a page change
     this.marked = true;
@@ -294,7 +314,7 @@ export class Marker {
           throw new NewsFailure(clientInfo('服务器回应格式不对', '/api/news/tokenize'));
         }
         batch.forEach((text, n) => {
-          this.cache.set(text, list[n].map(sentence => ({id: this.nextId++, tokens: sentence.tokens})));
+          this.cache.set(text, {tokens: list[n].map(sentence => sentence.tokens), uses: []});
         });
       }).catch(error => {
         for (const text of batch) this.unsent.add(text);

@@ -253,3 +253,48 @@ test('重新分词 asks the server again and marks every paragraph once',()=>wit
   for (const p of await paragraphs(page)) assert.equal(p.marked,p.text);
   assert.deepEqual(await page.locator('.article_body p').nth(1).locator('b .jlpt-t').allTextContents(),['気']);
 }));
+
+// "<data-s>.<data-i>" of every piece in the paragraphs with exactly `text`, one list per paragraph.
+const piecesOf=(page,text)=>page.evaluate(text=>[...document.querySelectorAll('.article_body p')].filter(p=>p.textContent===text)
+  .map(p=>[...p.querySelectorAll('.jlpt-t')].map(s=>s.dataset.s+'.'+s.dataset.i)),text);
+
+test('identical paragraphs get their own sentence ids, kept across a re-render',()=>withUserscript('iPad (gen 7)',async(page,{site,tmp})=>{
+  await page.goto(`${site}/articles/${HEX}?repeat=1`);
+  await marked(page);
+  let [first,second]=await piecesOf(page,'同じ文です。');
+  assert.ok(first.length>0);
+  assert.equal(second.length,first.length);
+  const sentence=list=>new Set(list.map(piece=>piece.split('.')[0]));
+  assert.equal([...sentence(first)].filter(id=>sentence(second).has(id)).length,0);
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('html').getAttribute('data-jlpt-rewraps'),'0');
+  // The same page re-rendered: each copy is marked again with its own ids from before.
+  await page.goto(`${site}/articles/${HEX}?repeat=1&rerender=1500`);
+  await marked(page);
+  [first,second]=await piecesOf(page,'同じ文です。');
+  assert.equal(await page.locator('html').getAttribute('data-jlpt-rewraps'),'0');
+  const words=await page.locator('.jlpt-word').count();
+  await page.waitForFunction(()=>Number(document.documentElement.dataset.jlptRewraps)>=1,null,{timeout:5000});
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('html').getAttribute('data-jlpt-rewraps'),'1');
+  assert.deepEqual(await piecesOf(page,'同じ文です。'),[first,second]);
+  assert.equal(await page.locator('.jlpt-word').count(),words);
+  for (const p of await paragraphs(page)) assert.equal(p.marked,p.text);
+  assert.equal((await tokenizeRequests(tmp)).length,2); // one per page load
+}));
+
+test('an article body that disappears and comes back is marked again',()=>withUserscript('iPad (gen 7)',async(page,{site,tmp})=>{
+  await page.goto(`${site}/articles/${HEX}?vanish=1500`);
+  await marked(page);
+  const words=await page.locator('.jlpt-word').count();
+  const ids=await page.locator('.article_body .jlpt-t').evaluateAll(spans=>spans.map(s=>s.dataset.s+'.'+s.dataset.i));
+  await page.locator('.placeholder').waitFor({state:'attached'});
+  await page.waitForFunction(n=>document.querySelector('.placeholder .article_body .jlpt-word')&&document.querySelectorAll('.jlpt-word').length===n,words,{timeout:5000});
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('html').getAttribute('data-jlpt-words'),String(words));
+  assert.deepEqual(await page.locator('.article_body .jlpt-t').evaluateAll(spans=>spans.map(s=>s.dataset.s+'.'+s.dataset.i)),ids);
+  for (const p of await paragraphs(page)) assert.equal(p.marked,p.text);
+  // Vanishing after it was found is not a 找到正文 failure.
+  assert.equal(await dockButton(page).innerText(),'就绪');
+  assert.equal((await tokenizeRequests(tmp)).length,1);
+}));
