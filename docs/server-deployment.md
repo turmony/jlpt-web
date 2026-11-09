@@ -754,3 +754,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 未验证：Userscripts 的「检查更新」是否按 `@downloadURL` 原地替换（需真机）；公网 16 秒限制照旧（见上一条记录）。
 
 回滚：把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回 `20261109-news-loader-v2` 下对应目录并重启服务；旧版需要令牌，回滚后设备上的 v3 加载器（不发令牌）会得到 401，需要重新生成旧版加载器的设备安装一次。`state/news/devices.json` 没有被改动，回滚后旧令牌仍然有效。
+
+### 上线记录（2026-11-09，长按后拖选）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-longpress-drag`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261109-news-no-token/app`，服务未重启，加载器仍是 v3，设备上不用操作）。网页提交 `6c1a50e`（合并 `feat/news-longpress-drag`）。上一版本静态目录在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `news-script/client.js` 不同。
+
+内容：长按句子只高亮、松手后才分析；长按后手指不抬继续拖，选出从按下的词到手指下的词的连续范围，松手后只分析这一部分；长按触发后到松手前页面不随手指滚动，触摸取消时撤回高亮。
+
+验证：`test:browser` 93 项、`test:client` 13 项、`test:server` 248 项（news venv）通过，新增的 3 组长按用例在旧代码上失败。上线后公网 `client.js`（带雅虎来源）200，与发布目录逐字节一致，含新逻辑；加载器 200；无来源取 `client.js` 401；各页面未登录 303；服务仍在运行。**未验证：真机上长按后拖动是否被 iOS 抢走手势，需要在 iPad / iPhone 上试。**
+
+回滚：把 `/srv/jlpt/static` 切回 `20261109-news-no-token/static`，不需要重启。
