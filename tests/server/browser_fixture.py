@@ -103,21 +103,32 @@ def fixture_tokenize(sentence):
     return tokens
 
 
+MISFIT = '〓'  # never on the sample page
+
+
 def fixture_sentences(text, start_id):
-    return [{'id': start_id + i, 'tokens': fixture_tokenize(s)} for i, s in enumerate(split_sentences(text))]
+    """fixture_tokenize per sentence. A paragraph containing ズレ gets a first word one character
+    longer than the text (MISFIT appended), so the userscript cannot fit the tokens to it."""
+    sentences = [{'id': start_id + i, 'tokens': fixture_tokenize(s)} for i, s in enumerate(split_sentences(text))]
+    if 'ズレ' in text and sentences:
+        first = sentences[0]['tokens'][0]
+        first['s'] += MISFIT
+    return sentences
 
 
 class _Recorded(list):
-    """FakeHub's request list, mirrored to a JSON file after every append."""
+    """A request list mirrored to a JSON file after every append (requests arrive on several threads)."""
     def __init__(self, path):
         super().__init__()
         self.path = path
+        self._lock = threading.Lock()
 
     def append(self, item):
-        super().append(item)
-        part = self.path.with_suffix('.part')
-        part.write_text(json.dumps(self, ensure_ascii=False), 'utf-8')
-        part.replace(self.path)
+        with self._lock:
+            super().append(item)
+            part = self.path.with_suffix('.part')
+            part.write_text(json.dumps(self, ensure_ascii=False), 'utf-8')
+            part.replace(self.path)
 
 
 class RecordingHub(FakeHub):
@@ -146,7 +157,8 @@ def news_wiring(base):
     Tokenizing uses fixture_sentences instead of fugashi.
     What the FakeHub saw is written to the state dir for the browser tests to read:
       news-hub-requests.json  every chat request body, in arrival order (rewritten on each request)
-      news-hub-disconnects    the number of chat requests whose client (the news server) hung up early"""
+      news-hub-disconnects    the number of chat requests whose client (the news server) hung up early
+      news-tokenize-requests.json  one {"paragraphs": n, "chars": n} per /api/news/tokenize request"""
     spec = {}
     if os.environ.get('NEWS_HUB_SCRIPT'):
         spec = json.loads(Path(os.environ['NEWS_HUB_SCRIPT']).read_text('utf-8'))
@@ -155,6 +167,16 @@ def news_wiring(base):
     hub_server = RecordingHub(base, spec.get('script'), spec.get('models'))
     news_module.to_sentences = fixture_sentences
     service = NewsService(app.config, base, hub=Hub(hub_server.base_url, 'fixture-key'))
+    tokenize_log = _Recorded(base / 'news-tokenize-requests.json')
+    tokenize = service.tokenize
+
+    def logged_tokenize(data):
+        paragraphs = data.get('paragraphs') if isinstance(data, dict) else None
+        if isinstance(paragraphs, list):
+            texts = [p for p in paragraphs if isinstance(p, str)]
+            tokenize_log.append({'paragraphs': len(paragraphs), 'chars': sum(len(p) for p in texts)})
+        return tokenize(data)
+    service.tokenize = logged_tokenize
     if os.environ.get('NEWS_SELECTED_MODEL'):
         service.store.save_settings({'model': os.environ['NEWS_SELECTED_MODEL']})
     app.news = service

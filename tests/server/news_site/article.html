@@ -1,4 +1,7 @@
 <!doctype html>
+<!-- Query parameters: ?missing=1 removes the body at DOMContentLoaded; ?rerender=<ms> puts the original
+     body markup back after <ms>; ?long=1 replaces the body with 250 paragraphs; ?mismatch=1 adds a
+     paragraph with ズレ, which the fixture tokenizes wrongly on purpose. -->
 <html lang="ja">
 <head>
 <meta charset="utf-8">
@@ -26,6 +29,11 @@
 (function () {
   var params = new URLSearchParams(location.search);
   var body = function () { return document.querySelector('.article_body'); };
+  if (params.get('mismatch') === '1') {
+    // Second paragraph of the body; the browser fixture's tokenizer gets this one wrong.
+    var first = body() && body().querySelector('p');
+    if (first) first.insertAdjacentHTML('afterend', '<p>ここで分詞がズレます。</p>');
+  }
   var html = body() && body().innerHTML;
   if (params.get('missing') === '1') {
     document.addEventListener('DOMContentLoaded', function () { var el = body(); if (el) el.remove(); });
