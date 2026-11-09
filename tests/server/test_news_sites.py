@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from server.news_sites import DEFAULT_SITES, allowed_origins, loader_script, sites
+from server.news_sites import DEFAULT_SITES, allowed_origins, debug_enabled, loader_script, sites
 
 
 def site(**changes):
@@ -105,6 +105,15 @@ class SitesTests(unittest.TestCase):
         # A site name that looks like the placeholder stays a name.
         named = loader_script('https://jlpt.example', 'tok', [site(name='@DEBUG@')], debug=False)
         self.assertEqual(config_of(named)['sites'][0]['name'], '@DEBUG@')
+
+    def test_news_debug_must_be_a_boolean(self):
+        self.assertIs(debug_enabled({}), True)
+        self.assertIs(debug_enabled({'news_debug': True}), True)
+        self.assertIs(debug_enabled({'news_debug': False}), False)
+        for bad in ('false', 'true', '0', 'no', None, 0, 1, [], {}):
+            with self.subTest(value=bad):
+                with self.assertRaisesRegex(ValueError, 'news_debug'):
+                    debug_enabled({'news_debug': bad})
 
     def test_token_is_only_used_in_the_authorization_header(self):
         for debug in (True, False):
@@ -265,6 +274,35 @@ class LoaderDebugTests(unittest.TestCase):
         report = self.run_loader(body=body, lateRoot=True)
         self.assertEqual(self.lines(report)[0], ('加载器已运行 v1 页面 /articles/abc123 readyState=loading', ''))
         self.assertEqual(self.lines(report)[-1], ('主脚本已执行', 'ok'))
+        # A first readystatechange may still come without the root: the overlay waits for the next one.
+        report = self.run_loader(body=body, lateRoot='twice')
+        self.assertEqual(report['listenerErrors'], [])
+        self.assertEqual(self.lines(report)[-1], ('主脚本已执行', 'ok'))
+        self.assertEqual(report['runs'], 1)
+
+    def test_an_overlay_that_cannot_be_built_never_stops_loading(self):
+        for broken in ('shadow', 'append'):
+            with self.subTest(broken=broken):
+                report = self.run_loader(body=COUNT + SAY, brokenOverlay=broken)
+                self.assertIsNone(report['debug'])
+                self.assertEqual(len(report['requests']), 1)
+                self.assertEqual((report['runs'], report['failures'], report['pageErrors']), (1, [], []))
+                self.assertEqual(report['token'], 'tok-run')
+                report = self.run_loader(body=COUNT, noEval=True, brokenOverlay=broken)
+                self.assertEqual((report['runs'], report['injected'], report['failures']), (1, 1, []))
+                report = self.run_loader(status=401, brokenOverlay=broken)
+                self.assertEqual(report['failures'], [{'text': '加载主脚本失败：令牌已失效，请重新安装脚本',
+                                                       'links': ['https://jlpt.example/news-script/']}])
+                report = self.run_loader(networkError=True, brokenOverlay=broken)
+                self.assertEqual(report['failures'], [{'text': '加载主脚本失败：网络连接失败', 'links': []}])
+
+    def test_unknown_levels_are_plain_lines(self):
+        say = lambda level: ("JLPT_NEWS.debug('x " + level + "', '" + level + "');")
+        report = self.run_loader(body=''.join(say(level) for level in ('constructor', 'toString', 'ok')))
+        lines = self.lines(report)
+        self.assertIn(('x constructor', ''), lines)
+        self.assertIn(('x toString', ''), lines)
+        self.assertIn(('x ok', 'ok'), lines)
 
     def test_debug_off_makes_no_overlay_and_gives_a_quiet_function(self):
         report = self.run_loader(debug=False, body=COUNT + ' globalThis.__debugType = typeof JLPT_NEWS.debug;' + SAY)

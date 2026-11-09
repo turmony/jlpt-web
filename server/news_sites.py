@@ -53,6 +53,14 @@ def sites(config):
     return [_check(entry) for entry in listed]
 
 
+def debug_enabled(config):
+    """`news_debug`: whether the loader shows its on-screen debug lines. Optional, default true."""
+    value = config.get('news_debug', True)
+    if not isinstance(value, bool):
+        raise ValueError(f'news_debug must be true or false, not {value!r}')
+    return value
+
+
 def allowed_origins(config):
     return {entry['origin'] for entry in sites(config)}
 
@@ -80,96 +88,117 @@ _HEADER = """// ==UserScript==
 # 'jlpt-news-debug' event when it runs as an injected <script> (functions do not survive the JSON).
 # Never shows the token, the request headers or CONFIG itself.
 _DEBUG_ON = r"""  const debug = (function () {
-    const started = Date.now();
-    const LEVELS = { ok: 'ok', warn: 'warn', error: 'error' };
-    const MAX = 40;
-    const lines = [];
-    const host = document.createElement('jlpt-news-debug');
-    const root = host.attachShadow({ mode: 'open' });
-    const style = document.createElement('style');
-    style.textContent =
-      ':host{all:initial}' +
-      '.d{position:fixed;top:calc(env(safe-area-inset-top, 0px) + 4px);left:4px;z-index:2147483647;' +
-      'box-sizing:border-box;max-width:92vw;padding:2px 6px 4px;border-radius:6px;background:rgba(0,0,0,.75);' +
-      'color:#fff;font:11px/1.35 ui-monospace,Menlo,monospace;text-align:left;white-space:pre-wrap;' +
-      'overflow-wrap:anywhere;-webkit-text-size-adjust:100%;pointer-events:none}' +
-      '.h{display:flex;gap:4px}' +
-      '.h button{pointer-events:auto;margin:0;padding:3px 6px;border:0;border-radius:4px;background:#ffffff26;' +
-      'color:#fff;font:bold 11px/1.2 ui-monospace,Menlo,monospace;cursor:pointer}' +
-      '.ok{color:#8eea8e}.warn{color:#ffd54f}.error{color:#ff8a80}' +
-      '.d.c{padding:2px}.d.c .l,.d.c .x{display:none}.d[hidden]{display:none}';
-    const box = document.createElement('div');
-    box.className = 'd';
-    const head = document.createElement('div');
-    head.className = 'h';
-    const toggle = document.createElement('button');
-    toggle.className = 't';
-    toggle.type = 'button';
-    toggle.textContent = 'JLPT 调试';
-    toggle.setAttribute('aria-expanded', 'true');
-    const close = document.createElement('button');
-    close.className = 'x';
-    close.type = 'button';
-    close.textContent = '×';
-    close.setAttribute('aria-label', '关闭调试信息');
-    const list = document.createElement('div');
-    list.className = 'l';
-    toggle.addEventListener('click', () => {
-      const collapsed = box.className === 'd';
-      box.className = collapsed ? 'd c' : 'd';
-      toggle.setAttribute('aria-expanded', String(!collapsed));
-    });
-    close.addEventListener('click', () => { box.hidden = true; });
-    head.append(toggle, close);
-    box.append(head, list);
-    root.append(style, box);
-    const mount = () => document.documentElement.append(host);
-    if (document.documentElement) mount();
-    else document.addEventListener('readystatechange', mount, { once: true });
-
-    function debug(message, level) {
-      try {
-        const line = document.createElement('div');
-        line.className = LEVELS[level] || '';
-        line.textContent = '+' + (Date.now() - started) + 'ms ' + String(message);
-        list.append(line);
-        lines.push(line);
-        if (lines.length > MAX) lines.shift().remove();
-      } catch (error) {
-        // The overlay must never stop the loader.
-      }
-    }
-
-    // Lines from a main script that runs as an injected <script> (see inject below).
-    let injectedEnded = false;
-    document.addEventListener('jlpt-news-debug', (event) => {
-      let data;
-      try {
-        data = JSON.parse(event.detail);
-      } catch (error) {
-        return;
-      }
-      if (!data || typeof data.message !== 'string') return;
-      if (data.end) injectedEnded = true;
-      debug(data.message, data.level);
-    });
-    const say = "document.dispatchEvent(new CustomEvent('jlpt-news-debug',{detail:JSON.stringify(";
-    debug.wrap = (call) =>
-      'try{' + call + '\n' + say + "{message:'主脚本已执行',level:'ok',end:true})}))}" +
-      'catch(e){' + say + "{message:'主脚本出错: '+String(e&&e.message||e),level:'error',end:true})}));throw e}";
-    debug.injected = () => {
-      if (!injectedEnded) debug('注入的主脚本没有运行（可能被网页的安全策略拦截）', 'error');
-    };
-
-    debug('加载器已运行 v1 页面 ' + location.pathname + ' readyState=' + document.readyState);
+    // A debug aid must never stop loading: if the overlay cannot be built, lines go nowhere.
+    const quiet = function () {};
+    quiet.wrap = (call) => call;
+    quiet.injected = function () {};
     try {
-      const site = CONFIG.sites.find((s) => s.origin === location.origin && new RegExp(s.path).test(location.pathname));
-      if (site) debug('匹配的网站: ' + site.name, 'ok');
-      else debug('当前页面不在网站表内', 'warn');
+      return overlay();
     } catch (error) {
-      debug('网站表出错: ' + String((error && error.message) || error), 'error');
+      return quiet;
     }
-    return debug;
+
+    function overlay() {
+      const started = Date.now();
+      const LEVELS = { ok: 'ok', warn: 'warn', error: 'error' };
+      const MAX = 40;
+      const lines = [];
+      const host = document.createElement('jlpt-news-debug');
+      const root = host.attachShadow({ mode: 'open' });
+      const style = document.createElement('style');
+      style.textContent =
+        ':host{all:initial}' +
+        '.d{position:fixed;top:calc(env(safe-area-inset-top, 0px) + 4px);left:4px;z-index:2147483647;' +
+        'box-sizing:border-box;max-width:92vw;padding:2px 6px 4px;border-radius:6px;background:rgba(0,0,0,.75);' +
+        'color:#fff;font:11px/1.35 ui-monospace,Menlo,monospace;text-align:left;white-space:pre-wrap;' +
+        'overflow-wrap:anywhere;-webkit-text-size-adjust:100%;pointer-events:none}' +
+        '.h{display:flex;gap:4px}' +
+        '.h button{pointer-events:auto;margin:0;padding:3px 6px;border:0;border-radius:4px;background:#ffffff26;' +
+        'color:#fff;font:bold 11px/1.2 ui-monospace,Menlo,monospace;cursor:pointer}' +
+        '.ok{color:#8eea8e}.warn{color:#ffd54f}.error{color:#ff8a80}' +
+        '.d.c{padding:2px}.d.c .l,.d.c .x{display:none}.d[hidden]{display:none}';
+      const box = document.createElement('div');
+      box.className = 'd';
+      const head = document.createElement('div');
+      head.className = 'h';
+      const toggle = document.createElement('button');
+      toggle.className = 't';
+      toggle.type = 'button';
+      toggle.textContent = 'JLPT 调试';
+      toggle.setAttribute('aria-expanded', 'true');
+      const close = document.createElement('button');
+      close.className = 'x';
+      close.type = 'button';
+      close.textContent = '×';
+      close.setAttribute('aria-label', '关闭调试信息');
+      const list = document.createElement('div');
+      list.className = 'l';
+      toggle.addEventListener('click', () => {
+        const collapsed = box.className === 'd';
+        box.className = collapsed ? 'd c' : 'd';
+        toggle.setAttribute('aria-expanded', String(!collapsed));
+      });
+      close.addEventListener('click', () => { box.hidden = true; });
+      head.append(toggle, close);
+      box.append(head, list);
+      root.append(style, box);
+      // At document-start the root may still be missing, even at the first readystatechange.
+      const mount = () => {
+        try {
+          if (!document.documentElement) return;
+          document.removeEventListener('readystatechange', mount);
+          document.documentElement.append(host);
+        } catch (error) {
+          // No overlay then; loading goes on.
+        }
+      };
+      if (document.documentElement) mount();
+      else document.addEventListener('readystatechange', mount);
+
+      function debug(message, level) {
+        try {
+          const line = document.createElement('div');
+          line.className = Object.prototype.hasOwnProperty.call(LEVELS, level) ? LEVELS[level] : '';
+          line.textContent = '+' + (Date.now() - started) + 'ms ' + String(message);
+          list.append(line);
+          lines.push(line);
+          if (lines.length > MAX) lines.shift().remove();
+        } catch (error) {
+          // The overlay must never stop the loader.
+        }
+      }
+
+      // Lines from a main script that runs as an injected <script> (see inject below).
+      let injectedEnded = false;
+      document.addEventListener('jlpt-news-debug', (event) => {
+        let data;
+        try {
+          data = JSON.parse(event.detail);
+        } catch (error) {
+          return;
+        }
+        if (!data || typeof data.message !== 'string') return;
+        if (data.end) injectedEnded = true;
+        debug(data.message, data.level);
+      });
+      const say = "document.dispatchEvent(new CustomEvent('jlpt-news-debug',{detail:JSON.stringify(";
+      debug.wrap = (call) =>
+        'try{' + call + '\n' + say + "{message:'主脚本已执行',level:'ok',end:true})}))}" +
+        'catch(e){' + say + "{message:'主脚本出错: '+String(e&&e.message||e),level:'error',end:true})}));throw e}";
+      debug.injected = () => {
+        if (!injectedEnded) debug('注入的主脚本没有运行（可能被网页的安全策略拦截）', 'error');
+      };
+
+      debug('加载器已运行 v1 页面 ' + location.pathname + ' readyState=' + document.readyState);
+      try {
+        const site = CONFIG.sites.find((s) => s.origin === location.origin && new RegExp(s.path).test(location.pathname));
+        if (site) debug('匹配的网站: ' + site.name, 'ok');
+        else debug('当前页面不在网站表内', 'warn');
+      } catch (error) {
+        debug('网站表出错: ' + String((error && error.message) || error), 'error');
+      }
+      return debug;
+    }
   })();
 """
 

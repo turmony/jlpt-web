@@ -20,20 +20,20 @@ test('with the loader function the line goes straight to it', () => {
   assert.deepEqual(seen, []);
 });
 
-test('without a function (an injected <script>) the line goes out as a jlpt-news-debug event', () => {
-  for (const value of [true, undefined]) {
-    const seen = fakeDocument();
-    configureDebug(value);
-    debug('主脚本已运行', 'warn');
-    assert.deepEqual(seen, [['jlpt-news-debug', JSON.stringify({message: '主脚本已运行', level: 'warn'})]], String(value));
-  }
+test('debug: true (an injected <script>, the function lost in the JSON) sends a jlpt-news-debug event', () => {
+  const seen = fakeDocument();
+  configureDebug(true);
+  debug('主脚本已运行', 'warn');
+  assert.deepEqual(seen, [['jlpt-news-debug', JSON.stringify({message: '主脚本已运行', level: 'warn'})]]);
 });
 
-test('debug switched off in the loader sends nothing', () => {
-  const seen = fakeDocument();
-  configureDebug(false);
-  debug('x');
-  assert.deepEqual(seen, []);
+test('debug switched off, or a loader from before the overlay (no debug at all), sends nothing', () => {
+  for (const value of [false, undefined, 'true', 1]) {
+    const seen = fakeDocument();
+    configureDebug(value);
+    debug('x');
+    assert.deepEqual(seen, [], String(value));
+  }
 });
 
 test('a failing sink never reaches the caller', () => {

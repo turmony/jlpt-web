@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from . import news, papers, review
 from .auth import Auth, YEAR
 from .news_errors import NewsError
-from .news_sites import allowed_origins, loader_script, sites
+from .news_sites import allowed_origins, debug_enabled, loader_script, sites
 from .papers import safe_file
 from .store import Store, Conflict
 
@@ -27,6 +27,7 @@ class Application:
         self.attempts = defaultdict(list)
         self.auth_lock = threading.Lock()
         sites(config)  # a bad news_sites table stops the server at start-up
+        debug_enabled(config)  # so does a news_debug that is not true or false
         self.news = news.NewsService(config, state)
 
 
@@ -277,7 +278,7 @@ def create_server(app, address):
                     if parse_qs(query).get('download') == ['1']:
                         headers['Content-Disposition'] = 'attachment; filename="jlpt-news.user.js"'
                     script = loader_script(app.config['origin'], token, sites(app.config),
-                                           debug=app.config.get('news_debug', True))
+                                           debug=debug_enabled(app.config))
                     return self.reply(200, script.encode('utf-8'), 'text/javascript; charset=utf-8', headers)
                 if path == '/devices' and not post:
                     return self.reply(200, {'devices': svc.devices.list()})

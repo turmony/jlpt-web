@@ -176,6 +176,13 @@ class AccessTests(base.NewsHTTPBase):
         self.assertIn('"debug": false', script)
         self.assertNotIn('jlpt-news-debug', script)
 
+    def test_startup_refuses_a_news_debug_that_is_not_a_boolean(self):
+        for bad in ('false', 0, None):
+            with self.subTest(value=bad):
+                with self.assertRaisesRegex(ValueError, 'news_debug'):
+                    base.Application({**self.config, 'news_debug': bad})
+        base.Application({**self.config, 'news_debug': False})
+
     def test_install_name_rules(self):
         self.login()
         for name in ('a%2Fb', '%20%20', 'x' * 21, '%FF%FE', '%00x'):

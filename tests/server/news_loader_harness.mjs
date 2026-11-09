@@ -1,16 +1,17 @@
 // Runs a generated `.user.js` loader with a stubbed fetch and DOM and prints what happened as JSON.
 // Usage: node news_loader_harness.mjs <loader.user.js> '<scenario json>'
-// Scenario: {status, body, networkError, noEval, noScript, url, lateRoot}. The main script `body` can
+// Scenario: {status, body, networkError, noEval, noScript, url, lateRoot, brokenOverlay}. The main script `body` can
 // count its runs with `globalThis.__runs`; with noEval, `new Function` throws an EvalError as under a
 // strict CSP; with noScript an injected <script> does not run (a CSP without inline scripts). `url` is
 // the page address (default an article page); with lateRoot, document.documentElement is missing at
-// first and comes with a readystatechange.
+// first and comes with a readystatechange (lateRoot 'twice': a first readystatechange still has none).
+// brokenOverlay: 'shadow' makes attachShadow of <jlpt-news-debug> throw, 'append' makes appending it throw.
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 
 const [loaderPath, scenarioText] = process.argv.slice(2);
 const scenario = JSON.parse(scenarioText);
-const report = {requests: [], injected: 0, failures: [], unhandled: [], pageErrors: [], runs: 0, token: null, debug: null};
+const report = {requests: [], injected: 0, failures: [], unhandled: [], pageErrors: [], listenerErrors: [], runs: 0, token: null, debug: null};
 
 process.on('unhandledRejection', (error) => report.unhandled.push(String(error && error.message || error)));
 process.on('uncaughtException', (error) => report.unhandled.push(String(error && error.message || error)));
@@ -28,6 +29,9 @@ class Element {
   }
   append(...items) {
     for (const item of items) {
+      if (scenario.brokenOverlay === 'append' && item instanceof Element && item.tag === 'jlpt-news-debug') {
+        throw new Error('append refused');
+      }
       if (item instanceof Element) item.parent = this;
       this.children.push(item);
       if (item instanceof Element && item.tag === 'script') {
@@ -48,6 +52,7 @@ class Element {
     this.parent = null;
   }
   attachShadow(init) {
+    if (scenario.brokenOverlay === 'shadow' && this.tag === 'jlpt-news-debug') throw new Error('no shadow');
     this.shadowMode = init && init.mode;
     this.shadow = new Element('#shadow');
     return this.shadow;
@@ -86,7 +91,17 @@ const document = {
   readyState: 'loading',
   createElement: (tag) => new Element(tag),
   addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
-  dispatchEvent(event) { for (const fn of listeners[event.type] || []) fn(event); return true; },
+  removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); },
+  dispatchEvent(event) {
+    for (const fn of [...(listeners[event.type] || [])]) {
+      try {
+        fn(event);
+      } catch (error) {
+        report.listenerErrors.push(String(error && error.message || error));
+      }
+    }
+    return true;
+  },
 };
 let rooted = false;
 
@@ -104,6 +119,10 @@ context = vm.createContext({document, fetch, console, location, CustomEvent, Tex
 vm.runInContext(readFileSync(loaderPath, 'utf8'), context);
 if (scenario.lateRoot) {
   await new Promise((resolve) => setTimeout(resolve, 20));
+  if (scenario.lateRoot === 'twice') {
+    document.dispatchEvent(new CustomEvent('readystatechange'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   rooted = true;
   document.readyState = 'interactive';
   document.dispatchEvent(new CustomEvent('readystatechange'));
