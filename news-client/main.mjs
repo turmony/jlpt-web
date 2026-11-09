@@ -1,5 +1,5 @@
 // Entry point of the main script. The userscript loader runs the bundle with the free variable
-// JLPT_NEWS = {base, token, sites, install, debug}.
+// JLPT_NEWS = {base, sites, debug}.
 import {configure} from './api.mjs';
 import {configureDebug, debug} from './debug.mjs';
 import {mountUi, injectPageStyle} from './ui.mjs';
@@ -47,7 +47,7 @@ if (!site) {
   debug(`当前页面路径不匹配 (${location.pathname})`, 'warn');
 } else {
   debug(`站点已匹配: ${site.name}`, 'ok');
-  configure({base: JLPT_NEWS.base, token: JLPT_NEWS.token, install: JLPT_NEWS.install});
+  configure({base: JLPT_NEWS.base});
   const {layer} = mountUi();
   let marker;
   const dock = mountDock(layer, {onRetokenize: () => marker.retokenize()});

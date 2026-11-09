@@ -7,49 +7,12 @@ import {startFixture,hubScript,withSite} from './site-helper.mjs';
 const require=createRequire(new URL('../../mobile/package.json',import.meta.url));
 const {chromium,webkit,devices}=require('playwright');
 
-test('the manage page prefills the device name from the user agent and links the install url',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
-  await page.goto(url+'/news-script/');
-  const name=page.getByLabel('设备名称');
-  assert.equal(await name.inputValue(),'iPhone');
-  assert.equal(await name.getAttribute('maxlength'),'20');
-  await name.fill('我的 iPad');
-  const request=page.waitForRequest(request=>request.url().includes('/api/news/install/'));
-  await page.getByRole('button',{name:'安装到这台设备'}).click();
-  assert.equal((await request).url(),url+'/api/news/install/%E6%88%91%E7%9A%84%20iPad/jlpt-news.user.js');
-}));
-
-test('the download button saves jlpt-news.user.js with the token',()=>withSite(chromium,{locale:'zh-CN'},async(page,url)=>{
-  await page.goto(url+'/news-script/');
-  await page.getByLabel('设备名称').fill('书房');
-  const download=page.waitForEvent('download');
-  await page.getByRole('button',{name:'下载脚本文件'}).click();
-  const file=await download;
-  assert.equal(file.suggestedFilename(),'jlpt-news.user.js');
-  assert.match(await readFile(await file.path(),'utf8'),/@match/);
-}));
-
-test('the manage page lists devices and revokes one after confirming',()=>withSite(chromium,{locale:'zh-CN'},async(page,url)=>{
-  for (const name of ['iPad','iPhone']) assert.equal((await page.request.get(`${url}/api/news/install/${name}/jlpt-news.user.js`)).status(),200);
-  await page.goto(url+'/news-script/');
-  const rows=page.locator('#device-list li');
-  await rows.nth(1).waitFor();
-  assert.equal(await rows.count(),2);
-  assert.match(await rows.first().innerText(),/iPad.*安装 \d+\/\d+ \d\d:\d\d.*最近使用 未使用/s);
-  const messages=[];
-  page.on('dialog',dialog=>{messages.push(dialog.message());dialog.accept();});
-  await rows.filter({hasText:'iPad'}).getByRole('button',{name:'作废'}).click();
-  await page.locator('#device-list li').nth(1).waitFor({state:'detached'});
-  assert.deepEqual(messages,['作废「iPad」后，这台设备上的脚本立即失效。']);
-  assert.equal(await rows.count(),1);
-  assert.match(await rows.first().innerText(),/iPhone/);
-}));
-
 const HEX='a1b2c3d4e5f60718';
 
 // Opens the sample news site (another port, so a real cross-origin call) in a browser that has the
 // installed userscript loader as an init script. run(page, {app, site, tmp, context}).
-// hub: FakeHub script/spec, select: id of the stored model; name: the device name to install as.
-async function withUserscript(device,run,{hub,select,name='iPad'}={}) {
+// hub: FakeHub script/spec, select: id of the stored model. The loader is fetched without logging in.
+async function withUserscript(device,run,{hub,select}={}) {
   const hubFile=hub?await hubScript(hub):null;
   const fixture=await startFixture({...(hubFile?{NEWS_HUB_SCRIPT:hubFile.file}:{}),...(select?{NEWS_SELECTED_MODEL:select}:{})});
   const {url:app,site,tmp}=fixture;
@@ -59,19 +22,19 @@ async function withUserscript(device,run,{hub,select,name='iPad'}={}) {
     const context=await browser.newContext({...devices[device],locale:'zh-CN'});
     const page=await context.newPage();
     const errors=[];page.on('pageerror',error=>errors.push(error.message));
+    const install=await page.request.get(`${app}/api/news/loader.user.js`);
+    assert.equal(install.status(),200);
     const login=await page.request.post(app+'/api/login',{data:{password:'browser-test-password'},headers:{Origin:app}});
     assert.equal(login.status(),200);
-    const install=await page.request.get(`${app}/api/news/install/${encodeURIComponent(name)}/jlpt-news.user.js`);
-    assert.equal(install.status(),200);
     // Test hook: shadow roots are created open so locators can look inside the loader's button.
     await context.addInitScript(()=>{const attach=Element.prototype.attachShadow;Element.prototype.attachShadow=function(init){return attach.call(this,{...init,mode:'open'});};});
     const loader=await install.text();
     await context.addInitScript(loader);
-    const token=JSON.parse(loader.match(/^  const CONFIG = (.*);$/m)[1]).token;
+    assert.equal('token' in JSON.parse(loader.match(/^  const CONFIG = (.*);$/m)[1]),false);
     // The script name carries the loader version, as the same number in @version and the overlay.
     const version=loader.match(/^\/\/ @version +(\d+)$/m)[1];
     assert.equal(loader.match(/^\/\/ @name +(.*)$/m)[1],`JLPT 新闻查词 v${version}`);
-    await run(page,{app,site,tmp,context,token,version});
+    await run(page,{app,site,tmp,context,version});
     assert.deepEqual(errors,[]);
   } finally {await browser?.close();await fixture.stop();await hubFile?.remove();}
 }
@@ -90,16 +53,14 @@ test('the loader runs the main script on an article page only',()=>withUserscrip
   assert.equal(await page.locator('jlpt-news-loader').count(),0);
 }));
 
-test('a revoked token shows the loader button with the reinstall reason',()=>withUserscript('iPad (gen 7)',async(page,{app,site})=>{
-  const {devices:list}=await (await page.request.get(app+'/api/news/devices')).json();
-  const revoked=await page.request.post(app+'/api/news/devices/revoke',{data:{id:list[0].id},headers:{Origin:app}});
-  assert.equal(revoked.status(),200);
+test('a main script the server refuses shows the loader button with the reason',()=>withUserscript('iPad (gen 7)',async(page,{app,site})=>{
+  await page.route(app+'/api/news/client.js',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"主脚本未构建"}',headers:{'access-control-allow-origin':'*'}}));
   await page.goto(`${site}/articles/${HEX}`);
   await page.locator('jlpt-news-loader button').click();
   const panel=page.locator('jlpt-news-loader .p');
   await panel.waitFor({state:'visible'});
-  assert.match(await panel.innerText(),/加载主脚本失败：令牌已失效，请重新安装脚本/);
-  assert.equal(await panel.getByRole('link',{name:'重新安装'}).getAttribute('href'),app+'/news-script/');
+  assert.match(await panel.innerText(),/加载主脚本失败：服务器返回 503/);
+  assert.equal(await panel.getByRole('link').count(),0);
   assert.equal(await page.locator('jlpt-news').count(),0);
 }));
 
@@ -111,7 +72,7 @@ const debugLines=page=>page.locator('jlpt-news-debug .l > div').allInnerTexts();
 const lineIndex=(lines,rx)=>lines.findIndex(line=>rx.test(line));
 
 for(const device of ['iPhone 13','iPad Pro 11']) {
-  test(`the debug overlay traces loading and stays out of the way on ${device}`,()=>withUserscript(device,async(page,{site,token,version})=>{
+  test(`the debug overlay traces loading and stays out of the way on ${device}`,()=>withUserscript(device,async(page,{site,version})=>{
     await page.goto(`${site}/articles/${HEX}`);
     await marked(page);
     await page.locator('jlpt-news-debug .l > div',{hasText:/状态: 就绪/}).waitFor();
@@ -128,7 +89,7 @@ for(const device of ['iPhone 13','iPad Pro 11']) {
     assert.match(lines.find(line=>/状态: 就绪/.test(line)),new RegExp(`词数 ${words} 重包 0`));
     assert.match(lines.find(line=>/已标出/.test(line)),new RegExp(`已标出 ${words} 个词`));
     const all=lines.join('\n');
-    for(const secret of [token,'Bearer','Authorization']) assert.ok(!all.includes(secret),secret);
+    for(const secret of ['token','Bearer','Authorization']) assert.ok(!all.includes(secret),secret);
     assert.ok(lines.length<=40);
     // Small, dark, fixed at the top left, above everything; ok lines green.
     assert.equal(await page.evaluate(()=>document.querySelector('jlpt-news-debug').shadowRoot.mode),'open');
@@ -163,7 +124,7 @@ for(const device of ['iPhone 13','iPad Pro 11']) {
   }));
 }
 
-test('the debug overlay on a page outside the site table stops after the fetch',()=>withUserscript('iPhone 13',async(page,{site,token,version})=>{
+test('the debug overlay on a page outside the site table stops after the fetch',()=>withUserscript('iPhone 13',async(page,{site,version})=>{
   await page.goto(`${site}/articles/${HEX}/images/000`);
   await page.locator('jlpt-news-debug .l > div',{hasText:'主脚本已执行'}).waitFor();
   await page.waitForTimeout(300);
@@ -174,7 +135,7 @@ test('the debug overlay on a page outside the site table stops after the fetch',
   assert.ok(at.every((n,k)=>n>=0&&(k===0||n>at[k-1])),JSON.stringify({at,lines}));
   for(const rx of [/匹配的网站/,/站点已匹配/,/状态:/,/已标出/,/页面 load 完成/]) assert.equal(lineIndex(lines,rx),-1,String(rx));
   assert.deepEqual(await styleOf(page.locator('jlpt-news-debug .l > div',{hasText:'当前页面不在网站表内'}),'color'),['rgb(255, 213, 79)']);
-  assert.ok(!lines.join('\n').includes(token));
+  assert.ok(!lines.join('\n').includes('Bearer'));
   assert.equal(await page.locator('jlpt-news').count(),0);
 }));
 
@@ -810,19 +771,6 @@ for(const device of NEWS_DEVICES) {
     assert.equal(await menu.locator('.news-model-list').isVisible(),true);
   }));
 }
-
-test('a device revoked while reading shows 令牌已失效 with 重新安装 in the word card',()=>withUserscript('iPhone 13',async(page,{app,site})=>{
-  await openArticle(page,site);
-  const [A]=await ids(page,'台風は強い勢力で島に接近する');
-  const {devices:list}=await (await page.request.get(app+'/api/news/devices')).json();
-  assert.equal((await page.request.post(app+'/api/news/devices/revoke',{data:{id:list[0].id},headers:{Origin:app}})).status(),200);
-  await tap(page,tok(page,A,3));
-  const problem=card(page).locator('.news-card-meaning .news-error');
-  await problem.waitFor();
-  assert.match(await problem.locator('.news-error-line').innerText(),/令牌已失效，请重新安装脚本/);
-  assert.equal(await problem.getByRole('link',{name:'重新安装'}).getAttribute('href'),app+'/news-script/');
-  assert.equal(await card(page).getByRole('button',{name:'重试'}).count(),0);
-}));
 
 // -- analysis panel and follow-up questions ---------------------------------------------------------
 // The FakeHub answers analyses with the spec §5 XML in pieces and questions with plain text; what it

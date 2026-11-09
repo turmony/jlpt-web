@@ -465,14 +465,12 @@ test('the last unit of a category can page forward to the next category\'s first
   assert.equal(await page.locator('.directory-list li',{hasText:'B-01-2'}).getByRole('button').count(),1);
 }));
 
-test('nav links to the news script page from the review, papers and grammar pages',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
+test('the review, papers and grammar pages no longer link to a news script page',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
   const link=()=>page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻脚本'});
-  assert.equal(await link().getAttribute('href'),'/news-script/');
+  assert.equal(await link().count(),0);
   await page.goto(url+'/papers.html');
-  assert.equal(await link().getAttribute('href'),'/news-script/');
+  assert.equal(await link().count(),0);
   await page.goto(url+'/grammar/');await page.locator('#start-reading:not([disabled])').waitFor();
-  assert.equal(await link().getAttribute('href'),'/news-script/');
-  await link().click();
-  await page.waitForURL(url+'/news-script/');
-  assert.equal(await page.locator('h1').innerText(),'新闻脚本');
+  assert.equal(await link().count(),0);
+  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'云开发'}).count(),1);
 }));

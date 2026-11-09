@@ -7,37 +7,27 @@ test.afterEach(() => { globalThis.fetch = realFetch; });
 
 const json = (status, body) => new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
 
-test('requests go to base with the bearer token', async () => {
+test('requests go to base and carry no credentials', async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => { calls.push([url, init]); return json(200, {ok: true}); };
-  configure({base: 'https://a', token: 'T', install: 'https://a/news-script/'});
+  configure({base: 'https://a'});
   assert.deepEqual(await getJSON('/api/news/models'), {ok: true});
   assert.equal(calls[0][0], 'https://a/api/news/models');
-  assert.equal(calls[0][1].headers.Authorization, 'Bearer T');
   await postJSON('/api/news/settings', {model: 'm'});
   assert.equal(calls[1][0], 'https://a/api/news/settings');
-  assert.equal(calls[1][1].headers.Authorization, 'Bearer T');
   assert.equal(calls[1][1].headers['Content-Type'], 'application/json');
+  for (const [, init] of calls) assert.equal(init && init.headers && init.headers.Authorization, undefined);
 });
 
-test('a 401 becomes the reinstall failure with the install link', async () => {
-  configure({base: 'https://a', token: 'T'});
-  globalThis.fetch = async () => json(401, {error: {stage: 'client', stage_label: '脚本→服务器', location: '/api/news/models', reason: '令牌已失效，请重新安装脚本', retryable: false, request_id: 'r1', time: '10:00:00', install: 'https://a/news-script/'}});
-  await assert.rejects(getJSON('/api/news/models'), error => {
-    assert.ok(error instanceof NewsFailure);
-    assert.equal(error.info.reason, '令牌已失效，请重新安装脚本');
-    assert.equal(error.info.retryable, false);
-    assert.equal(error.info.install, 'https://a/news-script/');
-    return true;
-  });
-  // The server gave no error dict: the script builds the same failure itself.
+test('a 401 is an ordinary server failure with no reinstall link', async () => {
+  configure({base: 'https://a'});
   globalThis.fetch = async () => json(401, {error: '请登录'});
   await assert.rejects(getJSON('/api/news/models'), error => {
-    assert.equal(error.info.reason, '令牌已失效，请重新安装脚本');
-    assert.equal(error.info.retryable, false);
+    assert.ok(error instanceof NewsFailure);
+    assert.equal(error.info.reason, '服务器返回 401：请登录');
     assert.equal(error.info.stage_label, '脚本→服务器');
     assert.equal(error.info.location, '/api/news/models');
-    assert.equal(error.info.install, 'https://a/news-script/');
+    assert.equal(error.info.install, undefined);
     return true;
   });
 });
@@ -81,7 +71,7 @@ test('the event parser handles chunked frames, comments and bad data', () => {
 });
 
 test('streamSSE reassembles frames from byte pieces split inside multibyte characters and CRLF', async () => {
-  configure({base: 'https://a', token: 'T'});
+  configure({base: 'https://a'});
   const bytes = new TextEncoder().encode(': ping\r\n\r\nevent: delta\r\ndata: {"text":"日本語"}\r\n\r\n: ping\r\n\r\nevent: delta\r\ndata: {"text":"ニュース"}\r\n\r\nevent: done\r\ndata: {}\r\n\r\n');
   const pieces = [];
   for (let i = 0; i < bytes.length; i++) { pieces.push(bytes.slice(i, i + 1)); if (i % 7 === 0) pieces.push(1); }
@@ -92,7 +82,7 @@ test('streamSSE reassembles frames from byte pieces split inside multibyte chara
 });
 
 test('streamSSE ends quietly when aborted while a read is pending', async () => {
-  configure({base: 'https://a', token: 'T'});
+  configure({base: 'https://a'});
   for (const honourAbort of [true, false]) {
     const first = new TextEncoder().encode('event: progress\ndata: {"text":"1"}\n\n');
     fakeStream([first], {honourAbort, hang: true}); // then the read waits forever
@@ -104,7 +94,7 @@ test('streamSSE ends quietly when aborted while a read is pending', async () => 
 });
 
 test('streamSSE rejects when the handler throws and does not report an interrupted stream', async () => {
-  configure({base: 'https://a', token: 'T'});
+  configure({base: 'https://a'});
   const enc = text => new TextEncoder().encode(text);
   const out = {};
   for (const [label, body] of [['non-terminal', 'event: progress\ndata: {"text":"1"}\n\nevent: progress\ndata: {"text":"2"}\n\nevent: done\ndata: {}\n\n'], ['terminal', 'event: done\ndata: {}\n\n']]) {
@@ -116,17 +106,17 @@ test('streamSSE rejects when the handler throws and does not report an interrupt
   assert.deepEqual(out, {'non-terminal': {outcome: 'rejected: handler bug', seen: ['progress']}, terminal: {outcome: 'rejected: handler bug', seen: ['done']}});
 });
 
-test('streamSSE turns a 401 into an error event with the install link', async () => {
-  configure({base: 'https://a', token: 'T'});
+test('streamSSE turns a 401 into an error event with no install link', async () => {
+  configure({base: 'https://a'});
   globalThis.fetch = async () => json(401, {error: '请登录'});
   const seen = [];
   await streamSSE('/api/news/ask', {}, {onEvent: (name, data) => seen.push([name, data])});
   assert.equal(seen.length, 1);
   assert.equal(seen[0][0], 'error');
-  assert.equal(seen[0][1].install, 'https://a/news-script/');
+  assert.equal(seen[0][1].install, undefined);
 });
 
 test('siteUrl gives a full address on the configured site', () => {
-  configure({base: 'https://a/', token: 'T'});
+  configure({base: 'https://a/'});
   assert.equal(siteUrl('/grammar/#N3/5-5'), 'https://a/grammar/#N3/5-5');
 });

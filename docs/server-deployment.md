@@ -531,7 +531,7 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 
 ## 雅虎新闻阅读器部署（2026-11-08）
 
-新闻功能是一个 Safari 用户脚本（Userscripts 扩展）：脚本在 `news.yahoo.co.jp` 的文章页上直接标出词、点词查词、长按选句、拖选、分析和追问，本站只提供令牌、主脚本、分词、查词和模型接口，不再抓取、保存文章或图片（2026-11-09 起；设计见 `docs/superpowers/specs/2026-11-09-news-userscript-design.md`）。本站的 `/news/` 阅读页已经移除，入口改为首页的「新闻脚本」（`/news-script/`）。
+新闻功能是一个 Safari 用户脚本（Userscripts 扩展）：脚本在 `news.yahoo.co.jp` 的文章页上直接标出词、点词查词、长按选句、拖选、分析和追问，本站只提供加载器、主脚本、分词、查词和模型接口，不再抓取、保存文章或图片（2026-11-09 起；设计见 `docs/superpowers/specs/2026-11-09-news-userscript-design.md`）。本站的 `/news/` 阅读页已经移除。2026-11-09 又取消了令牌与设备管理，也去掉了 `/news-script/` 管理页：加载器改为在本机生成、手动放置一次，之后在线更新（见「安装到设备」）。
 
 分词用 fugashi + unidic-lite，其余服务端代码仍只用标准库，所以只有 `jlpt.service` 换到独立 venv，Caddy 和其他进程不受影响。
 
@@ -614,7 +614,7 @@ unset JLPT_LLM_API_KEY
 - 格式类失败时，只调整 `news_prompts.py` 里模板周围的规则措辞（模板本身照抄设计文档第 5 节），重跑通过后在 `tests/server/test_news_xml.py` 补对应的回归用例。
 - 2026-11-08 用 DeepSeek-Flash（`low`）连跑两次均 6/6 通过，每次 40–60 秒。句子分析要先思考再输出：第二次首段输出在 10–13 秒，第一次单次分析总耗时 20–28 秒（首段约在 20 秒以后），离 30 秒无输出超时余量不大。
 
-**雅虎抽查**（`scripts/news_check.mjs`，取代已删除的 `scripts/news_probe.py`）：在本机起一个 HTTPS 的本站实例（`scripts/news_check_server.py`，自签证书、真实分词、不配置 qoder2api-hub、`news_sites` 用缺省值，并生成一个名为「抽查」的设备令牌），再用 Playwright WebKit（`iPhone 15`）装上同一份加载器，打开真实雅虎文章，检查脚本能否找到正文并标出词。要在仓库的开发检出里运行（本机是 `/root/projects/jlpt-web`），不能在 `/srv/jlpt/app` 的发布目录里运行：发布目录没有 `mobile/node_modules`（Playwright 就在那里），也没有 `server-public`。前提：本机有新闻 venv `/srv/jlpt/venv`（脚本自己调用 `/srv/jlpt/venv/bin/python -I`，不需要手动指定）；Playwright 与 WebKit 浏览器已安装（`~/.cache/ms-playwright` 里的浏览器不要删）；每次运行前先 `npm run build` 生成 `server-public/news-script/client.js`。缺 Playwright 或 WebKit 时脚本以退出码 2 退出并提示对应命令。证书与状态目录是临时的，结束或 Ctrl-C 时服务、浏览器和临时目录都会清理。上线前、以及怀疑雅虎改版（脚本找不到正文或标不出词）时运行：
+**雅虎抽查**（`scripts/news_check.mjs`，取代已删除的 `scripts/news_probe.py`）：在本机起一个 HTTPS 的本站实例（`scripts/news_check_server.py`，自签证书、真实分词、不配置 qoder2api-hub、`news_sites` 用缺省值），再用 Playwright WebKit（`iPhone 15`）装上同一份加载器，打开真实雅虎文章，检查脚本能否找到正文并标出词。要在仓库的开发检出里运行（本机是 `/root/projects/jlpt-web`），不能在 `/srv/jlpt/app` 的发布目录里运行：发布目录没有 `mobile/node_modules`（Playwright 就在那里），也没有 `server-public`。前提：本机有新闻 venv `/srv/jlpt/venv`（脚本自己调用 `/srv/jlpt/venv/bin/python -I`，不需要手动指定）；Playwright 与 WebKit 浏览器已安装（`~/.cache/ms-playwright` 里的浏览器不要删）；每次运行前先 `npm run build` 生成 `server-public/news-script/client.js`。缺 Playwright 或 WebKit 时脚本以退出码 2 退出并提示对应命令。证书与状态目录是临时的，结束或 Ctrl-C 时服务、浏览器和临时目录都会清理。上线前、以及怀疑雅虎改版（脚本找不到正文或标不出词）时运行：
 
 ```bash
 cd /root/projects/jlpt-web                                  # 仓库的开发检出
@@ -634,14 +634,18 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 ### 安装到设备
 
-每台要用的 iPad / iPhone 各装一次：
+没有令牌、没有设备列表，也没有管理页；所有设备用同一个加载器。每台要用的 iPad / iPhone 手动放置**一次**，之后加载器和主脚本都通过网络更新：
 
-1. 在 App Store 安装 Userscripts。
-2. 在 Safari 设置里启用扩展，并允许它在 `news.yahoo.co.jp` 上运行。
-3. 登录本站，打开「新闻脚本」（首页导航或 `/news-script/`），点「安装到这台设备」，在扩展弹窗中点安装。
-4. 安装提示不出现时，改点「下载脚本文件」，把文件存进 Userscripts 的脚本文件夹。
+1. 在 App Store 安装 Userscripts，在 Safari 设置里启用扩展，并允许它在 `news.yahoo.co.jp` 上运行。
+2. 在服务器的仓库检出里生成加载器：`python3 scripts/make_news_loader.py`。它只读 `/srv/jlpt/state/config.json` 里的 `origin`、`news_sites`、`news_debug`（可用 `--config` 指定别的配置，`--out` 指定输出），写出 `build/jlpt-news.user.js`（`build/` 已被 git 忽略）。内容与 `GET /api/news/loader.user.js` 完全相同。
+3. 把这个文件放进设备上 Userscripts 的脚本文件夹，只此一次。再次生成同名文件覆盖即可，不要另存成带 `(1)` 的副本。
+4. 以后加载器升版本（`LOADER_VERSION` 提高）后，在 Userscripts 里点「检查更新」：它按头部的 `@updateURL` / `@downloadURL`（都是 `/api/news/loader.user.js`，**不需要登录**）原地替换，不会产生重复文件。主脚本每次打开文章页都由加载器从 `/api/news/client.js` 取最新版，不用任何操作。
 
-脚本文件只是一个加载器，里面带这台设备专属的令牌；每次打开文章页时由加载器向本站取主脚本，所以主脚本更新后不需要重装。在「新闻脚本」页可以看到设备列表并作废不用的设备（最多 10 台）；令牌作废或丢失后，脚本会在页面右下角显示红色「!」，点开有「重新安装」链接。
+> 「检查更新原地替换、不产生重复」依赖 Userscripts 对 `@downloadURL` 的处理，上线后要在真机上实测一次；若不行，退路是重新放置同名文件。
+
+已按旧流程（带令牌的加载器）装过的设备不必立刻处理：旧加载器仍会发 `Authorization` 头，服务器忽略它，照常工作；只是没有自更新能力，想要时按上面第 2、3 步放置一次 v3 即可。
+
+**没有鉴权（开发期的有意选择）：** `/api/news/*` 接受「登录 Cookie」或「`Origin` 在 `news_sites` 里」的请求，后者不需要任何凭证。服务器有公网入口，所以 `tokenize`、`analyze`、`ask` 对公网开放并消耗模型额度；`Origin` 只能挡浏览器，挡不住自己伪造请求头的脚本。现有的「模型请求最多同时 3 个」仍然生效，但它不是鉴权。开发完成后要关闭在线更新（见 `news_online_update`），并重新决定是否恢复鉴权。
 
 ### 新闻网站表（`news_sites`）
 
@@ -661,9 +665,10 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 - `origin`：网站来源，形如 `https://主机[:端口]`，同时是接口允许的跨域来源；`match`：写进加载器 `@match` 的网址模式；`path`：主脚本用来判断当前页是不是文章页的正则（匹配路径部分）；`parts`：文章里要标词的部分，按选择器列出（标题、正文）。
 - 写错的表会让服务在启动时报错并停止，不会悄悄回到缺省值。
-- `news_debug`（可选，缺省 `true`）：加载器在页面左上角显示调试信息（加载到哪一步、主脚本与分词状态，不含令牌），点「JLPT 调试」收起，点「×」本页隐藏。设为 `false` 不显示；只接受 `true` 或 `false`，写成别的值（如 `"false"`、`0`、`null`）服务在启动时报错并停止。开关写在各设备的加载器里：改后各设备需重装一次加载器才生效，在加入调试信息之前装的加载器也要重装才会显示。
-- 加载器版本：脚本名称带加载器版本号（如 `JLPT 新闻查词 v2`），在 Userscripts 的脚本列表里就能看出手机上装的是哪一版。改动加载器文本时必须提高 `server/news_sites.py` 的 `LOADER_VERSION`（`test_loader_version_is_bumped_when_the_loader_changes` 会强制检查），各设备需重装一次加载器才会换成新版；主脚本不用重装，会自动更新。
-- **新增或修改网站后，重启服务，并让每台设备重装一次加载器**：`@match` 和整张网站表（含 `path`、`parts`）都写在各设备已安装的加载器里，旧加载器不会在新网站上运行，也不知道新的选择器。
+- `news_debug`（可选，缺省 `true`）：加载器在页面左上角显示调试信息（加载到哪一步、主脚本与分词状态），点「JLPT 调试」收起，点「×」本页隐藏。设为 `false` 不显示；只接受 `true` 或 `false`，写成别的值（如 `"false"`、`0`、`null`）服务在启动时报错并停止。开关写在加载器里：改后需要让设备拿到新加载器才生效（重新放置，或提高 `LOADER_VERSION` 后在 Userscripts 里检查更新）。
+- 加载器版本：脚本名称带加载器版本号（如 `JLPT 新闻查词 v2`），在 Userscripts 的脚本列表里就能看出手机上装的是哪一版。改动加载器文本时必须提高 `server/news_sites.py` 的 `LOADER_VERSION`（`test_loader_version_is_bumped_when_the_loader_changes` 会强制检查），设备在 Userscripts 里点「检查更新」才会换成新版（只有服务器给出的 `@version` 比已装的高才会更新）；主脚本不用任何操作，会自动更新。
+- `news_online_update`（可选，缺省 `true`）：设为 `false` 时 `/api/news/loader.user.js` 和 `/api/news/client.js` 返回 404，设备上已装的版本保持不变，用来在开发完成后关闭在线更新；只接受 `true` 或 `false`，别的值服务在启动时报错并停止。
+- **新增或修改网站后，重启服务，提高 `LOADER_VERSION`，再让设备检查更新（或重新放置加载器）**：`@match` 和整张网站表（含 `path`、`parts`）都写在已安装的加载器里，旧加载器不会在新网站上运行，也不知道新的选择器。
 
 ### 上线前人工检查
 
@@ -675,7 +680,7 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 ### 状态目录
 
-新闻在 `state/news/` 里只有三个文件：`glossary.sqlite`（查词释义，30 天过期）、`settings.json`（所选模型）、`devices.json`（设备令牌的 SHA-256，令牌本身不落盘）。`devices.json` 读不出来（损坏或格式不对）时，服务把它改名为 `devices.json.corrupt-<时间>` 留作排查，并在日志里记一行；之后所有设备的旧令牌都失效，各自重装一次加载器即可。旧版留下的文章与图片目录由服务启动时的清理自动删除，不需要手动处理。
+新闻在 `state/news/` 里现在只有两个文件：`glossary.sqlite`（查词释义，30 天过期）和 `settings.json`（所选模型）。取消令牌之前留下的 `devices.json`（和可能有的 `devices.json.corrupt-*`）不再被读取，可以手动删除，也可以留着。旧版留下的文章与图片目录由服务启动时的清理自动删除，不需要手动处理。
 
 ### 回滚
 

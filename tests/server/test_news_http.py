@@ -155,7 +155,7 @@ class NewsHTTPBase(unittest.TestCase):
 class AccessTests(NewsHTTPBase):
     def test_news_endpoints_need_login_and_same_origin(self):
         self.use()
-        for path in ('/api/news/models', '/api/news/devices'):
+        for path in ('/api/news/models', '/api/news/client.js'):
             self.assertEqual(self.request(path).status, 401)
         for path in ('/api/news/tokenize', '/api/news/analyze', '/api/news/gloss', '/api/news/settings'):
             self.assertEqual(self.request(path, {}).status, 401)
