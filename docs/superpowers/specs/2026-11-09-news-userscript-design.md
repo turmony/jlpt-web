@@ -62,7 +62,7 @@ Safari 打开雅虎文章
 
 需要登录，与其他页面一样走现有的登录检查。页面只有两块：
 
-- 安装：设备名称输入框和「安装到这台设备」按钮，下面一句说明「需要先在 App Store 安装 Userscripts 并在 Safari 中启用」。
+- 安装：设备名称输入框、「安装到这台设备」按钮和「下载脚本文件」按钮，下面一句说明「需要先在 App Store 安装 Userscripts 并在 Safari 中启用」。「下载脚本文件」下载同样写好令牌的 `jlpt-news.user.js`（同样按设备名称生成或替换令牌），用于把文件存进 Userscripts 的脚本文件夹，在 Safari 安装提示不出现时使用。
 - 设备列表：每台设备一行，显示名称、安装时间、最近使用时间和「作废」按钮。作废后这台设备上的脚本立即失效，提示重新安装。
 
 ### 令牌
@@ -107,7 +107,7 @@ Safari 打开雅虎文章
 
 | 接口 | 用途 | 变化 |
 |---|---|---|
-| `GET /api/news/install/<设备名称>/jlpt-news.user.js` | 为这台设备生成令牌，返回写好令牌的加载器 | 新增；只接受登录 Cookie；名称 1–20 字 |
+| `GET /api/news/install/<设备名称>/jlpt-news.user.js` | 为这台设备生成令牌，返回写好令牌的加载器；带 `?download=1` 时作为文件下载 | 新增；只接受登录 Cookie；名称 1–20 字 |
 | `GET /api/news/devices` | 设备列表（不含令牌） | 新增；只接受登录 Cookie |
 | `POST /api/news/devices/revoke` `{id}` | 作废一台设备 | 新增；只接受登录 Cookie，须同源 |
 | `GET /api/news/client.js` | 主脚本 | 新增；需令牌 |

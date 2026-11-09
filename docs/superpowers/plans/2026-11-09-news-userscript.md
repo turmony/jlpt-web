@@ -144,7 +144,7 @@ def test_loader_is_valid_javascript(self): ...              # 写入临时文件
 - Consumes: Task 1 `DeviceStore`，Task 2 `sites`、`allowed_origins`、`loader_script`。
 - Produces（HTTP）：
   - `OPTIONS /api/news/*`：来源在允许列表中 → 204 + CORS 头；否则 403。
-  - `GET /api/news/install/<设备名称>/jlpt-news.user.js`（只接受 Cookie）→ 200，`Content-Type: text/javascript; charset=utf-8`，正文为 `loader_script(config['origin'], token, sites(config))`；名称无效或已满 → 400 `{'error': <消息>}`。
+  - `GET /api/news/install/<设备名称>/jlpt-news.user.js`（只接受 Cookie）→ 200，`Content-Type: text/javascript; charset=utf-8`，正文为 `loader_script(config['origin'], token, sites(config))`；带查询参数 `download=1` 时另加 `Content-Disposition: attachment; filename="jlpt-news.user.js"`；名称无效或已满 → 400 `{'error': <消息>}`。
   - `GET /api/news/devices`（只接受 Cookie）→ `{'devices': [...]}`。
   - `POST /api/news/devices/revoke {id}`（只接受 Cookie，须同源）→ `{'ok': True}`；不存在 → 404。
   - `GET /api/news/client.js`（令牌或 Cookie）→ 读取 `Path(config['static'])/'news-script'/'client.js'`，`text/javascript; charset=utf-8`；文件不存在 → 503 `{'error': '主脚本未构建'}`。
@@ -163,6 +163,7 @@ def test_token_post_from_unlisted_origin_is_refused(self): ...    # 带令牌、
 def test_bad_token_is_401_with_install_link_and_cors(self): ...   # error.stage=='client'、reason=='令牌已失效，请重新安装脚本'、retryable False、install 以 '/news-script/' 结尾；有 CORS 头
 def test_token_cannot_manage_devices(self): ...                   # 带令牌 GET install/devices、POST revoke → 403
 def test_install_needs_login_and_returns_loader(self): ...        # 未登录 401；登录后 200、Content-Type text/javascript、正文含 '@match' 和一个能通过 /api/news/models 验证的令牌
+def test_install_download_is_an_attachment(self): ...            # ?download=1 → Content-Disposition 为 attachment; filename="jlpt-news.user.js"；不带时无此头；两种都按同名替换令牌
 def test_install_name_rules(self): ...                            # 'a%2Fb'、'%20%20'、21 个字 → 400；'%E6%97%A5%E6%9C%AC'（日本）、'%F0%9F%93%B1'（📱）→ 200
 def test_devices_list_and_revoke(self): ...                       # 装 iPad、iPhone；列表 2 台、无令牌字段；revoke iPad 后它的令牌 401、iPhone 仍 200；revoke 不存在的编号 404；revoke 非同源 403
 def test_client_js_needs_auth_and_reports_unbuilt(self): ...      # 无凭据 401；带令牌而文件不存在 503；写入文件后 200 且内容一致
@@ -220,13 +221,15 @@ def test_bad_sentence_bodies_are_400(self): ...                   # tokens 拼�
 
 **Interfaces:**
 - Consumes: Task 3 的安装、设备列表、作废接口。
-- 页面（使用 `/site.css`，与 `papers.html` 相同的顶栏）：标题「新闻脚本」；输入框「设备名称」（`maxlength=20`，按 `navigator.userAgent` 预填：含 `iPad` 或（`Macintosh` 且 `navigator.maxTouchPoints > 1`）→「iPad」，含 `iPhone` →「iPhone」，否则空）；按钮「安装到这台设备」把页面跳到 `/api/news/install/<encodeURIComponent(名称)>/jlpt-news.user.js`；说明一句「需要先在 App Store 安装 Userscripts，并在 Safari 中启用它。」；设备列表每行「名称　安装 11/9 10:12　最近使用 11/9 10:30（未使用过时写「未使用」）　作废」，作废前 `confirm('作废「名称」后，这台设备上的脚本立即失效。')`，作废后刷新列表；接口失败时在列表上方显示一行错误文字。
+- 页面（使用 `/site.css`，与 `papers.html` 相同的顶栏）：标题「新闻脚本」；输入框「设备名称」（`maxlength=20`，按 `navigator.userAgent` 预填：含 `iPad` 或（`Macintosh` 且 `navigator.maxTouchPoints > 1`）→「iPad」，含 `iPhone` →「iPhone」，否则空）；按钮「安装到这台设备」把页面跳到 `/api/news/install/<encodeURIComponent(名称)>/jlpt-news.user.js`；按钮「下载脚本文件」跳到同一地址加 `?download=1`，下面一句小字「下载后存入 Userscripts 的脚本文件夹，也可以使用」；说明一句「需要先在 App Store 安装 Userscripts，并在 Safari 中启用它。」；设备列表每行「名称　安装 11/9 10:12　最近使用 11/9 10:30（未使用过时写「未使用」）　作废」，作废前 `confirm('作废「名称」后，这台设备上的脚本立即失效。')`，作废后刷新列表；接口失败时在列表上方显示一行错误文字。
 
 - [ ] **Step 1: 写失败测试**（`news-userscript.test.mjs`：复制 `browser.test.mjs` 的 `withSite` 登录方式，Chromium 即可）
 
 ```js
 test('the manage page prefills the device name from the user agent and links the install url', ...)
-  // iPhone 13 设备：输入框值 'iPhone'；填 '我的 iPad' 后点按钮，页面请求的地址为 /api/news/install/%E6%88%91%E7%9A%84%20iPad/jlpt-news.user.js
+  // iPhone 13 设备：输入框值 'iPhone'；填 '我的 iPad' 后点「安装到这台设备」，页面请求的地址为 /api/news/install/%E6%88%91%E7%9A%84%20iPad/jlpt-news.user.js
+test('the download button saves jlpt-news.user.js with the token', ...)
+  // 点「下载脚本文件」触发下载（page.waitForEvent('download')），suggestedFilename() 为 'jlpt-news.user.js'，内容含 '@match'
 test('the manage page lists devices and revokes one after confirming', ...)
   // 先用 page.request 装 iPad、iPhone；列表 2 行；对话框确认后剩 1 行「iPhone」
 ```
@@ -454,7 +457,8 @@ test('the analysis request carries the paragraph and the sentence words')       
   - 安装：
     1. 在 App Store 安装 Userscripts；
     2. 在 Safari 设置里启用扩展，并允许它在 `news.yahoo.co.jp` 上运行；
-    3. 登录本站，打开「新闻脚本」，点「安装到这台设备」，在扩展弹窗中点安装。
+    3. 登录本站，打开「新闻脚本」，点「安装到这台设备」，在扩展弹窗中点安装；
+    4. 安装提示不出现时，改点「下载脚本文件」，把文件存进 Userscripts 的脚本文件夹。
   - 配置 `news_sites` 的格式（缺省值见 Global Constraints）；加网站后各设备重装一次加载器。
   - 抽查命令与输出说明。
   - 上线前人工检查：在 iPad 与 iPhone 上点词、长按、拖选、面板、追问各试一次；打开一篇多页文章，翻到第 2 页后确认词仍被标出。
