@@ -108,6 +108,47 @@ class CaddyStreamingTests(unittest.TestCase):
                 process.terminate();process.wait(timeout=5)
                 backend.shutdown();backend.server_close()
 
+    def test_preflight_passes_through_caddy_unchanged(self):
+        class Backend(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_OPTIONS(self):
+                self.send_response(204)
+                self.send_header('Access-Control-Allow-Origin', self.headers.get('Origin', ''))
+                self.send_header('Vary', 'Origin')
+                self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST')
+                self.send_header('Access-Control-Max-Age', '600')
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.close_connection = True
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); static=root/'static'; static.mkdir()
+            with socket.socket() as s:
+                s.bind(('127.0.0.1',0)); port=s.getsockname()[1]
+            backend=http.server.ThreadingHTTPServer(('127.0.0.1',0),Backend)
+            threading.Thread(target=backend.serve_forever,daemon=True).start()
+            config=Path('deploy/Caddyfile').read_text().replace('admin 127.0.0.1:2019','admin off').replace(':8080 {',f'http://127.0.0.1:{port} {{').replace('/srv/jlpt/static',str(static)).replace('127.0.0.1:8765',f'127.0.0.1:{backend.server_port}')
+            config_path=root/'Caddyfile';config_path.write_text(config)
+            process=subprocess.Popen([os.environ['CADDY_BINARY'],'run','--config',str(config_path)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            try:
+                for _ in range(100):
+                    try:
+                        conn=http.client.HTTPConnection('127.0.0.1',port,timeout=2);conn.request('GET','/login.html');conn.getresponse().read();conn.close();break
+                    except OSError:time.sleep(.03)
+                conn=http.client.HTTPConnection('127.0.0.1',port,timeout=5)
+                conn.request('OPTIONS','/api/news/analyze',headers={'Origin':'https://news.example','Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization','Accept-Encoding':'gzip, deflate, br, zstd'})
+                response=conn.getresponse();body=response.read()
+                self.assertEqual(response.status,204)
+                self.assertEqual(body,b'')
+                self.assertEqual(response.getheader('Access-Control-Allow-Origin'),'https://news.example')
+                self.assertEqual(response.getheader('Access-Control-Allow-Headers'),'Authorization, Content-Type')
+                self.assertEqual(response.getheader('Access-Control-Allow-Methods'),'GET, POST')
+                self.assertEqual(response.getheader('Access-Control-Max-Age'),'600')
+                conn.close()
+            finally:
+                process.terminate();process.wait(timeout=5)
+                backend.shutdown();backend.server_close()
+
     def test_deployed_caddyfile_disables_response_buffering_for_api(self):
         config=Path('deploy/Caddyfile').read_text()
         api=config[config.index('handle @api'):config.index('handle {', config.index('handle @api'))]

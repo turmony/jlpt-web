@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from . import news, papers, review
 from .auth import Auth, YEAR
 from .news_errors import NewsError
+from .news_sites import allowed_origins, loader_script, sites
 from .papers import safe_file
 from .store import Store, Conflict
 
@@ -25,6 +26,7 @@ class Application:
         self.auth = Auth(self.store, config['password_hash'])
         self.attempts = defaultdict(list)
         self.auth_lock = threading.Lock()
+        sites(config)  # a bad news_sites table stops the server at start-up
         self.news = news.NewsService(config, state)
 
 
@@ -42,8 +44,10 @@ def create_server(app, address):
             self.send_response(status)
             for key, value in (headers or {}).items():
                 self.send_header(key, value)
-            self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', str(len(body)))
+            self.cors_headers()
+            if status != 204:
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', str(len(body)))
             self.send_header('Connection', 'close')
             self.close_connection = True
             if 'Cache-Control' not in (headers or {}):
@@ -54,6 +58,37 @@ def create_server(app, address):
             self.end_headers()
             if self.command != 'HEAD':
                 self.wfile.write(body)
+
+        cors_origin = None
+        via_token = False
+
+        def cors_headers(self, preflight=False):
+            # Only origins from the news site table; no credentials, so cookies never cross sites.
+            if self.cors_origin:
+                self.send_header('Access-Control-Allow-Origin', self.cors_origin)
+                self.send_header('Vary', 'Origin')
+                if preflight:
+                    self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
+                    self.send_header('Access-Control-Allow-Methods', 'GET, POST')
+                    self.send_header('Access-Control-Max-Age', '600')
+
+        def listed_origin(self, path):
+            origin = self.headers.get('Origin')
+            try:
+                listed = allowed_origins(app.config)
+            except ValueError:
+                return None
+            return origin if origin and path.startswith('/api/news/') and origin in listed else None
+
+        def device(self):
+            """The device id for `Authorization: Bearer <token>`, or None. Never raises, never logs the token."""
+            header = self.headers.get('Authorization') or ''
+            token = header[len('Bearer '):] if header.startswith('Bearer ') else ''
+            try:
+                return app.news.devices.check(token)
+            except Exception as error:
+                app.news.log_error({'stage': 'client', 'reason': '令牌检查失败：' + type(error).__name__}, self.path)
+                return None
 
         def token(self):
             try:
@@ -85,6 +120,17 @@ def create_server(app, address):
         def do_POST(self):
             self.dispatch()
 
+        def do_OPTIONS(self):
+            path = unquote(urlsplit(self.path).path)
+            self.cors_origin = self.listed_origin(path)
+            if not self.cors_origin:
+                return self.reply(403, {'error': '请求来源不匹配'})
+            self.send_response(204)
+            self.cors_headers(preflight=True)
+            self.send_header('Connection', 'close')
+            self.close_connection = True
+            self.end_headers()
+
         def dispatch(self):
             try:
                 self.route()
@@ -105,7 +151,12 @@ def create_server(app, address):
             parsed = urlsplit(self.path)
             path = unquote(parsed.path)
             post = self.command == 'POST'
-            if post and self.headers.get('Origin') != app.config['origin']:
+            news_path = path.startswith('/api/news/')
+            self.via_token = False
+            self.cors_origin = self.listed_origin(path)
+            # A token request is judged by its token below (a bad one earns the 401 the script can act on).
+            token_mode = news_path and self.headers.get('Authorization') is not None
+            if post and self.headers.get('Origin') != app.config['origin'] and not (token_mode and self.cors_origin):
                 self.close_connection = True
                 return self.reply(403, {'error': '请求来源不匹配'})
             if path == '/api/login' and post:
@@ -125,7 +176,13 @@ def create_server(app, address):
             if path in ('/login.html', '/login.mjs', '/site.css') and not post:
                 return self.static(path)
             token = self.token()
-            if not app.auth.check(token):
+            if token_mode:
+                if self.device() is None:
+                    error = NewsError('client', '令牌已失效，请重新安装脚本', retryable=False)
+                    app.news.log_error(error, self.path)
+                    return self.reply(401, {'error': dict(error.to_dict(), install=app.config['origin'] + '/news-script/')})
+                self.via_token = True
+            elif not app.auth.check(token):
                 return self.reply(401, {'error': '请登录'})
             if path == '/auth/check':
                 return self.reply(200, {'ok': True})
@@ -198,6 +255,40 @@ def create_server(app, address):
                 except (ValueError, TypeError) as error:
                     raise news.client_error(str(error) or '请求格式不对')
             try:
+                raw = urlsplit(self.path).path[len('/api/news'):]  # still percent-encoded
+                if path == '/client.js' and not post:
+                    file = Path(app.config['static']) / 'news-script' / 'client.js'
+                    try:
+                        code = file.read_bytes()
+                    except OSError:
+                        return self.reply(503, {'error': '主脚本未构建'})
+                    return self.reply(200, code, 'text/javascript; charset=utf-8')
+                install = re.fullmatch(r'/install/([^/]+)/jlpt-news\.user\.js', raw)
+                if install or path in ('/devices', '/devices/revoke'):
+                    if self.via_token:
+                        return self.reply(403, {'error': '令牌不能管理设备'})
+                if install and self.command == 'GET':  # a HEAD must not mint a token
+                    try:
+                        name = unquote(install[1], errors='strict')
+                    except UnicodeDecodeError:
+                        raise ValueError('设备名称无效')
+                    _device, token = svc.devices.install(name)
+                    headers = {}
+                    if parse_qs(query).get('download') == ['1']:
+                        headers['Content-Disposition'] = 'attachment; filename="jlpt-news.user.js"'
+                    script = loader_script(app.config['origin'], token, sites(app.config))
+                    return self.reply(200, script.encode('utf-8'), 'text/javascript; charset=utf-8', headers)
+                if path == '/devices' and not post:
+                    return self.reply(200, {'devices': svc.devices.list()})
+                if path == '/devices/revoke' and post:
+                    device_id = body().get('id')
+                    if not isinstance(device_id, str):
+                        raise news.client_error('设备编号无效')
+                    try:
+                        svc.devices.revoke(device_id)
+                    except KeyError:
+                        return self.reply(404, {'error': '设备不存在'})
+                    return self.reply(200, {'ok': True})
                 if path == '/feeds' and not post:
                     values = parse_qs(query).get('cat', [])
                     return self.reply(200, svc.feeds(values[0] if len(values) == 1 else None))
@@ -239,6 +330,7 @@ def create_server(app, address):
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Accel-Buffering', 'no')
             self.send_header('X-Content-Type-Options', 'nosniff')
+            self.cors_headers()
             self.send_header('Connection', 'close')
             self.close_connection = True
             self.end_headers()
