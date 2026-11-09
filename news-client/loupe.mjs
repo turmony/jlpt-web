@@ -8,7 +8,8 @@
 // Position: above the first line of the selected part (the finger is usually at its end, below).
 // When that line is off the screen or more than FAR px above the finger, above the finger's line
 // instead; when there is no room above either, below the part with a finger's height to spare.
-// It follows the finger horizontally and never takes a touch.
+// A hint line under the text says that lifting the finger away from the sentence cancels; once the finger is
+// that far (cancel), the bubble turns red and says so. It follows the finger horizontally and never takes a touch.
 
 const MARGIN = 8;
 const GAP = 8;
@@ -17,7 +18,7 @@ const FINGER = 48;
 const MAX_WORDS = 60;
 
 let layer = null;
-let box = null;      // {root, text}
+let box = null;      // {root, text, hint}
 let shown = null;    // {found, focus, from, to}: what the bubble text holds now
 
 function node(tag, className, text) {
@@ -44,9 +45,11 @@ function ensure() {
   root.setAttribute('aria-hidden', 'true');
   root.lang = 'ja';
   const text = node('div', 'news-loupe-text');
-  root.append(text);
+  const hint = node('div', 'news-loupe-hint');
+  hint.lang = 'zh-CN';
+  root.append(text, hint);
   layer.append(root);
-  return box = {root, text};
+  return box = {root, text, hint};
 }
 
 function word(token, index) {
@@ -124,11 +127,13 @@ function place(found, start, end, focus, x) {
 }
 
 // Shows or updates the bubble. `found` is the marked sentence ({tokens, spans}), start/end the selected
-// part (both null while the whole sentence is held), focus the index of the word under the finger and x
-// the finger's viewport x.
-export function showLoupe(found, {start, end, focus, x}) {
+// part (both null while the whole sentence is held), focus the index of the word under the finger, x the
+// finger's viewport x and cancel whether lifting the finger now would cancel the selection.
+export function showLoupe(found, {start, end, focus, x, cancel = false}) {
   if (!layer || !found || !found.tokens[focus]) return hideLoupe();
   if (!box || !shown || shown.found !== found || shown.focus !== focus) fill(found, focus);
   paint(start, end, focus);
+  box.root.classList.toggle('cancel', cancel);
+  box.hint.textContent = cancel ? '松手取消' : '拖离句子后松手可取消';
   place(found, start, end, focus, x);
 }

@@ -724,23 +724,99 @@ for(const device of NEWS_DEVICES) {
     assert.equal(await loupe.count(),0);
   }));
 
+  test(`lifting the finger far from the sentence cancels the selection on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    const analyses=[];
+    page.on('request',request=>{if(request.method()==='POST'&&request.url().endsWith('/api/news/analyze')) analyses.push(request.postDataJSON());});
+    const loupe=page.locator('jlpt-news .news-loupe');
+    const view=page.viewportSize();
+    const far=[view.width/2,view.height-4];
+    const moveTo=async(from,to)=>{for(let step=1;step<=6;step++) {await page.waitForTimeout(15);await pointer(page,'pointermove',[from[0]+(to[0]-from[0])*step/6,from[1]+(to[1]-from[1])*step/6]);}};
+    const hint=()=>loupe.locator('.news-loupe-hint').innerText();
+    const greyed=()=>page.locator('.jlpt-cancel').count();
+    // Dragging near the sentence: the hint says how to cancel, nothing is greyed.
+    const from=await at(tok(page,A,2),0.7),near=await at(tok(page,A,5),0.2);
+    await pointer(page,'pointerdown',from);await page.waitForTimeout(650);
+    await loupe.waitFor();
+    assert.equal(await hint(),'拖离句子后松手可取消');
+    await moveTo(from,near);
+    assert.equal(await loupe.evaluate(node=>node.classList.contains('cancel')),false);
+    assert.equal(await greyed(),0);
+    // Far away: red loupe saying so, the highlight greyed.
+    await moveTo(near,far);
+    assert.equal(await loupe.evaluate(node=>node.classList.contains('cancel')),true);
+    assert.equal(await hint(),'松手取消');
+    assert.equal(await loupe.evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(179, 38, 30)');
+    assert.equal(await greyed(),await page.locator('.jlpt-sel').count());
+    assert.deepEqual(await styleOf(page.locator('.jlpt-part').first(),'backgroundColor'),['rgb(189, 189, 189)']);
+    assert.deepEqual(await styleOf(page.locator('.jlpt-sel:not(.jlpt-part)').first(),'backgroundColor'),['rgb(224, 224, 224)']);
+    // Back near the sentence takes the cancel back.
+    await moveTo(far,near);
+    assert.equal(await loupe.evaluate(node=>node.classList.contains('cancel')),false);
+    assert.equal(await hint(),'拖离句子后松手可取消');
+    assert.equal(await greyed(),0);
+    assert.deepEqual(await partIndices(page),range(A,2,5));
+    // Lifted far away: nothing selected, nothing analysed, no highlight left.
+    await moveTo(near,far);
+    await pointer(page,'pointerup',far);
+    assert.deepEqual(await events(page),[]);
+    assert.equal(await page.locator('.jlpt-sel').count(),0);
+    assert.equal(await greyed(),0);
+    assert.equal(await loupe.count(),0);
+    await page.waitForTimeout(300);
+    assert.equal(analyses.length,0);
+    // A long press that slides straight away does not analyse the whole sentence either.
+    const press=await at(tok(page,A,5));
+    await pointer(page,'pointerdown',press);await page.waitForTimeout(650);
+    await moveTo(press,far);
+    await pointer(page,'pointerup',far);
+    assert.deepEqual(await events(page),[]);
+    assert.equal(await page.locator('.jlpt-sel').count(),0);
+    await page.waitForTimeout(300);
+    assert.equal(analyses.length,0);
+    // The same near the sentence still selects, and a cancel after that leaves that selection as it was.
+    await pointer(page,'pointerdown',from);await page.waitForTimeout(650);
+    await moveTo(from,near);
+    await pointer(page,'pointerup',near);
+    assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:2,end:5}]);
+    const fired=(await events(page)).length;
+    const again=await at(tok(page,A,8),0.5);
+    await pointer(page,'pointerdown',again);await page.waitForTimeout(650);
+    await moveTo(again,far);
+    await pointer(page,'pointerup',far);
+    assert.equal((await events(page)).length,fired);
+    assert.deepEqual(await partIndices(page),range(A,2,5));
+    assert.deepEqual(await selectedIds(page),[A]);
+  }));
+
   test(`drag past sentence end clamps to sentence on ${device}`,()=>withUserscript(device,async(page,{site})=>{
     await openArticle(page,site);
-    const [H,A,B]=await ids(page,'台風は強い勢力で島に接近','台風は強い勢力で島に接近する','気象庁は');
+    const [,A,B]=await ids(page,'台風は強い勢力で島に接近','台風は強い勢力で島に接近する','気象庁は');
     await longPress(page,tok(page,A,5));
     // Past the end into the next sentence and further down the page: up to the last word, 。 left out.
     await drag(page,await at(tok(page,A,3)),await at(tok(page,B,2)));
     assert.deepEqual(await partIndices(page),range(A,3,12));
     assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:3,end:12}]);
     const view=page.viewportSize();
-    const below=[view.width/2,view.height-4]; // further down the page, below sentence A
+    // A little below the last line of sentence A: still up to the last word.
+    const lastLine=await tok(page,A,12).boundingBox();
+    const below=[view.width/2,lastLine.y+lastLine.height+30];
     await drag(page,await at(tok(page,A,6)),below);
     assert.deepEqual(await partIndices(page),range(A,6,12));
-    // Back past the start, into the title and above it: from the first word.
-    await drag(page,await at(tok(page,A,5)),await at(tok(page,H,1)));
+    assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:6,end:12}]);
+    // Far below the sentence (a long way down the page) cancels instead: nothing new is fired, the part stays.
+    const fired=(await events(page)).length;
+    await drag(page,await at(tok(page,A,4)),[view.width/2,view.height-4]);
+    assert.equal((await events(page)).length,fired);
+    assert.deepEqual(await partIndices(page),range(A,6,12));
+    // Back past the start, a little above the first line: from the first word.
+    const firstLine=await tok(page,A,0).boundingBox();
+    const above=[firstLine.x+4,Math.max(1,firstLine.y-30)];
+    await drag(page,await at(tok(page,A,5)),above);
     assert.deepEqual(await partIndices(page),range(A,0,5));
-    const top=await at(page.locator('h1'),0.5,0);
-    await drag(page,await at(tok(page,A,9)),[top[0],Math.max(1,top[1]-6)]);
+    assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:0,end:5}]);
+    await drag(page,await at(tok(page,A,9)),above);
     assert.deepEqual(await partIndices(page),range(A,0,9));
     assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:0,end:9}]);
     // Into the blank margin beside the paragraph: still inside the sentence.
