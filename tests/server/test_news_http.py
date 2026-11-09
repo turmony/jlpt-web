@@ -371,6 +371,8 @@ class AnalyzeTests(NewsHTTPBase):
             (self.analyze_body(paragraph=''), None),
             (self.analyze_body(tokens='動画'), None),
             (self.analyze_body(tokens=['動画', 1]), None),
+            (self.analyze_body(tokens=['']), '句子无效'),
+            (self.analyze_body(tokens=['動画', '', 'の']), '句子无效'),
             (self.analyze_body(paragraph=5), None),
             ({'tokens': ['動画']}, None),
         ]
@@ -379,6 +381,8 @@ class AnalyzeTests(NewsHTTPBase):
             self.assertEqual(err['stage'], 'client', body)
             if reason:
                 self.assertEqual(err['reason'], reason)
+        empty = {**self.analyze_body(tokens=['動画', '']), 'analysis': '', 'history': [], 'question': '为什么？'}
+        self.assertEqual(self.json('/api/news/ask', empty, status=400)['error']['reason'], '句子无效')
         # The limits themselves are allowed.
         ok = self.analyze_body(paragraph='あ' * 4000, tokens=['あ'] * 400)
         self.use(script=[('chunks', ['<translation>x</translation>'], 0)])

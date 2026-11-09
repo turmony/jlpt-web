@@ -124,7 +124,6 @@ class NewsService:
             hub = Hub(llm['base_url'], llm.get('api_key') or '')
         self.hub = hub
         self.slots = threading.BoundedSemaphore(MODEL_SLOTS)
-        self.clock = time.time
         self._lock = threading.Lock()
         self._catalog = None
 
@@ -274,7 +273,7 @@ class NewsService:
         if not isinstance(paragraph, str) or not 1 <= len(paragraph) <= MAX_PARAGRAPH:
             raise client_error('段落无效')
         if not isinstance(tokens, list) or not 1 <= len(tokens) <= MAX_TOKENS \
-                or not all(isinstance(t, str) and len(t) <= MAX_TOKEN for t in tokens):
+                or not all(isinstance(t, str) and 1 <= len(t) <= MAX_TOKEN for t in tokens):
             raise client_error('句子无效')
         if ''.join(tokens) not in paragraph:
             raise client_error('句子不在段落中')
