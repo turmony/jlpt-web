@@ -790,3 +790,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:browser` 99 项（含新增的取消用例，iPad 与 iPhone 各一）、`test:client` 13 项、`test:server` 248 项（news venv）通过。上线后公网 `client.js`（带雅虎来源）200，与发布目录逐字节一致且含新逻辑（`jlpt-cancel` 与“松手取消”的转义串都在，esbuild 会把中文写成 `\u` 转义，所以不能直接 grep 中文）；加载器 200；无来源取 `client.js` 401；各页面未登录 303；服务仍在运行。未验证：真机上 100px 这个阈值的手感（误触或不够灵敏时改 `CANCEL_DISTANCE_PX` 即可，只需重新构建并切换静态目录）。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261109-news-loupe/static`，不需要重启。
+
+### 上线记录（2026-11-09，音调数字）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-pitch-accent`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 都已切换，`jlpt.service` 已重启（切换前确认无子进程）。这次改了服务端，所以与前几次只切静态目录的发布不同。网页提交 `b8a1d5c`（合并 `feat/news-pitch-accent`）。上一版本为 app `20261109-news-no-token/app`、static `20261109-news-cancel-drag/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。`/srv/jlpt/venv`、配置、服务单元、Caddyfile 均未改动；加载器仍是 v3，设备上不用操作。
+
+内容：查词卡取消朗读按钮（🔊 与 `speechSynthesis` 代码），改为显示音调数字；`/api/news/tokenize` 给有数据的词多返回 `a`（unidic-lite 的 `aType`，文本，如 `"3"`、`"2,0"`），说明见上文「音调数字」。
+
+验证：`test:server` 249 项（news venv，含真实词典的音调用例）、`test:browser` 101 项、`test:client` 13 项通过。上线后公网：分词返回的音调与词典一致（台風[3] 強い[2] 勢力[1] 島[2] 接近[0] 準備[1] 呼びかけ[4]），助词、符号不带 `a`；`client.js`（带雅虎来源）200 且与发布目录逐字节一致、含新卡片代码；预检 204；其他来源 POST 403；无来源取 `client.js` 401；加载器 200；模型列表 200；单句分析约 5 秒以 `done` 结束；查词 200；各页面未登录 303；重启后服务正常。
+
+回滚：把 `/srv/jlpt/app` 切回 `20261109-news-no-token/app`、`/srv/jlpt/static` 切回 `20261109-news-cancel-drag/static`，`systemctl restart jlpt.service`。多出的 `a` 字段对旧主脚本无影响。
