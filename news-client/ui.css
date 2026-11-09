@@ -119,7 +119,8 @@
   font-size: 15px;
   line-height: 1.6;
 }
-.news-card button { font: inherit; color: inherit; cursor: pointer; }
+/* Base for the card's controls, with no specificity so every control's own rule wins. */
+:where(.news-card) :where(button) { font: inherit; color: inherit; cursor: pointer; }
 .news-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; }
 .news-card-word { font-size: 22px; font-weight: 600; }
 .news-card-reading { color: #1a73e8; font-size: 16px; }
@@ -169,7 +170,8 @@
   .news-panel { height: var(--sheet-height, 55dvh); }
   .news-panel.is-full { height: var(--sheet-height, 100dvh); }
 }
-.news-panel button, .news-panel input { font: inherit; color: inherit; }
+/* Base for the panel's controls, with no specificity so every control's own rule wins. */
+:where(.news-panel) :where(button, input) { font: inherit; color: inherit; }
 .news-panel-head {
   position: relative;
   flex: 0 0 auto;

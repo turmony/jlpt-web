@@ -336,6 +336,9 @@ async function ids(page,...starts) {
 const tok=(page,s,i)=>page.locator(`.jlpt-t[data-s="${s}"][data-i="${i}"]`).first();
 const events=page=>page.evaluate(()=>window.__events);
 const card=page=>page.locator('jlpt-news .news-card');
+// Computed style values of an element (inside the shadow root too).
+const styleOf=(locator,...props)=>locator.evaluate((node,props)=>{const style=getComputedStyle(node);return props.map(prop=>style[prop]);},props);
+const RED='rgb(179, 38, 30)'; // .news-error-line
 // Touch input as iOS WebKit reports it: pointer events of pointerType 'touch', all sent to the element first
 // touched (implicit capture), coordinates in the viewport. Playwright has no touch-drag API for WebKit.
 // A touch on the script's own UI goes to the element inside its (test-opened) shadow root, as on a device.
@@ -396,6 +399,7 @@ for(const device of NEWS_DEVICES) {
     const box=await card(page).boundingBox();const wordBox=await word.boundingBox();const view=page.viewportSize();
     assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=view.width&&box.y+box.height<=view.height,JSON.stringify([box,view]));
     assert.ok(Math.min(Math.abs(box.y-(wordBox.y+wordBox.height)),Math.abs(box.y+box.height-wordBox.y))<=16,JSON.stringify([box,wordBox]));
+    assert.deepEqual(await styleOf(card(page).getByRole('button',{name:'朗读'}),'fontSize'),['18px']);
     await card(page).getByRole('button',{name:'朗读'}).click();
     assert.deepEqual(await page.evaluate(()=>window.__spoken),[['勢力','ja-JP']]);
     // Tapping elsewhere closes the card.
@@ -429,6 +433,7 @@ for(const device of NEWS_DEVICES) {
     await tap(page,tok(page,C,3));
     const line=card(page).locator('.news-error-line');
     assert.equal(await line.innerText(),'模型生成失败（查词：船）：模型没有回应');
+    assert.deepEqual(await styleOf(line,'color'),[RED]);
     fail=false;
     await card(page).getByRole('button',{name:'重试'}).click();
     await card(page).locator('.news-card-meaning',{hasText:'船只'}).waitFor();
@@ -815,6 +820,13 @@ for(const device of NEWS_DEVICES) {
     assert.equal(await panel(page).locator('.news-grammar-detail:not([hidden])').count(),0);
     assert.equal(await panel(page).locator('.news-panel-status').innerText(),'');
     assert.equal(await panel(page).locator('.news-ask-input').getAttribute('placeholder'),'想问什么…');
+    // The panel's controls keep their own styles: 16px input (iOS does not zoom on focus), white on blue send, a 24px ×.
+    const [inputSize]=await styleOf(panel(page).locator('.news-ask-input'),'fontSize');
+    assert.ok(parseFloat(inputSize)>=16,inputSize);
+    assert.deepEqual(await styleOf(panel(page).locator('.news-ask-send'),'color','backgroundColor'),['rgb(255, 255, 255)','rgb(26, 115, 232)']);
+    assert.deepEqual(await styleOf(panel(page).locator('.news-panel-close'),'fontSize','color'),['24px','rgb(102, 102, 102)']);
+    const [rowSize,rowHeight]=await styleOf(panel(page).locator('.news-grammar-row').first(),'fontSize','lineHeight');
+    assert.equal(parseFloat(rowHeight)/parseFloat(rowSize),1.5,`${rowHeight} / ${rowSize}`);
     // Nothing else to press: no read-aloud or quick-question buttons.
     assert.deepEqual(await panel(page).locator('button').evaluateAll(list=>list.map(b=>b.className.split(' ')[0])),
       ['news-panel-close','news-grammar-row','news-grammar-row','news-grammar-row','news-ask-send']);
@@ -986,6 +998,7 @@ for(const device of NEWS_DEVICES) {
     await pressSentence(page,A);
     await status.locator('.news-error-line').waitFor();
     assert.equal(await status.innerText(),'模型生成失败（句子分析）：请先在页头选择模型');
+    assert.deepEqual(await styleOf(status.locator('.news-error-line'),'color'),[RED]);
     assert.deepEqual(await headings(page),['原文']);
     // The dock stays reachable while the panel is open.
     const menu=await openDock(page);
@@ -1020,6 +1033,7 @@ for(const device of NEWS_DEVICES) {
     const round=panel(page).locator('.news-chat-round');
     await round.locator('.news-error-line').waitFor();
     assert.equal(await round.locator('.news-error-line').innerText(),'模型生成失败（追问）：模型排队中，请稍后重试');
+    assert.deepEqual(await styleOf(round.locator('.news-error-line'),'color'),[RED]);
     assert.equal(await round.locator('.news-chat-q').innerText(),'我：这句是什么意思？');
     await round.locator('.news-error-retry').click();
     await round.locator('.news-error-line',{hasText:'qoder2api-hub 中途断开'}).waitFor();
