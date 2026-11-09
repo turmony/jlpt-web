@@ -596,6 +596,15 @@ caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy.service
 ```
 
+### 可续传的流（2026-11-09 起）
+
+限制来自云平台放在服务器前面的 HTTPS 代理（`Caddyfile` 注释里的 "cloud HTTP proxy"）：它把任何单次响应在约 16 秒处切断，本机与本机 Caddy 都没有这个限制。句子分析常要 10–30 秒，所以 `/api/news/analyze` 与 `/api/news/ask` 不再把模型输出绑在一个连接上（`server/news_jobs.py`）：
+
+- 每次请求启动一个后台任务（线程），事件按 1、2、3… 编号记录；响应头 `X-News-Job` 是任务编号（跨域时由 `Access-Control-Expose-Headers` 暴露），每个事件带 SSE `id:` 行。
+- 一个连接最多跟随任务 12 秒（`SEGMENT`），到点发 `event: resume` 并结束；浏览器用 `POST /api/news/resume {job, next}` 从最后收到的事件号接着读，`streamSSE`（`news-client/api.mjs`）自动完成，面板代码不变。连接中途断开时也会按同样方式重试最多 3 次。
+- `POST /api/news/cancel {job}` 立即停止任务并放弃上游模型请求（用户换了句子或关闭面板时由脚本发出）。没有任何连接跟随超过 5 秒（`GRACE`）的任务也会自动放弃；已结束的任务保留 5 分钟（`KEEP`）供 `/resume` 取尾部；同时未结束的任务最多 30 个（`MAX_LIVE`），超过返回「服务器忙」。任务只在内存里，服务重启后 `/resume` 会得到「这次回答已过期，请重试」，脚本显示为可重试的错误。
+- 模型仍然只调用一次；`ClientGone`、模型并发上限（3）与排队提示都不变。
+
 ### 真实模型测试与雅虎抽查
 
 这两项会访问外部服务，不在 `npm run test:server` 里，按需手动运行。
@@ -723,7 +732,7 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 验证：合并后的 `main` 上，`test:server` 240 项（系统 python，14 项因缺 fugashi 跳过）、`test:browser` 88 项、`test:client` 9 项通过；真实模型测试（`tests/llm`，经网关调用 DeepSeek-Flash）6/6；真实雅虎抽查 8/8。上线后，本机与公网未登录时 `/news-script/`、`/news/`、`/news/read.html`、`/review/`、`/grammar/`、`/papers.html`、`/code/` 均为 303，`/api/news/devices`、`/api/news/client.js`、`/api/news/feeds` 为 401。公网登录后：管理页 200；安装得到带令牌的加载器；带令牌取主脚本 200（66652 字节）；来自 `https://news.yahoo.co.jp` 的预检 204 且带正确的 CORS 头，来自其他来源 403；带令牌的分词 200；只带 Cookie 的雅虎来源 POST 403；模型列表 13 个；令牌不能列设备（403）；作废后令牌返回 401 并附重装地址。验证用的临时设备都已作废，设备列表为空。
 
-**公网入口限制单次响应约 16 秒（未解决，需要决定）：** 经公网地址（HTTP/2 入口）时，单次流式响应在 16.0 秒被切断（读到 `IncompleteRead`），已收到的数据不受影响，但之后的事件都丢失；同一请求直连服务（127.0.0.1:8765）和经本机 Caddy（127.0.0.1:8080）都完整完成。测试方法：用令牌调用 `/api/news/analyze` 与 `/api/news/ask`，分别直连、经 Caddy、经公网。结果：第一个数据事件在 16 秒内到达、总时长不到 16 秒的分析正常完成（单句约 8–10 秒）；两句段落、模型首次输出晚于约 12 秒的分析，在 16 秒被切断，服务器日志里没有记录。把心跳从注释行 `: ping` 改成数据事件 `event: ping` 没有用：心跳到达了，连接仍在 16.0 秒被切断，有数据流动时也一样（16.4 秒被切）。所以这不是心跳形式的问题，也不是本次代码的问题（上一版 20261108-news 用同样的流式方式，当时只做了本机验证）。影响：在 iPad / iPhone 上经公网使用时，较慢的分析和较长的追问可能中途失败。查词（`/api/news/gloss`）通常很短，不受影响。可选的处理方式见交接说明；决定前不要把它当作已验证。
+**公网入口限制单次响应约 16 秒（已在 2026-11-09 的 `20261109-news-resumable-jobs` 解决，见该上线记录与「可续传的流」）：** 经公网地址（HTTP/2 入口）时，单次流式响应在 16.0 秒被切断（读到 `IncompleteRead`），已收到的数据不受影响，但之后的事件都丢失；同一请求直连服务（127.0.0.1:8765）和经本机 Caddy（127.0.0.1:8080）都完整完成。测试方法：用令牌调用 `/api/news/analyze` 与 `/api/news/ask`，分别直连、经 Caddy、经公网。结果：第一个数据事件在 16 秒内到达、总时长不到 16 秒的分析正常完成（单句约 8–10 秒）；两句段落、模型首次输出晚于约 12 秒的分析，在 16 秒被切断，服务器日志里没有记录。把心跳从注释行 `: ping` 改成数据事件 `event: ping` 没有用：心跳到达了，连接仍在 16.0 秒被切断，有数据流动时也一样（16.4 秒被切）。所以这不是心跳形式的问题，也不是本次代码的问题（上一版 20261108-news 用同样的流式方式，当时只做了本机验证）。影响：在 iPad / iPhone 上经公网使用时，较慢的分析和较长的追问可能中途失败。查词（`/api/news/gloss`）通常很短，不受影响。可选的处理方式见交接说明；决定前不要把它当作已验证。
 
 回滚：把 `/srv/jlpt/app` 与 `/srv/jlpt/static` 切回 `/srv/jlpt/releases/20261108-news/` 下对应目录，`systemctl restart jlpt.service`。`config.json`、`/srv/jlpt/venv`、`state/news/` 对旧版本无影响；`state/news/devices.json` 旧版本不读取。
 
@@ -810,3 +819,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:browser` 101 项、`test:client` 13 项、`test:server` 249 项（news venv）通过。上线后公网 `client.js`（带雅虎来源）200，与发布目录逐字节一致且含新卡片代码；加载器 200；无来源取 `client.js` 401；各页面未登录 303；服务仍在运行。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261109-news-pitch-accent/static`，不需要重启。
+
+### 上线记录（2026-11-09，可续传的流）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-resumable-jobs`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 都已切换，`jlpt.service` 已重启（切换前确认无子进程）。网页提交 `51b6f6d`（合并 `feat/news-resumable-jobs`）。上一版本为 app `20261109-news-pitch-accent/app`、static `20261109-news-accent-inline/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。`/srv/jlpt/venv`、配置、服务单元、Caddyfile 均未改动；加载器仍是 v3，设备上不用操作（主脚本自动更新）。
+
+内容：根因是云平台 HTTPS 代理把单次响应在约 16 秒切断，而分析常超过 16 秒（本机实测 10–29 秒），详见上文「可续传的流」。
+
+验证：`test:server` 263 项（news venv）、`test:browser` 101 项、`test:client` 23 项通过。上线后公网（用与脚本相同的续接逻辑）连续 6 次分析全部以 `done` 结束，总耗时 10.1–21.2 秒，其中 4 次超过 16 秒（旧版会被切断），每个连接都在约 12 秒结束（最长 12.4 秒）；追问 4.3 秒完成；`analyze` 响应带 `X-News-Job` 与 `Access-Control-Expose-Headers`；`resume`、`cancel` 的预检 204 且来源正确；未知任务的 `resume` 返回可重试的「这次回答已过期」；`client.js` 与发布目录逐字节一致；各页面未登录 303，无来源 `models` 401，其他来源 POST 403。
+
+回滚：把 `/srv/jlpt/app` 切回 `20261109-news-pitch-accent/app`、`/srv/jlpt/static` 切回 `20261109-news-accent-inline/static`，`systemctl restart jlpt.service`。回滚后 16 秒问题回来；已打开页面里的新主脚本遇到旧服务端（响应没有 `X-News-Job`）会按旧方式处理，不会出错。
