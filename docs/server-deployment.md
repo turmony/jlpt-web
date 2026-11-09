@@ -764,3 +764,15 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:browser` 93 项、`test:client` 13 项、`test:server` 248 项（news venv）通过，新增的 3 组长按用例在旧代码上失败。上线后公网 `client.js`（带雅虎来源）200，与发布目录逐字节一致，含新逻辑；加载器 200；无来源取 `client.js` 401；各页面未登录 303；服务仍在运行。**未验证：真机上长按后拖动是否被 iOS 抢走手势，需要在 iPad / iPhone 上试。**
 
 回滚：把 `/srv/jlpt/static` 切回 `20261109-news-no-token/static`，不需要重启。
+
+### 上线记录（2026-11-09，放大气泡）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-loupe`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261109-news-no-token/app`，服务未重启，加载器仍是 v3，设备上不用操作）。网页提交 `79b2aa3`（合并 `feat/news-loupe`）。上一版本静态目录是 `20261109-news-longpress-drag/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `news-script/client.js` 不同。
+
+内容：长按拖选时，选区第一行上方显示放大气泡（`news-client/loupe.mjs`）：用句子自己的词重新排一行约 24px 的大字，以手指下的词为中心，选区深黄、整句浅黄、手指下的词加粗加下划线，词间留细缝；随手指横向移动，不接收触摸，松手或取消即消失；第一行不在屏幕内或离手指超过 200px 时放在手指行上方，上方没有空间时放到选区下方。放大的是重新排版的文字，不是页面原样。
+
+验证：`test:browser` 97 项（含新增 4 条）、`test:client` 13 项、`test:server` 248 项（news venv）通过，并截图核对了样式与位置。上线后公网 `client.js`（带雅虎来源）200，与发布目录逐字节一致且含新逻辑；加载器 200；无来源取 `client.js` 401；各页面未登录 303；服务仍在运行。
+
+已知：加载器的调试面板（`news_debug` 默认开，层级高于主脚本的浮层）出现在左上角时会盖住放大气泡的一部分；关掉需要把 `news_debug` 设为 `false` 并升加载器版本。未验证：真机上的长按拖动手感与气泡位置。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261109-news-longpress-drag/static`，不需要重启。
