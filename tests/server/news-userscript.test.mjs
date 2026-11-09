@@ -593,6 +593,69 @@ for(const device of NEWS_DEVICES) {
     assert.deepEqual((await events(page)).at(-1),['jlpt:select-sentence',{sentenceId:A}]);
   }));
 
+  test(`long press then drag in the same touch selects a part; the analysis starts on release on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    const analyses=[];
+    page.on('request',request=>{if(request.method()==='POST'&&request.url().endsWith('/api/news/analyze')) analyses.push(request.postDataJSON());});
+    const settle=async()=>{const until=Date.now()+1500;while(!analyses.length&&Date.now()<until) await page.waitForTimeout(50);await page.waitForTimeout(150);};
+    // Forwards: hold on 強い, drag to 島. Held: the sentence is highlighted, nothing is analysed or fired yet.
+    const from=await at(tok(page,A,2),0.7),to=await at(tok(page,A,5),0.2);
+    await pointer(page,'pointerdown',from);await page.waitForTimeout(650);
+    assert.deepEqual(await selectedIds(page),[A]);
+    assert.deepEqual(await partIndices(page),[]);
+    assert.deepEqual(await events(page),[]);
+    // The page must not scroll under the finger once the press has fired.
+    assert.equal(await page.evaluate(()=>{const event=new Event('touchmove',{bubbles:true,cancelable:true});document.dispatchEvent(event);return event.defaultPrevented;}),true);
+    for(let step=1;step<=6;step++) {await page.waitForTimeout(15);await pointer(page,'pointermove',[from[0]+(to[0]-from[0])*step/6,from[1]+(to[1]-from[1])*step/6]);}
+    assert.deepEqual(await partIndices(page),range(A,2,5));
+    assert.deepEqual(await events(page),[]);
+    assert.equal(analyses.length,0);
+    await pointer(page,'pointerup',to);
+    assert.deepEqual(await events(page),[['jlpt:select-part',{sentenceId:A,start:2,end:5}]]);
+    await settle();
+    assert.equal(analyses.length,1);
+    assert.deepEqual([analyses[0].start,analyses[0].end],[2,5]);
+    assert.equal(await page.evaluate(()=>{const event=new Event('touchmove',{bubbles:true,cancelable:true});document.dispatchEvent(event);return event.defaultPrevented;}),false);
+    // Backwards, from a word near the end: the part runs from the pressed word to the word under the finger.
+    const back=await at(tok(page,A,11),0.6),stop=await at(tok(page,A,8),0.4);
+    await pointer(page,'pointerdown',back);await page.waitForTimeout(650);
+    for(let step=1;step<=6;step++) {await page.waitForTimeout(15);await pointer(page,'pointermove',[back[0]+(stop[0]-back[0])*step/6,back[1]+(stop[1]-back[1])*step/6]);}
+    await pointer(page,'pointerup',stop);
+    assert.deepEqual(await partIndices(page),range(A,8,11));
+    assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:8,end:11}]);
+  }));
+
+  test(`long press without moving analyses the whole sentence only on release on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    const analyses=[];
+    page.on('request',request=>{if(request.method()==='POST'&&request.url().endsWith('/api/news/analyze')) analyses.push(request.postDataJSON());});
+    const point=await at(tok(page,A,5));
+    await pointer(page,'pointerdown',point);await page.waitForTimeout(650);
+    await pointer(page,'pointermove',[point[0]+3,point[1]+2]); // a jitter inside the tolerance
+    assert.deepEqual(await selectedIds(page),[A]);
+    assert.deepEqual(await events(page),[]);
+    assert.equal(analyses.length,0);
+    await pointer(page,'pointerup',point);
+    assert.deepEqual(await events(page),[['jlpt:select-sentence',{sentenceId:A}]]);
+    assert.deepEqual(await partIndices(page),[]);
+    const until=Date.now()+1500;while(!analyses.length&&Date.now()<until) await page.waitForTimeout(50);
+    assert.equal(analyses.length,1);
+    assert.deepEqual([analyses[0].start,analyses[0].end],[null,null]);
+  }));
+
+  test(`a cancelled long press takes its highlight back and selects nothing on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    await openArticle(page,site);
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    const point=await at(tok(page,A,5));
+    await pointer(page,'pointerdown',point);await page.waitForTimeout(650);
+    assert.deepEqual(await selectedIds(page),[A]);
+    await pointer(page,'pointercancel',point);
+    assert.equal(await page.locator('.jlpt-sel').count(),0);
+    assert.deepEqual(await events(page),[]);
+  }));
+
   test(`drag past sentence end clamps to sentence on ${device}`,()=>withUserscript(device,async(page,{site})=>{
     await openArticle(page,site);
     const [H,A,B]=await ids(page,'台風は強い勢力で島に接近','台風は強い勢力で島に接近する','気象庁は');

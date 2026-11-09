@@ -1,11 +1,14 @@
 // Gestures on the words marks.mjs wrapped on the news page, and the selected sentence.
 // Pointer Events, so touch, pen and mouse behave alike:
 //   tap a word                          -> word card (wordcard.mjs); punctuation and digits do nothing
-//   press 500 ms anywhere in a sentence -> fires jlpt:select-sentence {sentenceId}
-//   drag on the selected sentence       -> whole words, clamped to that sentence; on release fires
+//   press 500 ms anywhere in a sentence -> the sentence is highlighted; nothing is analysed yet
+//     release without moving            -> fires jlpt:select-sentence {sentenceId}
+//     keep the finger down and drag     -> a part from the pressed word to the word under the finger (whole
+//                                          words, clamped to that sentence); on release fires
 //                                          jlpt:select-part {sentenceId, start, end}
+//   drag on an already selected sentence (a new touch) -> the same part selection, from the touched word
 //   drag anywhere else                  -> the page scrolls as usual
-// Moving more than 10 px cancels a press. Both events are CustomEvents on document; this module
+// Moving more than 10 px before the 500 ms are up cancels the press. Both events are CustomEvents on document; this module
 // listens to them as well (whoever fires them) and keeps the highlight in step: every piece of the
 // selected sentence gets .jlpt-sel, the pieces of the selected part's words .jlpt-part (a word cut
 // by inline elements has several pieces). After a re-render the new pieces are painted again.
@@ -17,7 +20,8 @@ export const MOVE_TOLERANCE_PX = 10;
 let marker = null;
 let roots = () => [];
 let selection = null; // {sentenceId, start, end}; start/end null when the whole sentence is selected
-let press = null;     // {pointerId, x, y, el, sentenceId, index, inSelected, mode, timer}
+let press = null;     // {pointerId, x, y, el, sentenceId, index, inSelected, mode, timer}; mode is pending, held (long press fired,
+                      // finger still down), drag or none
 
 // {sentenceId, start, end} (start/end null for the whole sentence), or null.
 export function currentSelection() {
@@ -136,19 +140,24 @@ function onPointerDown(event) {
   };
   state.timer = setTimeout(() => {
     if (press !== state || state.mode !== 'pending') return;
-    state.mode = 'done';
+    // Only the highlight: whether this is the whole sentence or a part is decided when the finger lifts.
+    state.mode = 'held';
     closeWordCard();
-    fire('jlpt:select-sentence', {sentenceId});
+    highlight(sentenceId, null, null);
   }, LONG_PRESS_MS);
 }
 
 function onPointerMove(event) {
   if (!press || event.pointerId !== press.pointerId) return;
   if (event.pointerType === 'mouse' && event.buttons === 0) return onPointerCancel(event); // the release was missed
-  if (press.mode === 'pending' && Math.hypot(event.clientX - press.x, event.clientY - press.y) > MOVE_TOLERANCE_PX) {
+  const moved = Math.hypot(event.clientX - press.x, event.clientY - press.y) > MOVE_TOLERANCE_PX;
+  if (press.mode === 'pending' && moved) {
     clearTimeout(press.timer);
     press.mode = press.inSelected && selection?.sentenceId === press.sentenceId ? 'drag' : 'none';
     if (press.mode === 'drag') closeWordCard();
+  } else if (press.mode === 'held' && moved) {
+    press.mode = 'drag'; // after the long press the same touch goes on selecting a part
+    press.held = true;
   }
   if (press.mode !== 'drag') return;
   event.preventDefault();
@@ -171,15 +180,18 @@ function onPointerUp(event) {
     const index = indexAt(state.sentenceId, event.clientX, event.clientY);
     const range = trimmed(state.sentenceId, Math.min(state.index, index), Math.max(state.index, index));
     if (range) fire('jlpt:select-part', {sentenceId: state.sentenceId, start: range[0], end: range[1]});
+    else if (state.held) fire('jlpt:select-sentence', {sentenceId: state.sentenceId}); // punctuation only: the whole sentence
     else paint();
+  } else if (state.mode === 'held') {
+    fire('jlpt:select-sentence', {sentenceId: state.sentenceId});
   }
 }
 
 function onPointerCancel(event) {
   if (!press || event.pointerId !== press.pointerId) return;
-  const dragging = press.mode === 'drag';
+  const highlighted = press.mode === 'drag' || press.mode === 'held';
   endPress();
-  if (dragging) paint();
+  if (highlighted) paint();
 }
 
 // `roots()` gives the article parts now on the page (they may be replaced by a re-render).
@@ -209,5 +221,8 @@ export function mountReader(theMarker, getRoots) {
     const el = tokenOf(event.target);
     touchOnSelected = !!el && selection?.sentenceId === Number(el.dataset.s);
   }, {passive: true});
-  document.addEventListener('touchmove', event => { if (touchOnSelected && event.cancelable) event.preventDefault(); }, {passive: false});
+  document.addEventListener('touchmove', event => {
+    const holding = press?.mode === 'held' || (press?.mode === 'drag' && press.held);
+    if ((touchOnSelected || holding) && event.cancelable) event.preventDefault();
+  }, {passive: false});
 }
