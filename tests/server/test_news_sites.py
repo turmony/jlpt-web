@@ -38,6 +38,18 @@ class SitesTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 sites({'news_sites': [bad]})
 
+    def test_origin_must_be_exactly_scheme_host_and_port(self):
+        for good in ('https://a.com', 'http://a.com', 'https://a.com:8443', 'http://127.0.0.1:1',
+                     'http://a.com:65535'):
+            with self.subTest(origin=good):
+                self.assertEqual(allowed_origins({'news_sites': [site(origin=good)]}), {good})
+        for bad in ('https://a.com\n', 'https://a.com ', ' https://a.com', 'https://a.com/', 'https://a.com/x',
+                    'https://a.com?x=1', 'https://a.com:65536', 'https://a.com:99999', 'https://a.com:0',
+                    'https://a.com:', 'https://a.com:8443\n'):
+            with self.subTest(origin=bad):
+                with self.assertRaises(ValueError):
+                    sites({'news_sites': [site(origin=bad)]})
+
     def test_default_path_rejects_image_and_comment_pages(self):
         rx = re.compile(DEFAULT_SITES[0]['path'])
         self.assertTrue(rx.search('/articles/bd93f19234247d18f21aadb475e5de44c0e759b3'))

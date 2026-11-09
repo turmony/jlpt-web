@@ -14,7 +14,13 @@ DEFAULT_SITES = [
 ]
 
 _REQUIRED = ('name', 'origin', 'match', 'path', 'parts')
-_ORIGIN = re.compile(r'^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$')
+# Matched with fullmatch: `$` would also accept a trailing newline. No leading zeros, as browsers send it.
+_ORIGIN = re.compile(r'https?://[A-Za-z0-9.-]+(?::([1-9][0-9]{0,4}))?')
+
+
+def _valid_origin(origin):
+    found = _ORIGIN.fullmatch(origin)
+    return bool(found) and (found[1] is None or int(found[1]) <= 65535)
 
 
 def _check(entry):
@@ -26,7 +32,7 @@ def _check(entry):
     for key in ('name', 'origin', 'match', 'path'):
         if not isinstance(entry[key], str) or not entry[key]:
             raise ValueError(f'news site {key!r} must be a non-empty string')
-    if not _ORIGIN.match(entry['origin']):
+    if not _valid_origin(entry['origin']):
         raise ValueError(f"news site origin must be http(s)://host[:port]: {entry['origin']!r}")
     try:
         re.compile(entry['path'])
