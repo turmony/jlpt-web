@@ -658,6 +658,35 @@ for(const device of NEWS_DEVICES) {
     assert.deepEqual((await events(page)).at(-1),['jlpt:select-part',{sentenceId:A,start:7,end:9}]);
   }));
 
+  test(`a re-render while the word card waits for its meaning keeps the card on the word on ${device}`,()=>withUserscript(device,async(page,{site})=>{
+    // The gloss answer is held back until the page has re-rendered the body.
+    let release;const held=new Promise(resolve=>{release=resolve;});
+    await page.route('**/api/news/gloss',async route=>{
+      if(route.request().method()==='POST') await held;
+      try {await answer(route,{json:{meaning:'势力的释义'}});} catch {}
+    });
+    await openArticle(page,site,'?rerender=2500');
+    const [A]=await ids(page,'台風は強い勢力で島に接近する');
+    await tap(page,tok(page,A,3));
+    await card(page).locator('.news-progress').waitFor();
+    await tok(page,A,3).evaluate(node=>{window.__old=node;});
+    await page.waitForFunction(()=>Number(document.documentElement.dataset.jlptRewraps)>=1,null,{timeout:8000});
+    await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(()=>window.__old.isConnected),false);
+    release();
+    // The answer arrives after the re-render: the card stays, shows it, and sits by the word's new piece.
+    await card(page).locator('.news-card-meaning',{hasText:'势力的释义'}).waitFor();
+    await page.waitForTimeout(200);
+    assert.equal(await card(page).count(),1);
+    assert.equal(await card(page).isVisible(),true);
+    assert.equal(await card(page).locator('.news-card-word').innerText(),'勢力');
+    const box=await card(page).boundingBox();const wordBox=await tok(page,A,3).boundingBox();
+    assert.ok(Math.min(Math.abs(box.y-(wordBox.y+wordBox.height)),Math.abs(box.y+box.height-wordBox.y))<=16,JSON.stringify([box,wordBox]));
+    // Tapping elsewhere still closes it.
+    await tap(page,tok(page,A,13));
+    assert.equal(await card(page).count(),0);
+  }));
+
   test(`the dock switches model and persists on ${device}`,()=>withUserscript(device,async(page,{site})=>{
     await openArticle(page,site);
     let menu=await openDock(page);

@@ -17,7 +17,7 @@ const POS = {
 };
 
 let layer = null;
-let current = null; // {root, tokenEl, token, controller, timer, scroll}
+let current = null; // {root, tokenEl, token, sentenceId, index, controller, timer, scroll}
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -49,9 +49,18 @@ export function closeWordCard() {
   current = null;
 }
 
+// After a re-render the tapped piece is gone but the word comes back with the same sentence id
+// and index: the card follows its new piece. Only a word that is no longer on the page closes it.
+function anchor(state) {
+  if (state.tokenEl.isConnected) return true;
+  const piece = document.querySelector(`.jlpt-t[data-s="${state.sentenceId}"][data-i="${state.index}"]`);
+  if (piece) state.tokenEl = piece;
+  return !!piece;
+}
+
 // Below the word when it fits, otherwise above it; always inside the viewport.
 function place(state) {
-  if (!state.tokenEl.isConnected) return closeWordCard();
+  if (!anchor(state)) return closeWordCard();
   const rect = state.tokenEl.getClientRects()[0] || state.tokenEl.getBoundingClientRect();
   const width = document.documentElement.clientWidth;
   const height = window.innerHeight;
@@ -136,8 +145,13 @@ export function showWordCard(tokenEl, token, sentenceId, index) {
   root.append(meaning, role);
   layer.append(root);
 
-  const state = current = {root, tokenEl, token, controller: new AbortController(), timer: 0, scroll: [scrollX, scrollY]};
+  const state = current = {root, tokenEl, token, sentenceId, index, controller: new AbortController(), timer: 0, scroll: [scrollX, scrollY]};
   lookup(state, meaning);
+}
+
+// Called after the page was re-wrapped: moves an open card to its word's new piece.
+export function anchorWordCard() {
+  if (current) place(current);
 }
 
 // `into`: the shadow root's layer (ui.mjs) the card is put in.

@@ -9,7 +9,7 @@
 // listens to them as well (whoever fires them) and keeps the highlight in step: every piece of the
 // selected sentence gets .jlpt-sel, the pieces of the selected part's words .jlpt-part (a word cut
 // by inline elements has several pieces). After a re-render the new pieces are painted again.
-import {closeWordCard, showWordCard} from './wordcard.mjs';
+import {anchorWordCard, closeWordCard, showWordCard} from './wordcard.mjs';
 
 export const LONG_PRESS_MS = 500;
 export const MOVE_TOLERANCE_PX = 10;
@@ -187,7 +187,10 @@ function onPointerCancel(event) {
 export function mountReader(theMarker, getRoots) {
   marker = theMarker;
   roots = getRoots;
-  marker.onRewrap(() => paint());
+  marker.onRewrap(() => {
+    paint();
+    anchorWordCard();
+  });
   document.addEventListener('jlpt:select-sentence', onSelectSentence);
   document.addEventListener('jlpt:select-part', onSelectPart);
   document.addEventListener('pointerdown', onPointerDown);
