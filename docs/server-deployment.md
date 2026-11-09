@@ -800,3 +800,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 249 项（news venv，含真实词典的音调用例）、`test:browser` 101 项、`test:client` 13 项通过。上线后公网：分词返回的音调与词典一致（台風[3] 強い[2] 勢力[1] 島[2] 接近[0] 準備[1] 呼びかけ[4]），助词、符号不带 `a`；`client.js`（带雅虎来源）200 且与发布目录逐字节一致、含新卡片代码；预检 204；其他来源 POST 403；无来源取 `client.js` 401；加载器 200；模型列表 200；单句分析约 5 秒以 `done` 结束；查词 200；各页面未登录 303；重启后服务正常。
 
 回滚：把 `/srv/jlpt/app` 切回 `20261109-news-no-token/app`、`/srv/jlpt/static` 切回 `20261109-news-cancel-drag/static`，`systemctl restart jlpt.service`。多出的 `a` 字段对旧主脚本无影响。
+
+### 上线记录（2026-11-09，音调数字贴在读音后面）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-accent-inline`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261109-news-pitch-accent/app`，服务未重启，加载器仍是 v3，设备上不用操作）。网页提交见 `main` 上合并 `feat/news-accent-inline` 的提交。上一版本静态目录是 `20261109-news-pitch-accent/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `news-script/client.js` 不同。
+
+内容：查词卡的音调数字与读音写在同一元素、中间无间隔（`せいりょく[1]`），不再写“音调”二字（悬停提示仍是“音调 [1]”）；读音不显示的假名词贴在词形后面（`する[0]`）；两种音调写成 `[1]/[2]`；“原形”那一行不再带数字。屈折形读音后面的数字仍是原形的音调。
+
+验证：`test:browser` 101 项、`test:client` 13 项、`test:server` 249 项（news venv）通过。上线后公网 `client.js`（带雅虎来源）200，与发布目录逐字节一致且含新卡片代码；加载器 200；无来源取 `client.js` 401；各页面未登录 303；服务仍在运行。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261109-news-pitch-accent/static`，不需要重启。
