@@ -190,6 +190,29 @@ test('words are marked after load and every tappable character is covered',()=>w
   assert.equal(await dockButton(page).innerText(),'就绪');
 }));
 
+// A never-answering image (?hangload=1) holds the page's `load` event back for 6 s.
+const readyState=page=>page.evaluate(()=>document.readyState);
+
+test('a site with wrap parsed is marked before its load event',()=>withUserscript('iPad (gen 7)',async(page,{site})=>{
+  await page.goto(`${site}/early/${HEX}?hangload=1`,{waitUntil:'domcontentloaded'});
+  await marked(page);
+  assert.notEqual(await readyState(page),'complete');
+  assert.ok(Number(await page.locator('html').getAttribute('data-jlpt-words'))>0);
+  const list=await paragraphs(page);
+  for (const p of list) assert.equal(p.marked,p.text);
+  const select=await page.evaluate(()=>getComputedStyle(document.querySelector('.article_body p')).webkitUserSelect);
+  assert.equal(select,'none'); // the page style goes in with the marks, not at load
+}));
+
+test('a site without wrap waits for the load event',()=>withUserscript('iPad (gen 7)',async(page,{site})=>{
+  await page.goto(`${site}/articles/${HEX}?hangload=1`,{waitUntil:'domcontentloaded'});
+  await page.waitForTimeout(1500);
+  assert.notEqual(await readyState(page),'complete');
+  assert.equal(await page.locator('.jlpt-t').count(),0);
+  await marked(page);
+  assert.equal(await readyState(page),'complete');
+}));
+
 test('a word split by inline elements is one word in two pieces',()=>withUserscript('iPhone 13',async(page,{site})=>{
   await page.goto(`${site}/articles/${HEX}`);
   await marked(page);

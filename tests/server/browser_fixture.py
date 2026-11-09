@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from server.app import Application, create_server
@@ -190,9 +191,17 @@ ARTICLE = Path(__file__).with_name('news_site') / 'article.html'
 
 class SampleSite(BaseHTTPRequestHandler):
     """A Yahoo-like news site on its own port: every /articles/<hex>[/...] path serves article.html
-    (query parameters are read by the page's own script; see the file)."""
+    (query parameters are read by the page's own script; see the file). /early/<hex> serves it too, and
+    /hang answers after 6 s."""
     def do_GET(self):
-        if not re.fullmatch(r'/articles/[0-9a-f]+(/images/\d+)?', self.path.split('?')[0]):
+        path = self.path.split('?')[0]
+        if path == '/hang':
+            # A tracker that never answers in time: holds the page's `load` event back for 6 s.
+            time.sleep(6)
+            self.send_response(204)
+            self.end_headers()
+            return
+        if not re.fullmatch(r'/(articles|early)/[0-9a-f]+(/images/\d+)?', path):
             self.send_error(404)
             return
         body = ARTICLE.read_bytes()
@@ -211,8 +220,13 @@ sample = ThreadingHTTPServer(('127.0.0.1', 0), SampleSite)
 threading.Thread(target=sample.serve_forever, daemon=True).start()
 site_origin = f'http://127.0.0.1:{sample.server_port}'
 # The sample site is the only news site: loader @match, CORS allow-list and site detection all derive from it.
-app.config['news_sites'] = [{'name': '样例新闻', 'origin': site_origin, 'match': site_origin + '/articles/*',
-                             'path': '^/articles/[0-9a-f]+$', 'parts': ['h1', '.article_body']}]
+app.config['news_sites'] = [
+    {'name': '样例新闻', 'origin': site_origin, 'match': site_origin + '/articles/*',
+     'path': '^/articles/[0-9a-f]+$', 'parts': ['h1', '.article_body']},
+    # The same page under /early/: words are marked once it is parsed, without waiting for `load`.
+    {'name': '样例新闻（早包词）', 'origin': site_origin, 'match': site_origin + '/early/*',
+     'path': '^/early/[0-9a-f]+$', 'parts': ['h1', '.article_body'], 'wrap': 'parsed'},
+]
 news_wiring(base)
 server = create_server(app, ('127.0.0.1', 0))
 app.config['origin'] = f'http://127.0.0.1:{server.server_port}'

@@ -5,7 +5,7 @@ import {configureDebug, debug} from './debug.mjs';
 import {mountUi, injectPageStyle} from './ui.mjs';
 import {mountTheme} from './theme.mjs';
 import {mountDock} from './dock.mjs';
-import {Marker} from './marks.mjs';
+import {Marker, whenTouchable} from './marks.mjs';
 import {mountLoupe} from './loupe.mjs';
 import {mountReader} from './reader.mjs';
 import {mountWordCard} from './wordcard.mjs';
@@ -63,11 +63,11 @@ if (!site) {
   mountLoupe(layer);
   mountPanel(layer, marker);
   mountReader(marker, () => marker.roots);
-  // The page itself is left alone until `load` (see marks.mjs); the style goes in with the marks.
+  // The page itself is left alone until `load`, or until it is parsed for a site with wrap: 'parsed' (see marks.mjs); the style goes in with the marks.
   const style = () => injectPageStyle(PAGE_CSS(site.parts.join(', ')));
-  if (document.readyState === 'complete') {
-    style();
-    debug('页面 load 完成（主脚本运行前）');
+  const early = site.wrap === 'parsed';
+  if (early || document.readyState === 'complete') {
+    whenTouchable(site, () => { style(); debug(early ? '页面解析完成' : '页面 load 完成（主脚本运行前）'); });
   } else {
     addEventListener('load', () => { style(); debug('页面 load 完成'); }, {once: true});
   }
