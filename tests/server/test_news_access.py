@@ -166,6 +166,23 @@ class AccessTests(base.NewsHTTPBase):
         self.assertEqual(self.token_status(second), 200)
         self.assertEqual(len(self.app.news.devices.list()), 1)
 
+    def test_install_debug_overlay_follows_news_debug(self):
+        self.login()
+        _response, script = self.install()
+        self.assertIn('"debug": true', script)
+        self.assertIn("'jlpt-news-debug'", script)
+        self.config['news_debug'] = False
+        _response, script = self.install()
+        self.assertIn('"debug": false', script)
+        self.assertNotIn('jlpt-news-debug', script)
+
+    def test_startup_refuses_a_news_debug_that_is_not_a_boolean(self):
+        for bad in ('false', 0, None):
+            with self.subTest(value=bad):
+                with self.assertRaisesRegex(ValueError, 'news_debug'):
+                    base.Application({**self.config, 'news_debug': bad})
+        base.Application({**self.config, 'news_debug': False})
+
     def test_install_name_rules(self):
         self.login()
         for name in ('a%2Fb', '%20%20', 'x' * 21, '%FF%FE', '%00x'):

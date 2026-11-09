@@ -65,8 +65,10 @@ async function withUserscript(device,run,{hub,select,name='iPad'}={}) {
     assert.equal(install.status(),200);
     // Test hook: shadow roots are created open so locators can look inside the loader's button.
     await context.addInitScript(()=>{const attach=Element.prototype.attachShadow;Element.prototype.attachShadow=function(init){return attach.call(this,{...init,mode:'open'});};});
-    await context.addInitScript(await install.text());
-    await run(page,{app,site,tmp,context});
+    const loader=await install.text();
+    await context.addInitScript(loader);
+    const token=JSON.parse(loader.match(/^  const CONFIG = (.*);$/m)[1]).token;
+    await run(page,{app,site,tmp,context,token});
     assert.deepEqual(errors,[]);
   } finally {await browser?.close();await fixture.stop();await hubFile?.remove();}
 }
@@ -95,6 +97,81 @@ test('a revoked token shows the loader button with the reinstall reason',()=>wit
   await panel.waitFor({state:'visible'});
   assert.match(await panel.innerText(),/加载主脚本失败：令牌已失效，请重新安装脚本/);
   assert.equal(await panel.getByRole('link',{name:'重新安装'}).getAttribute('href'),app+'/news-script/');
+  assert.equal(await page.locator('jlpt-news').count(),0);
+}));
+
+// -- the on-screen debug overlay -------------------------------------------------------------------
+
+const debugBox=page=>page.locator('jlpt-news-debug .d');
+const debugLines=page=>page.locator('jlpt-news-debug .l > div').allInnerTexts();
+// Index of the first overlay line matching rx (-1 when none), so the order can be checked.
+const lineIndex=(lines,rx)=>lines.findIndex(line=>rx.test(line));
+
+for(const device of ['iPhone 13','iPad Pro 11']) {
+  test(`the debug overlay traces loading and stays out of the way on ${device}`,()=>withUserscript(device,async(page,{site,token})=>{
+    await page.goto(`${site}/articles/${HEX}`);
+    await marked(page);
+    await page.locator('jlpt-news-debug .l > div',{hasText:/状态: 就绪/}).waitFor();
+    await page.locator('jlpt-news-debug .l > div',{hasText:/已标出 \d+ 个词/}).waitFor();
+    const lines=await debugLines(page);
+    for(const line of lines) assert.match(line,/^\+\d+ms /);
+    const order=[/加载器已运行 v1 页面 \/articles\/[0-9a-f]+ readyState=/,/匹配的网站: 样例新闻/,/正在取主脚本…/,/主脚本已取到: \d+ 字节/,
+      /执行方式: new Function/,/主脚本已运行/,/站点已匹配: 样例新闻/,/主脚本已执行/,/状态: 就绪/];
+    const at=order.map(rx=>lineIndex(lines,rx));
+    assert.ok(at.every((n,k)=>n>=0&&(k===0||n>at[k-1])),JSON.stringify({at,lines}));
+    assert.ok(lineIndex(lines,/页面 load 完成/)>0,JSON.stringify(lines));
+    const words=Number(await page.locator('html').getAttribute('data-jlpt-words'));
+    assert.ok(words>0);
+    assert.match(lines.find(line=>/状态: 就绪/.test(line)),new RegExp(`词数 ${words} 重包 0`));
+    assert.match(lines.find(line=>/已标出/.test(line)),new RegExp(`已标出 ${words} 个词`));
+    const all=lines.join('\n');
+    for(const secret of [token,'Bearer','Authorization']) assert.ok(!all.includes(secret),secret);
+    assert.ok(lines.length<=40);
+    // Small, dark, fixed at the top left, above everything; ok lines green.
+    assert.equal(await page.evaluate(()=>document.querySelector('jlpt-news-debug').shadowRoot.mode),'open');
+    const box=await debugBox(page).boundingBox();
+    assert.ok(Math.abs(box.x-4)<=1&&Math.abs(box.y-4)<=1,JSON.stringify(box));
+    assert.ok(box.width<=page.viewportSize().width*0.92+1,JSON.stringify(box));
+    assert.deepEqual(await styleOf(debugBox(page),'position','zIndex','fontSize','pointerEvents'),['fixed','2147483647','11px','none']);
+    assert.deepEqual(await styleOf(page.locator('jlpt-news-debug .l > div.ok').first(),'color'),['rgb(142, 234, 142)']);
+    // The text lets taps through: a title word under it still opens the word card.
+    await page.evaluate(()=>scrollTo(0,0));
+    const under=page.locator('h1 .jlpt-word').first();
+    const point=await under.evaluate(node=>{const r=node.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2];});
+    const list=await page.locator('jlpt-news-debug .l').boundingBox();
+    assert.ok(point[0]>=list.x&&point[0]<=list.x+list.width&&point[1]>=list.y&&point[1]<=list.y+list.height,JSON.stringify({point,list}));
+    assert.equal(await page.evaluate(([x,y])=>document.elementFromPoint(x,y).closest('.jlpt-word')?.textContent,point),await under.textContent());
+    await tap(page,under);
+    await card(page).waitFor();
+    await page.keyboard.press('Escape');
+    // Tapping the title collapses it to a small pill; again expands it; × hides it for this page.
+    const toggle=page.locator('jlpt-news-debug .t');
+    assert.equal(await toggle.innerText(),'JLPT 调试');
+    await toggle.tap();
+    await page.locator('jlpt-news-debug .l').waitFor({state:'hidden'});
+    assert.equal(await page.locator('jlpt-news-debug .x').isVisible(),false);
+    const pill=await debugBox(page).boundingBox();
+    assert.ok(pill.width<100&&pill.height<40,JSON.stringify(pill));
+    await toggle.tap();
+    await page.locator('jlpt-news-debug .l').waitFor({state:'visible'});
+    await page.locator('jlpt-news-debug .x').tap();
+    await debugBox(page).waitFor({state:'hidden'});
+    assert.equal(await page.locator('jlpt-news-debug').count(),1);
+  }));
+}
+
+test('the debug overlay on a page outside the site table stops after the fetch',()=>withUserscript('iPhone 13',async(page,{site,token})=>{
+  await page.goto(`${site}/articles/${HEX}/images/000`);
+  await page.locator('jlpt-news-debug .l > div',{hasText:'主脚本已执行'}).waitFor();
+  await page.waitForTimeout(300);
+  const lines=await debugLines(page);
+  const order=[/加载器已运行 v1 页面 \/articles\/[0-9a-f]+\/images\/000 /,/当前页面不在网站表内/,/主脚本已取到: \d+ 字节/,
+    new RegExp(`当前页面路径不匹配 \\(/articles/${HEX}/images/000\\)`),/主脚本已执行/];
+  const at=order.map(rx=>lineIndex(lines,rx));
+  assert.ok(at.every((n,k)=>n>=0&&(k===0||n>at[k-1])),JSON.stringify({at,lines}));
+  for(const rx of [/匹配的网站/,/站点已匹配/,/状态:/,/已标出/,/页面 load 完成/]) assert.equal(lineIndex(lines,rx),-1,String(rx));
+  assert.deepEqual(await styleOf(page.locator('jlpt-news-debug .l > div',{hasText:'当前页面不在网站表内'}),'color'),['rgb(255, 213, 79)']);
+  assert.ok(!lines.join('\n').includes(token));
   assert.equal(await page.locator('jlpt-news').count(),0);
 }));
 
