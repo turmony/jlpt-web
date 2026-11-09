@@ -531,7 +531,9 @@ Claude Code 只走 ACP，以 `bypassPermissions` 运行（root 需 `IS_SANDBOX=1
 
 ## 雅虎新闻阅读器部署（2026-11-08）
 
-新闻阅读器用 fugashi + unidic-lite 切句分词，其余服务端代码仍只用标准库，所以只有 `jlpt.service` 换到独立 venv，Caddy 和其他进程不受影响。
+新闻功能是一个 Safari 用户脚本（Userscripts 扩展）：脚本在 `news.yahoo.co.jp` 的文章页上直接标出词、点词查词、长按选句、拖选、分析和追问，本站只提供令牌、主脚本、分词、查词和模型接口，不再抓取、保存文章或图片（2026-11-09 起；设计见 `docs/superpowers/specs/2026-11-09-news-userscript-design.md`）。本站的 `/news/` 阅读页已经移除，入口改为首页的「新闻脚本」（`/news-script/`）。
+
+分词用 fugashi + unidic-lite，其余服务端代码仍只用标准库，所以只有 `jlpt.service` 换到独立 venv，Caddy 和其他进程不受影响。
 
 ### 创建 venv
 
@@ -564,7 +566,7 @@ uv pip install --python /srv/jlpt/venv/bin/python -r requirements-news.txt
 
 ### 配置模型网关
 
-新闻的查词、分析和追问经 qoder2api-hub 的 OpenAI 兼容接口。把地址和密钥写进 `config.json` 的 `llm`：
+新闻的查词、分析和追问经 qoder2api-hub 的 OpenAI 兼容接口。这次改版**不需要改 `llm`**：线上已有的 `llm` 配置原样沿用；`news_sites` 也是可选项，缺省就是雅虎新闻（见下文「新闻网站表」）。首次配置时，把地址和密钥写进 `config.json` 的 `llm`：
 
 ```bash
 cd /srv/jlpt/app
@@ -582,7 +584,7 @@ systemctl restart jlpt.service
 
 ### Caddy 与流式响应
 
-`/api/news/open`、`/api/news/analyze`、`/api/news/ask` 以 SSE 逐段返回，Caddy 不能攒包。`deploy/Caddyfile` 的 `@api` 反向代理已加 `flush_interval -1`（每个数据块立即转发），站点级 `encode zstd gzip` 对 `text/event-stream` 不压缩，应用另发 `X-Accel-Buffering: no`。`tests/server/test_caddy.py` 用真实 `deploy/Caddyfile`（仅换端口）起 Caddy，后端先发一个事件、0.5 秒后发第二个，断言第一个事件 0.4 秒内到达且未被压缩。
+`/api/news/analyze`、`/api/news/ask` 以 SSE 逐段返回（旧版的 `/api/news/open` 已删除），Caddy 不能攒包。`deploy/Caddyfile` 的 `@api` 反向代理已加 `flush_interval -1`（每个数据块立即转发），站点级 `encode zstd gzip` 对 `text/event-stream` 不压缩，应用另发 `X-Accel-Buffering: no`。`tests/server/test_caddy.py` 用真实 `deploy/Caddyfile`（仅换端口）起 Caddy，后端先发一个事件、0.5 秒后发第二个，断言第一个事件 0.4 秒内到达且未被压缩。
 
 云平台的 HTTP 代理在 Caddy 之前，如果它自己缓冲响应，页面会表现为分析结果一次性出现；这不在仓库控制范围内，需要在云平台侧关闭对该域名的响应缓冲。
 
@@ -612,26 +614,71 @@ unset JLPT_LLM_API_KEY
 - 格式类失败时，只调整 `news_prompts.py` 里模板周围的规则措辞（模板本身照抄设计文档第 5 节），重跑通过后在 `tests/server/test_news_xml.py` 补对应的回归用例。
 - 2026-11-08 用 DeepSeek-Flash（`low`）连跑两次均 6/6 通过，每次 40–60 秒。句子分析要先思考再输出：第二次首段输出在 10–13 秒，第一次单次分析总耗时 20–28 秒（首段约在 20 秒以后），离 30 秒无输出超时余量不大。
 
-**雅虎抽查**（`scripts/news_probe.py`）：抓取 8 个分类的 RSS，各取前 N 篇，用服务器同一套代码打开文章（多页间隔约 0.5 秒，篇与篇之间也间隔 0.5 秒）、解析并切句分词；图片只检查地址，不下载。上线前、以及怀疑雅虎改版（打开文章报「解析正文」）时运行。必须用新闻 venv 的 Python，系统 Python 没有 fugashi，每篇都会报「切句分词」失败：
+**雅虎抽查**（`scripts/news_check.mjs`，取代已删除的 `scripts/news_probe.py`）：在本机起一个 HTTPS 的本站实例（`scripts/news_check_server.py`，自签证书、真实分词、不配置 qoder2api-hub、`news_sites` 用缺省值，并生成一个名为「抽查」的设备令牌），再用 Playwright WebKit（`iPhone 15`）装上同一份加载器，打开真实雅虎文章，检查脚本能否找到正文并标出词。必须先 `npm run build`（需要 `server-public/news-script/client.js`），并使用新闻 venv 的 Python（脚本自己调用 `/srv/jlpt/venv/bin/python -I`，不需要手动指定）；证书与状态目录是临时的，结束或 Ctrl-C 时服务、浏览器和临时目录都会清理。上线前、以及怀疑雅虎改版（脚本找不到正文或标不出词）时运行：
 
 ```bash
 cd /srv/jlpt/app
-/srv/jlpt/venv/bin/python scripts/news_probe.py --per-feed 3            # 约 25 秒
-/srv/jlpt/venv/bin/python scripts/news_probe.py --feed it --per-feed 1  # 只查某个分类，--feed 可重复
+npm run build
+node scripts/news_check.mjs --per-feed 1            # 8 个分类各 1 篇，约 2 分钟
+node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--feed 可重复
 ```
 
-- 每篇一行：分类、页数（已抓 / 总页数）、图片数（含视频封面）、非雅虎图片（不在 `news.yahoo.co.jp` 或 `*.yimg.jp` 上、服务器会拒绝下载的张数）、句数、结果；失败行带 `stage` 与原因，出现未识别的正文元素时结果里会注明个数。
-- 有的话题指向雅虎新闻以外的页面（如 `search.yahoo.co.jp` 的社交网络帖子汇总），阅读器本来就打不开（页面上报「解析正文」且不提供重试），抽查记为「跳过」，不计入成功或失败。
-- 列表读不到或为空时，该分类按计划篇数记为失败；列表不足 N 篇时单独一行注明实际篇数。
-- 末行「成功 x / 共 y」（有跳过时附跳过篇数）。有失败、一篇都没检查到、或跳过的话题超过打开总数的三分之一（多半是话题页改版）时退出码为 1，末行写明「未通过：」原因。
-- 2026-11-08 实测（`--per-feed 3`）：成功 23 / 共 23，跳过 1（娱乐分类的社交网络帖子汇总话题）；36 张图片全部在雅虎主机上；2–3 页的文章均完整合并，没有未识别元素。
+- 分类取自雅虎 RSS（`top-picks domestic world business entertainment sports it science`）：RSS 条目是话题页时，再取话题页里的第一个 `/articles/<hex>` 地址；某个话题没有文章链接（如指向别的站点）就换下一个话题。
+- 每篇文章打开后等 `load` 再等 10 秒，输出一行（制表符分隔）：分类、地址、找到正文（是/否：`h1` 与 `.article_body` 都在）、词数（`html[data-jlpt-words]`）、重包次数（`html[data-jlpt-rewraps]`，页面重新渲染后重新标词的次数）、右下角状态（就绪 / 分词中… / 出错）、错误摘要（右下角列出的错误，以及页面与控制台错误的个数和前两条）。
+- 抽查只给顶层的雅虎文章页装加载器（与用户脚本的 `@match`、`@noframes` 一致）；不测试查词卡、分析与追问，这些要人工检查（见下）。
+- 一行算失败的条件：找不到正文、词数为 0、状态不是「就绪」、或右下角列出了错误。页面错误只作为信息显示、不算失败，因为雅虎页面自己就会抛 React #418/#423（水合不一致，不装脚本也一样）。
+- 末行「成功 x / 共 y」。有文章失败、或一篇都没取到时退出码为 1；参数错误、没有构建产物或没有新闻 venv 时退出码为 2，并说明原因。
+- 2026-11-09 实测（`--per-feed 1`）：成功 8 / 共 8，每篇都找到正文、词数 201–726、状态「就绪」；无脚本加载失败。business 与 it 两篇文章带有雅虎自己的 React #418 页面错误（不装脚本时同样出现）。
+
+### 安装到设备
+
+每台要用的 iPad / iPhone 各装一次：
+
+1. 在 App Store 安装 Userscripts。
+2. 在 Safari 设置里启用扩展，并允许它在 `news.yahoo.co.jp` 上运行。
+3. 登录本站，打开「新闻脚本」（首页导航或 `/news-script/`），点「安装到这台设备」，在扩展弹窗中点安装。
+4. 安装提示不出现时，改点「下载脚本文件」，把文件存进 Userscripts 的脚本文件夹。
+
+脚本文件只是一个加载器，里面带这台设备专属的令牌；每次打开文章页时由加载器向本站取主脚本，所以主脚本更新后不需要重装。在「新闻脚本」页可以看到设备列表并作废不用的设备（最多 10 台）；令牌作废或丢失后，脚本会在页面右下角显示红色「!」，点开有「重新安装」链接。
+
+### 新闻网站表（`news_sites`）
+
+`config.json` 的 `news_sites` 是可选项，缺省值就是雅虎新闻，不写也能用：
+
+```json
+"news_sites": [
+  {
+    "name": "雅虎新闻",
+    "origin": "https://news.yahoo.co.jp",
+    "match": "https://news.yahoo.co.jp/articles/*",
+    "path": "^/articles/[0-9a-f]+$",
+    "parts": ["h1", ".article_body"]
+  }
+]
+```
+
+- `origin`：网站来源，形如 `https://主机[:端口]`，同时是接口允许的跨域来源；`match`：写进加载器 `@match` 的网址模式；`path`：主脚本用来判断当前页是不是文章页的正则（匹配路径部分）；`parts`：文章里要标词的部分，按选择器列出（标题、正文）。
+- 写错的表会让服务在启动时报错并停止，不会悄悄回到缺省值。
+- **新增或修改网站后，重启服务，并让每台设备重装一次加载器**：`@match` 和整张网站表（含 `path`、`parts`）都写在各设备已安装的加载器里，旧加载器不会在新网站上运行，也不知道新的选择器。
+
+### 上线前人工检查
+
+自动化测试与抽查测不到触屏手势和真实模型，上线前在真机上过一遍：
+
+- 在 iPad 与 iPhone 上，分别在一篇雅虎文章里试：点词（查词卡）、长按选句、拖选、打开面板（分析）、追问各一次。
+- 打开一篇多页文章，翻到第 2 页后确认词仍被标出。
+- 页头选择模型（建议 DeepSeek-Flash）后再试分析与追问；`tests/llm/` 的真实模型测试见上。
+
+### 状态目录
+
+新闻在 `state/news/` 里只有三个文件：`glossary.sqlite`（查词释义，30 天过期）、`settings.json`（所选模型）、`devices.json`（设备令牌的 SHA-256，令牌本身不落盘）。旧版留下的文章与图片目录由服务启动时的清理自动删除，不需要手动处理。
 
 ### 回滚
 
 - 只回退服务进程：把 `/etc/systemd/system/jlpt.service` 的 `ExecStart` 改回 `/usr/bin/python3 -m server --config /srv/jlpt/state/config.json`，然后 `systemctl daemon-reload && systemctl restart jlpt.service`。旧版本代码不读 `llm`，多出的配置项无害。
 - 连同代码回退：先把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回上一个发布目录，再改回上面的 `ExecStart`。`/srv/jlpt/venv` 可以保留，也可删除回收约 250 MB。
 - Caddy 的 `flush_interval -1` 不需要回滚；如需恢复，删掉该 `reverse_proxy` 的花括号块后 `caddy validate` 再 reload。
-- `state/news/` 是缓存目录（文章、图片 7 天，释义 30 天），回滚不需要处理。
+- `state/news/` 里的 `glossary.sqlite`、`settings.json`、`devices.json` 对旧版本无影响，回滚不需要处理。回退到 2026-11-09 之前的版本时，旧版需要的文章缓存会重新抓取。
 
 ### 上线记录（2026-11-08）
 
