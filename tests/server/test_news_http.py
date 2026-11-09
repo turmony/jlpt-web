@@ -89,6 +89,7 @@ class NewsHTTPBase(unittest.TestCase):
             h = Hub(self.fake.base_url, KEY, **kw)
         self.svc = NewsService(self.config, Path(self.config['state']), hub=h)
         self.app.news = self.svc
+        self.svc.jobs.grace = 0.3  # a stream nobody follows any more is abandoned quickly
         if select:
             self.svc.store.save_settings({'model': select})
         return self.svc
