@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .llm import Hub, R_UNAVAILABLE
 from .news_errors import NewsError
+from .news_jobs import ClientGone, JobBoard
 from .news_prompts import MAX_HISTORY_ROUNDS, analysis_messages, ask_messages, gloss_messages
 from .news_store import NewsStore
 from .news_text import TokenizerUnavailable, to_sentences
@@ -42,10 +43,6 @@ _CARD_TRIM = ' \t\r\n　〜～'
 _LEVEL = re.compile(r'N[1-5]')
 
 
-class ClientGone(BaseException):
-    """The browser closed the stream. A BaseException so generic handlers never swallow it."""
-
-
 def client_error(reason):
     return NewsError('client', reason, retryable=False)
 
@@ -54,11 +51,13 @@ def http_status(error):
     return 400 if error.stage == 'client' else 502
 
 
-def sse_frame(event, data=None):
-    """One Server-Sent Events frame; event None is a comment line used to notice a closed client."""
+def sse_frame(event, data=None, event_id=None):
+    """One Server-Sent Events frame; event None is a comment line used to notice a closed client.
+    event_id numbers the frame within its job so a resumed stream can continue after it."""
     if event is None:
         return b': ping\n\n'
-    return ('event: %s\ndata: %s\n\n' % (event, json.dumps(data, ensure_ascii=False))).encode('utf-8')
+    head = '' if event_id is None else 'id: %d\n' % event_id
+    return ('%sevent: %s\ndata: %s\n\n' % (head, event, json.dumps(data, ensure_ascii=False))).encode('utf-8')
 
 
 def _norm_form(text):
@@ -122,6 +121,7 @@ class NewsService:
             hub = Hub(llm['base_url'], llm.get('api_key') or '')
         self.hub = hub
         self.slots = threading.BoundedSemaphore(MODEL_SLOTS)
+        self.jobs = JobBoard()
         self._lock = threading.Lock()
         self._catalog = None
 
@@ -305,6 +305,20 @@ class NewsService:
             raise client_error('问题为空或超过 %d 字' % MAX_QUESTION)
         history = [{'q': h['q'], 'a': h['a']} for h in history[-MAX_HISTORY_ROUNDS:]]
         return paragraph, tokens, start, end, analysis, history, question.strip()
+
+    @staticmethod
+    def job_name(data):
+        job = data.get('job')
+        if not isinstance(job, str) or not 1 <= len(job) <= 100:
+            raise client_error('任务编号无效')
+        return job
+
+    def resume_args(self, data):
+        """(job, number of events already received) of a /resume body; raises NewsError when the job is gone."""
+        job, seen = self.job_name(data), data.get('next')
+        if type(seen) is not int or seen < 0:
+            raise client_error('续传位置无效')
+        return self.jobs.get(job), seen
 
     @staticmethod
     def _sentence_texts(tokens, start, end):

@@ -265,34 +265,55 @@ def create_server(app, address):
                     return self.reply(200, svc.tokenize(body()))
                 if path == '/analyze' and post:
                     args = svc.analyze_args(body())
-                    return self.sse(lambda emit: svc.analyze(*args, emit=emit))
+                    return self.job_sse(lambda emit: svc.analyze(*args, emit=emit))
                 if path == '/ask' and post:
                     args = svc.ask_args(body())
-                    return self.sse(lambda emit: svc.ask(*args, emit=emit))
+                    return self.job_sse(lambda emit: svc.ask(*args, emit=emit))
+                if path == '/resume' and post:
+                    job, seen = svc.resume_args(body())
+                    self.sse_headers(job.id)
+                    return self.follow(job, seen)
+                if path == '/cancel' and post:
+                    svc.jobs.cancel(svc.job_name(body()))
+                    return self.reply(200, {})
             except NewsError as error:
                 svc.log_error(error, self.path)
                 return self.reply(news.http_status(error), {'error': error.to_dict()})
             self.reply(404, {'error': '页面不存在'})
 
-        def sse(self, run, url=None):
-            """Stream `run(emit)` as Server-Sent Events; the connection closes when it ends."""
+        def sse_headers(self, job_id):
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Accel-Buffering', 'no')
             self.send_header('X-Content-Type-Options', 'nosniff')
+            self.send_header('X-News-Job', job_id)
             self.cors_headers()
+            if self.cors_origin:
+                self.send_header('Access-Control-Expose-Headers', 'X-News-Job')
             self.send_header('Connection', 'close')
             self.close_connection = True
             self.end_headers()
 
-            def emit(event, data=None):
+        def job_sse(self, run, url=None):
+            """Run `run(emit)` as a background job and follow it on this connection (see news_jobs)."""
+            url = url or self.path
+            job = app.news.jobs.start(lambda emit: app.news.guard(run, emit, url))
+            self.sse_headers(job.id)
+            self.follow(job, 0)
+
+        def follow(self, job, seen):
+            """Send the job's events after the first `seen`, as Server-Sent Events with ids."""
+            def write(event, data=None, event_id=None):
                 try:
-                    self.wfile.write(news.sse_frame(event, data))
+                    self.wfile.write(news.sse_frame(event, data, event_id))
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                     raise news.ClientGone()
-            app.news.guard(run, emit, url or self.path)
+            try:
+                app.news.jobs.serve(job, seen, write)
+            except news.ClientGone:
+                pass
 
         def static(self, path):
             try:

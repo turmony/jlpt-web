@@ -83,15 +83,18 @@ export function postJSON(path, body, {signal} = {}) {
 }
 
 // Incremental Server-Sent-Events parser: push(text) with decoded chunks of any size.
-// Comment lines (": ping") and fields other than event/data are ignored. A frame whose data is
+// emit(name, data, id): id is the frame's `id:` number, if it has one. Comment lines (": ping") and fields
+// other than event/id/data are ignored. A frame whose data is
 // not JSON is reported as an 'error' event.
 export function sseParser(emit) {
   let buffer = '';
   const frame = text => {
     let name = 'message';
+    let id;
     const data = [];
     for (const line of text.split('\n')) {
       if (line.startsWith('event:')) name = line.slice(6).trim();
+      else if (line.startsWith('id:')) id = Number.parseInt(line.slice(3), 10);
       else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
     }
     if (!data.length) return;
@@ -99,7 +102,7 @@ export function sseParser(emit) {
     try { value = JSON.parse(data.join('\n')); } catch {
       return emit('error', {...streamInfo(), reason: '服务器回应格式不对'});
     }
-    emit(name, value);
+    emit(name, value, Number.isInteger(id) ? id : undefined);
   };
   return {
     push(text) {
@@ -116,51 +119,110 @@ export function sseParser(emit) {
 
 const TERMINAL = new Set(['article', 'done', 'error']);
 
+// The public edge in front of the server cuts any single response at about 16 s, while a model answer can
+// take longer. So the server runs an answer as a job and each connection follows it for ~12 s, then ends
+// with a `resume` event; this file continues from the last event number with /api/news/resume. The job's
+// name comes in the X-News-Job response header. Nothing of this reaches the caller of streamSSE.
+const JOB_HEADER = 'X-News-Job';
+const MAX_LOST = 3;          // connections lost in a row (not ended by `resume`) before giving up
+const MAX_SEGMENTS = 60;     // connections for one answer
+const RETRY_DELAY = 400;     // ms before reconnecting after a lost connection
+
 // POST `body` to an SSE endpoint. Resolves when the stream has ended. Exactly one of article, done
 // or error is the last event; a stream that ends without one is reported as stage 'stream'.
-// Aborting through `signal` ends quietly: no error event, and nothing is delivered after it.
+// Aborting through `signal` ends quietly: no error event, and nothing is delivered after it; a job the
+// server already runs is told to stop.
 // An exception thrown by `onEvent` is a script bug, not a stream failure: it rejects the returned
 // promise (after the stream is cancelled) and is never turned into an error event.
 export async function streamSSE(path, body, {signal, onEvent}) {
   let finished = false;
+  let job = '';
+  let seen = 0; // number of the last event delivered
   const emit = (name, data) => {
     if (finished || signal?.aborted) return;
     if (TERMINAL.has(name)) finished = true;
     onEvent(name, data);
   };
-  let response;
-  try {
-    response = await fetch(config.base + path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body), signal});
-  } catch {
-    return emit('error', clientInfo('网络连接失败', path));
-  }
-  if (!response.ok) return emit('error', await failureOf(response, path));
-  if (!(response.headers.get('content-type') || '').includes('text/event-stream') || !response.body) {
-    return emit('error', clientInfo('服务器回应格式不对', path));
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const parser = sseParser(emit);
-  // Cancelling resolves a pending read, so an abort ends the loop even between chunks.
-  const stop = () => { reader.cancel().catch(() => {}); };
-  signal?.addEventListener('abort', stop);
-  try {
-    while (!finished && !signal?.aborted) {
-      let chunk;
-      try {
-        chunk = await reader.read();
-      } catch {
-        break; // dropped connection or abort: handled below
-      }
-      if (chunk.done) break;
-      // Not wrapped: an exception thrown by the caller's onEvent rejects the returned promise.
-      parser.push(decoder.decode(chunk.value, {stream: true}));
+  const cancelJob = () => {
+    if (!job || finished) return;
+    fetch(config.base + '/api/news/cancel', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({job}), keepalive: true}).catch(() => {});
+  };
+  signal?.addEventListener('abort', cancelJob);
+
+  // One connection. Resolves 'resume' (the server asked for a new one), 'lost' (it ended or broke without
+  // a last event), or 'over' (finished, failed for good, or aborted).
+  async function connection(url, payload) {
+    let response;
+    try {
+      response = await fetch(config.base + url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload), signal});
+    } catch {
+      if (job && !signal?.aborted) return 'lost';
+      emit('error', clientInfo('网络连接失败', url));
+      return 'over';
     }
-  } finally {
-    signal?.removeEventListener('abort', stop);
-    reader.cancel().catch(() => {});
+    if (!response.ok) {
+      emit('error', await failureOf(response, url));
+      return 'over';
+    }
+    if (!(response.headers.get('content-type') || '').includes('text/event-stream') || !response.body) {
+      emit('error', clientInfo('服务器回应格式不对', url));
+      return 'over';
+    }
+    job = response.headers.get(JOB_HEADER) || job;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let outcome = 'lost';
+    const parser = sseParser((name, data, id) => {
+      if (name === 'resume') { outcome = 'resume'; return; }
+      if (id !== undefined) {
+        if (id <= seen) return; // delivered already: a replay after reconnecting
+        seen = id;
+      }
+      emit(name, data);
+    });
+    // Cancelling resolves a pending read, so an abort ends the loop even between chunks.
+    const stop = () => { reader.cancel().catch(() => {}); };
+    signal?.addEventListener('abort', stop);
+    try {
+      while (!finished && !signal?.aborted && outcome !== 'resume') {
+        let chunk;
+        try {
+          chunk = await reader.read();
+        } catch {
+          break; // dropped connection or abort: handled below
+        }
+        if (chunk.done) break;
+        // Not wrapped: an exception thrown by the caller's onEvent rejects the returned promise.
+        parser.push(decoder.decode(chunk.value, {stream: true}));
+      }
+    } finally {
+      signal?.removeEventListener('abort', stop);
+      reader.cancel().catch(() => {});
+    }
+    return finished || signal?.aborted ? 'over' : outcome;
   }
-  if (!finished && !signal?.aborted) emit('error', streamInfo());
+
+  try {
+    let url = path;
+    let payload = body;
+    let lost = 0;
+    for (let segments = 0; segments < MAX_SEGMENTS; segments++) {
+      const outcome = await connection(url, payload);
+      if (outcome === 'over') return;
+      if (outcome === 'resume') {
+        lost = 0;
+      } else {
+        if (!job || ++lost > MAX_LOST) break;
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        if (signal?.aborted) return;
+      }
+      url = '/api/news/resume';
+      payload = {job, next: seen};
+    }
+    emit('error', streamInfo());
+  } finally {
+    signal?.removeEventListener('abort', cancelJob);
+  }
 }
 
 function node(tag, className, text) {
