@@ -12,7 +12,7 @@
 
 已确认的范围：
 
-- 第一版只支持雅虎新闻文章页（`https://news.yahoo.co.jp/articles/…`）；以后加网站时，每个网站加一行配置。
+- 第一版只支持雅虎新闻文章页（`https://news.yahoo.co.jp/articles/…`）；以后加网站时，在服务器配置的网站表里加一项。
 - 本站的 `/news/`（列表页和阅读页）直接删除，不保留、不做说明页；另设一个很小的「新闻脚本」管理页 `/news-script/`，只用于安装脚本和按设备作废令牌（第 3 节）。
 - 查词、句子分析、追问的内容与规则沿用原设计；查词与分析记录、追问对话仍不保存。
 
@@ -82,13 +82,14 @@ Safari 打开雅虎文章
 
 ### 网站表
 
-主脚本里每个网站一行，第一版只有：
+网站表只在服务器配置中保存一份（配置项 `news_sites`，缺省为下面这一项）。加载器的 `@match`、主脚本识别当前网站、CORS 允许列表都由它生成：
 
-```js
-{match: 'news.yahoo.co.jp/articles/', parts: ['h1', '.article_body']}
+```json
+{"name": "雅虎新闻", "origin": "https://news.yahoo.co.jp", "match": "https://news.yahoo.co.jp/articles/*",
+ "path": "^/articles/[0-9a-f]+$", "parts": ["h1", ".article_body"]}
 ```
 
-加网站时：主脚本网站表、加载器 `@match`、服务器 CORS 允许列表各加一项。
+`path` 排除了图片页（`/articles/<ID>/images/…`）和评论页。加网站时只在配置里加一项，再在设备上重装一次加载器（`@match` 写在加载器里）。
 
 ## 4. 删除与保留
 
