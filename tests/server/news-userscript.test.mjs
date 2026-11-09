@@ -496,7 +496,7 @@ for(const device of NEWS_DEVICES) {
     // The pitch accent number is right behind the reading; there is no read-aloud button and no sound.
     assert.equal(await card(page).locator('.news-card-accent').innerText(),'[1]');
     assert.equal(await card(page).locator('.news-card-reading').innerText(),'せいりょく[1]');
-    assert.deepEqual(await card(page).locator('button').allInnerTexts(),['在本句中的作用']);
+    assert.deepEqual(await card(page).locator('button').allInnerTexts(),['×','在本句中的作用']);
     assert.doesNotMatch(await card(page).innerText(),/🔊/);
     // Tapping elsewhere closes the card.
     await tap(page,tok(page,A,13));
