@@ -841,3 +841,23 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 构建提示：浏览器测试读的是构建出来的 `server-public/news-script/client.js`，改了 `news-client/` 后要先运行 `node scripts/build-server.mjs`，否则测的是旧代码。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261109-news-resumable-jobs/static`，不需要重启。
+
+### 上线记录（2026-11-09，turmony.site 导航页）
+
+内容：用域名 `turmony.site` 和 `www.turmony.site` 访问服务器上的多个网页。根路径显示一张导航页，四个卡片：JLPT 学习站（`/review/`）、Claude Code 网页端（`/code/`）、VPN 管理（`/vpn-admin/`）、Qoder 管理（`https://api.turmony.site/`，即 qoder2api-hub 的管理页，原本就由 tunnel 对外）。导航页只有链接，没有数据和脚本，浅色深色跟随系统。各网页仍使用各自的登录方式。
+
+链路：域名的 DNS 在 Cloudflare，经服务器上已有的 Cloudflare Tunnel（`cloudflared.service`，隧道 `426b9d62-…`）到本机 Caddy `:8080`，不经过云平台那个 16 秒的 HTTPS 代理。云平台原有域名的行为不变。
+
+文件与配置（仓库里的 `deploy/portal/` 是源，服务器上是拷贝）：
+
+- `deploy/portal/index.html` → `/srv/portal/index.html`。
+- `deploy/portal/portal.caddy` → `/etc/caddy/portal.caddy`：只在 Host 为 `turmony.site` / `www.turmony.site` 且路径为 `/` 或 `/index.html` 时返回导航页；其他路径、其他域名走原有规则。在 `/etc/caddy/Caddyfile` 的 `route {` 里第一行 `import /etc/caddy/portal.caddy`。
+- 应用只接受 `Origin` 等于 `config.json` 里 `origin` 的 POST，所以从 turmony.site 登录会被 403。没有改应用代码，而是在 Caddyfile 的 `/api/*` 反向代理里加一行，把恰好是 `https://turmony.site` 或 `https://www.turmony.site` 的 Origin 改成配置里的 origin：`header_up Origin "^https://(www\.)?turmony\.site$" "<config.json 里的 origin>"`。其他来源（例如 `https://evil.example`）仍是 403。
+- `/etc/cloudflared/config.yml` 的 `ingress` 在 `api.turmony.site` 之后、兜底 404 之前加两条：`turmony.site` 和 `www.turmony.site`，都指向 `http://127.0.0.1:8080`。
+- DNS：`cloudflared tunnel route dns 426b9d62-c26d-492b-b204-61b72d1ee965 turmony.site`，`www.turmony.site` 同理。
+
+验证：本机用两个 Host 请求 `/` 200、`/vpn-admin/` 200、`/review/` 与 `/code/` 303 到登录页，云平台域名行为不变；登录 POST 带 turmony.site 来源时错误密码得 401（不是 403），带陌生来源仍 403。公网 `https://` 与 `http://` 的两个域名首页都是 200，WebKit iPhone 手机宽度浅色/深色无横向滚动。Cloudflare 会往页面注入统计脚本，被页面的 CSP 拦下，控制台有一条无害报错。
+
+备份：`/etc/caddy/Caddyfile.before-portal`、`/etc/cloudflared/config.yml.before-portal`。
+
+回滚：把这两个备份拷回原位，`systemctl reload caddy`、`systemctl restart cloudflared`；DNS 里删掉 turmony.site 和 www 两条 CNAME。
