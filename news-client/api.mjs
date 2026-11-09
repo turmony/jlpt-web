@@ -13,6 +13,11 @@ export function configure({base, token, install}) {
   config.install = install || '';
 }
 
+// The full address of a page on the JLPT site, e.g. a grammar card link.
+export function siteUrl(path) {
+  return config.base + path;
+}
+
 function headers(extra) {
   return {...extra, Authorization: 'Bearer ' + config.token};
 }

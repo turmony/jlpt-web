@@ -6,13 +6,16 @@ import {mountDock} from './dock.mjs';
 import {Marker} from './marks.mjs';
 import {mountReader} from './reader.mjs';
 import {mountWordCard} from './wordcard.mjs';
+import {mountPanel} from './panel.mjs';
 
 // The page's own DOM cannot be styled from the shadow root: the selected sentence (.jlpt-sel, pale
 // yellow) and the selected part (.jlpt-part, deeper yellow) are styled from the page's <head>.
+// While the bottom sheet is open (panel.mjs) the page can scroll its end above the sheet.
 const PAGE_CSS = parts => `${parts} { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none }
 .jlpt-t { -webkit-tap-highlight-color: transparent }
 .jlpt-sel { background: #fff3b0; touch-action: none }
-.jlpt-part { background: #ffd54f }`;
+.jlpt-part { background: #ffd54f }
+html[data-jlpt-panel="sheet"] { padding-bottom: calc(55vh + 48px) }`;
 
 const site = JLPT_NEWS.sites.find(s => s.origin === location.origin && new RegExp(s.path).test(location.pathname));
 if (site) {
@@ -22,6 +25,7 @@ if (site) {
   const dock = mountDock(layer, {onRetokenize: () => marker.retokenize()});
   marker = new Marker(site, {onStatus: status => dock.setStatus(status)});
   mountWordCard(layer);
+  mountPanel(layer, marker);
   mountReader(marker, () => marker.roots);
   // The page itself is left alone until `load` (see marks.mjs); the style goes in with the marks.
   const style = () => injectPageStyle(PAGE_CSS(site.parts.join(', ')));

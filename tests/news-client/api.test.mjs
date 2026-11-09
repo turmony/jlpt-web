@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {configure, getJSON, postJSON, streamSSE, sseParser, NewsFailure, clientInfo, scriptInfo} from '../../news-client/api.mjs';
+import {configure, siteUrl, getJSON, postJSON, streamSSE, sseParser, NewsFailure, clientInfo, scriptInfo} from '../../news-client/api.mjs';
 
 const realFetch = globalThis.fetch;
 test.afterEach(() => { globalThis.fetch = realFetch; });
@@ -124,4 +124,9 @@ test('streamSSE turns a 401 into an error event with the install link', async ()
   assert.equal(seen.length, 1);
   assert.equal(seen[0][0], 'error');
   assert.equal(seen[0][1].install, 'https://a/news-script/');
+});
+
+test('siteUrl gives a full address on the configured site', () => {
+  configure({base: 'https://a/', token: 'T'});
+  assert.equal(siteUrl('/grammar/#N3/5-5'), 'https://a/grammar/#N3/5-5');
 });
