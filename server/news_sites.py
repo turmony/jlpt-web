@@ -74,10 +74,114 @@ _HEADER = """// ==UserScript==
 // ==/UserScript==
 """
 
+# The on-screen debug overlay: a small open-shadow <jlpt-news-debug> at the top left that lists, with
+# the time since the loader started, how far loading got. Only its two buttons take taps; the text
+# lets taps through to the page. The main script adds lines through JLPT_NEWS.debug, or through the
+# 'jlpt-news-debug' event when it runs as an injected <script> (functions do not survive the JSON).
+# Never shows the token, the request headers or CONFIG itself.
+_DEBUG_ON = r"""  const debug = (function () {
+    const started = Date.now();
+    const LEVELS = { ok: 'ok', warn: 'warn', error: 'error' };
+    const MAX = 40;
+    const lines = [];
+    const host = document.createElement('jlpt-news-debug');
+    const root = host.attachShadow({ mode: 'open' });
+    const style = document.createElement('style');
+    style.textContent =
+      ':host{all:initial}' +
+      '.d{position:fixed;top:calc(env(safe-area-inset-top, 0px) + 4px);left:4px;z-index:2147483647;' +
+      'box-sizing:border-box;max-width:92vw;padding:2px 6px 4px;border-radius:6px;background:rgba(0,0,0,.75);' +
+      'color:#fff;font:11px/1.35 ui-monospace,Menlo,monospace;text-align:left;white-space:pre-wrap;' +
+      'overflow-wrap:anywhere;-webkit-text-size-adjust:100%;pointer-events:none}' +
+      '.h{display:flex;gap:4px}' +
+      '.h button{pointer-events:auto;margin:0;padding:3px 6px;border:0;border-radius:4px;background:#ffffff26;' +
+      'color:#fff;font:bold 11px/1.2 ui-monospace,Menlo,monospace;cursor:pointer}' +
+      '.ok{color:#8eea8e}.warn{color:#ffd54f}.error{color:#ff8a80}' +
+      '.d.c{padding:2px}.d.c .l,.d.c .x{display:none}.d[hidden]{display:none}';
+    const box = document.createElement('div');
+    box.className = 'd';
+    const head = document.createElement('div');
+    head.className = 'h';
+    const toggle = document.createElement('button');
+    toggle.className = 't';
+    toggle.type = 'button';
+    toggle.textContent = 'JLPT 调试';
+    toggle.setAttribute('aria-expanded', 'true');
+    const close = document.createElement('button');
+    close.className = 'x';
+    close.type = 'button';
+    close.textContent = '×';
+    close.setAttribute('aria-label', '关闭调试信息');
+    const list = document.createElement('div');
+    list.className = 'l';
+    toggle.addEventListener('click', () => {
+      const collapsed = box.className === 'd';
+      box.className = collapsed ? 'd c' : 'd';
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+    });
+    close.addEventListener('click', () => { box.hidden = true; });
+    head.append(toggle, close);
+    box.append(head, list);
+    root.append(style, box);
+    const mount = () => document.documentElement.append(host);
+    if (document.documentElement) mount();
+    else document.addEventListener('readystatechange', mount, { once: true });
+
+    function debug(message, level) {
+      try {
+        const line = document.createElement('div');
+        line.className = LEVELS[level] || '';
+        line.textContent = '+' + (Date.now() - started) + 'ms ' + String(message);
+        list.append(line);
+        lines.push(line);
+        if (lines.length > MAX) lines.shift().remove();
+      } catch (error) {
+        // The overlay must never stop the loader.
+      }
+    }
+
+    // Lines from a main script that runs as an injected <script> (see inject below).
+    let injectedEnded = false;
+    document.addEventListener('jlpt-news-debug', (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.detail);
+      } catch (error) {
+        return;
+      }
+      if (!data || typeof data.message !== 'string') return;
+      if (data.end) injectedEnded = true;
+      debug(data.message, data.level);
+    });
+    const say = "document.dispatchEvent(new CustomEvent('jlpt-news-debug',{detail:JSON.stringify(";
+    debug.wrap = (call) =>
+      'try{' + call + '\n' + say + "{message:'主脚本已执行',level:'ok',end:true})}))}" +
+      'catch(e){' + say + "{message:'主脚本出错: '+String(e&&e.message||e),level:'error',end:true})}));throw e}";
+    debug.injected = () => {
+      if (!injectedEnded) debug('注入的主脚本没有运行（可能被网页的安全策略拦截）', 'error');
+    };
+
+    debug('加载器已运行 v1 页面 ' + location.pathname + ' readyState=' + document.readyState);
+    try {
+      const site = CONFIG.sites.find((s) => s.origin === location.origin && new RegExp(s.path).test(location.pathname));
+      if (site) debug('匹配的网站: ' + site.name, 'ok');
+      else debug('当前页面不在网站表内', 'warn');
+    } catch (error) {
+      debug('网站表出错: ' + String((error && error.message) || error), 'error');
+    }
+    return debug;
+  })();
+"""
+
+_DEBUG_OFF = r"""  const debug = function () {};
+  debug.wrap = (call) => call;
+  debug.injected = function () {};
+"""
+
 _BODY = r"""(function () {
   'use strict';
   const CONFIG = @CONFIG@;
-
+@DEBUG@
   // The failure button is built lazily: at document-start <body> may not exist yet.
   function showFailure(message, withLink) {
     const mount = () => {
@@ -116,9 +220,10 @@ _BODY = r"""(function () {
   function inject(code) {
     const script = document.createElement('script');
     const config = JSON.stringify(CONFIG).replace(/</g, '\\u003c');
-    script.textContent = '(function(JLPT_NEWS){' + code + '\n})(' + config + ');';
+    script.textContent = debug.wrap('(function(JLPT_NEWS){' + code + '\n})(' + config + ');');
     document.documentElement.append(script);
     script.remove();
+    debug.injected();
   }
 
   function describe(error) {
@@ -131,21 +236,35 @@ _BODY = r"""(function () {
       start = new Function('JLPT_NEWS', code);
     } catch (error) {
       // Some extension environments forbid eval; fall back to a page <script>.
-      if (error && error.name === 'EvalError') return inject(code);
+      if (error && error.name === 'EvalError') {
+        debug('执行方式: 注入 <script>（eval 被禁用）');
+        return inject(code);
+      }
       throw error;
     }
+    debug('执行方式: new Function');
     // Kept apart from the eval check, so an error from the running script never runs it twice.
     try {
-      start(CONFIG);
+      start(Object.assign({}, CONFIG, { debug: (message, level) => debug(message, level) }));
+      debug('主脚本已执行', 'ok');
     } catch (error) {
+      debug('主脚本出错: ' + describe(error), 'error');
       showFailure('主脚本出错：' + describe(error), false);
     }
   }
 
-  const failed = (reason, withLink) => showFailure('加载主脚本失败：' + reason, withLink);
+  const failed = (reason, withLink, detail) => {
+    debug('加载主脚本失败: ' + reason + (detail ? '（' + detail + '）' : ''), 'error');
+    showFailure('加载主脚本失败：' + reason, withLink);
+  };
+
+  function size(text) {
+    return typeof TextEncoder === 'function' ? new TextEncoder().encode(text).length : text.length;
+  }
 
   async function main() {
     let code;
+    debug('正在取主脚本…');
     try {
       const response = await fetch(CONFIG.base + '/api/news/client.js', {
         headers: { Authorization: 'Bearer ' + CONFIG.token },
@@ -155,8 +274,9 @@ _BODY = r"""(function () {
       if (!response.ok) return failed('服务器返回 ' + response.status, false);
       code = await response.text();
     } catch (error) {
-      return failed('网络连接失败', false);
+      return failed('网络连接失败', false, describe(error));
     }
+    debug('主脚本已取到: ' + size(code) + ' 字节', 'ok');
     run(code);
   }
 
@@ -165,11 +285,15 @@ _BODY = r"""(function () {
 """
 
 
-def loader_script(base, token, site_list):
+def loader_script(base, token, site_list, debug=True):
+    """The device's `.user.js`. With debug, the loader shows its on-screen trace (see _DEBUG_ON)."""
     base = base.rstrip('/')
-    config = {'base': base, 'token': token, 'sites': site_list, 'install': base + '/news-script/'}
+    config = {'base': base, 'token': token, 'sites': site_list, 'install': base + '/news-script/',
+              'debug': bool(debug)}
     # Keep the JSON from ever closing or confusing an inline <script>.
     config_json = json.dumps(config, ensure_ascii=False).replace('</', '<\\/').replace('<!--', '<\\!--')
     matches = '\n'.join(f"// @match        {_line(entry['match'])}" for entry in site_list)
     header = _HEADER.replace('@BASE@', _line(base)).replace('@MATCHES@', matches)
-    return header + _BODY.replace('@CONFIG@', config_json)
+    # The placeholder for the debug code goes first: the config may contain any text.
+    body = _BODY.replace('@DEBUG@', _DEBUG_ON if debug else _DEBUG_OFF)
+    return header + body.replace('@CONFIG@', config_json)

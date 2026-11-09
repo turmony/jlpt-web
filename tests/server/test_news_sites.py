@@ -85,13 +85,41 @@ class SitesTests(unittest.TestCase):
         self.assertNotIn('\n// @grant', text)
 
     def test_loader_is_valid_javascript(self):
-        for name in ('雅虎新闻', '</script>'):
-            text = loader_script('https://jlpt.example', 'tok', [site(name=name)])
+        for name, debug in (('雅虎新闻', True), ('</script>', True), ('@DEBUG@', True), ('雅虎新闻', False)):
+            text = loader_script('https://jlpt.example', 'tok', [site(name=name)], debug=debug)
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / 'loader.user.js'
                 path.write_text(text, encoding='utf-8')
                 done = subprocess.run(['node', '--check', str(path)], capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_debug_switch_controls_the_overlay_and_config(self):
+        on = loader_script('https://jlpt.example', 'tok', [DEFAULT_SITES[0]])
+        off = loader_script('https://jlpt.example', 'tok', [DEFAULT_SITES[0]], debug=False)
+        self.assertIs(config_of(on)['debug'], True)
+        self.assertIs(config_of(off)['debug'], False)
+        for marker in ("'jlpt-news-debug'", "mode: 'open'", 'JLPT 调试', '2147483647', 'safe-area-inset-top'):
+            self.assertIn(marker, on)
+        for marker in ('jlpt-news-debug', "mode: 'open'", 'JLPT 调试', 'safe-area-inset-top'):
+            self.assertNotIn(marker, off)
+        # A site name that looks like the placeholder stays a name.
+        named = loader_script('https://jlpt.example', 'tok', [site(name='@DEBUG@')], debug=False)
+        self.assertEqual(config_of(named)['sites'][0]['name'], '@DEBUG@')
+
+    def test_token_is_only_used_in_the_authorization_header(self):
+        for debug in (True, False):
+            text = loader_script('https://jlpt.example', 'tok', [DEFAULT_SITES[0]], debug=debug)
+            body = text.split('// ==/UserScript==')[1]
+            uses = [line.strip() for line in body.splitlines() if 'CONFIG.token' in line]
+            self.assertEqual(uses, ["headers: { Authorization: 'Bearer ' + CONFIG.token },"])
+            for line in body.splitlines():
+                if 'debug(' in line:
+                    for secret in ('token', 'Authorization', 'cookie', 'CONFIG)', 'CONFIG.base', 'CONFIG.install'):
+                        self.assertNotIn(secret, line)
+
+
+def config_of(text):
+    return json.loads(re.search(r'^  const CONFIG = (.*);$', text, re.M)[1])
 
 
 HARNESS = Path(__file__).with_name('news_loader_harness.mjs')
@@ -101,8 +129,8 @@ COUNT = "globalThis.__runs = (globalThis.__runs || 0) + 1; globalThis.__token = 
 class LoaderRunTests(unittest.TestCase):
     """Executes the generated loader in Node with a stubbed fetch and DOM."""
 
-    def run_loader(self, **scenario):
-        text = loader_script('https://jlpt.example', 'tok-run', [DEFAULT_SITES[0]])
+    def run_loader(self, debug=True, **scenario):
+        text = loader_script('https://jlpt.example', 'tok-run', [DEFAULT_SITES[0]], debug=debug)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'loader.user.js'
             path.write_text(text, encoding='utf-8')
@@ -111,6 +139,7 @@ class LoaderRunTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         report = json.loads(done.stdout)
         self.assertEqual(report['unhandled'], [], 'every failure must reach the failure button')
+        self.assertNotIn('tok-run', json.dumps(report['debug'], ensure_ascii=False))
         return report
 
     def test_success_runs_the_main_script_once_with_the_config(self):
@@ -152,6 +181,101 @@ class LoaderRunTests(unittest.TestCase):
         self.assertEqual(report['runs'], 0)
         self.assertEqual(len(report['failures']), 1)
         self.assertTrue(report['failures'][0]['text'].startswith('加载主脚本失败：'), report['failures'])
+
+
+# The main script's debug helper (news-client/debug.mjs) in a few lines: the loader's function when
+# it ran the script with new Function, the event when the script went through an injected <script>.
+SAY = ("(typeof JLPT_NEWS.debug === 'function' ? JLPT_NEWS.debug('来自主脚本', 'ok') : "
+       "document.dispatchEvent(new CustomEvent('jlpt-news-debug', "
+       "{detail: JSON.stringify({message: '来自主脚本', level: 'ok'})})));")
+START = [('加载器已运行 v1 页面 /articles/abc123 readyState=loading', ''), ('匹配的网站: 雅虎新闻', 'ok'),
+         ('正在取主脚本…', '')]
+
+
+class LoaderDebugTests(unittest.TestCase):
+    """The on-screen debug lines of the generated loader, read from its <jlpt-news-debug> overlay."""
+    run_loader = LoaderRunTests.run_loader
+
+    def lines(self, report):
+        self.assertEqual(report['debug']['mode'], 'open')
+        self.assertEqual(report['debug']['count'], 1)
+        out = []
+        for line in report['debug']['lines']:
+            found = re.fullmatch(r'\+(\d+)ms (.*)', line['text'], re.S)
+            self.assertTrue(found, line)
+            out.append((found[2], line['level']))
+        return out
+
+    def fetched(self, body):
+        return [(f'主脚本已取到: {len(body.encode())} 字节', 'ok')]
+
+    def test_success_lists_every_step_in_order(self):
+        body = COUNT + SAY
+        report = self.run_loader(body=body)
+        self.assertEqual(self.lines(report), START + self.fetched(body) + [
+            ('执行方式: new Function', ''), ('来自主脚本', 'ok'), ('主脚本已执行', 'ok')])
+        self.assertEqual(report['failures'], [])
+
+    def test_failed_fetches_are_red_lines_beside_the_failure_button(self):
+        for scenario, line in (({'status': 401}, '加载主脚本失败: 令牌已失效，请重新安装脚本'),
+                               ({'status': 500}, '加载主脚本失败: 服务器返回 500'),
+                               ({'networkError': True}, '加载主脚本失败: 网络连接失败（Failed to fetch）')):
+            with self.subTest(scenario=scenario):
+                report = self.run_loader(body=COUNT, **scenario)
+                self.assertEqual(self.lines(report), START + [(line, 'error')])
+                self.assertEqual(len(report['failures']), 1)
+                self.assertEqual(report['runs'], 0)
+
+    def test_main_script_error_is_a_red_line(self):
+        body = COUNT + " throw new Error('boom');"
+        report = self.run_loader(body=body)
+        self.assertEqual(self.lines(report), START + self.fetched(body) + [
+            ('执行方式: new Function', ''), ('主脚本出错: boom', 'error')])
+        self.assertEqual(report['failures'], [{'text': '主脚本出错：boom', 'links': []}])
+
+    def test_without_eval_the_injected_script_reports_through_events(self):
+        body = COUNT + SAY
+        report = self.run_loader(body=body, noEval=True)
+        self.assertEqual(self.lines(report), START + self.fetched(body) + [
+            ('执行方式: 注入 <script>（eval 被禁用）', ''), ('来自主脚本', 'ok'), ('主脚本已执行', 'ok')])
+        self.assertEqual((report['runs'], report['injected'], report['failures']), (1, 1, []))
+
+    def test_without_eval_an_error_in_the_injected_script_is_a_red_line(self):
+        body = COUNT + " throw new Error('boom');"
+        report = self.run_loader(body=body, noEval=True)
+        self.assertEqual(self.lines(report)[-2:], [('执行方式: 注入 <script>（eval 被禁用）', ''), ('主脚本出错: boom', 'error')])
+        # Still thrown in the page, as before.
+        self.assertEqual(report['pageErrors'], ['boom'])
+
+    def test_an_injected_script_that_never_runs_is_named(self):
+        report = self.run_loader(body=COUNT, noEval=True, noScript=True)
+        self.assertEqual(self.lines(report)[-2:], [('执行方式: 注入 <script>（eval 被禁用）', ''),
+                                                   ('注入的主脚本没有运行（可能被网页的安全策略拦截）', 'error')])
+        self.assertEqual(report['runs'], 0)
+
+    def test_a_page_outside_the_site_table_says_so(self):
+        report = self.run_loader(body=COUNT, url='https://news.yahoo.co.jp/articles/abc123/images/000?token=x')
+        lines = self.lines(report)
+        self.assertEqual(lines[:2], [('加载器已运行 v1 页面 /articles/abc123/images/000 readyState=loading', ''),
+                                     ('当前页面不在网站表内', 'warn')])
+        self.assertNotIn('token=x', json.dumps(report['debug'], ensure_ascii=False))
+
+    def test_the_overlay_waits_for_the_document_element(self):
+        body = COUNT
+        report = self.run_loader(body=body, lateRoot=True)
+        self.assertEqual(self.lines(report)[0], ('加载器已运行 v1 页面 /articles/abc123 readyState=loading', ''))
+        self.assertEqual(self.lines(report)[-1], ('主脚本已执行', 'ok'))
+
+    def test_debug_off_makes_no_overlay_and_gives_a_quiet_function(self):
+        report = self.run_loader(debug=False, body=COUNT + ' globalThis.__debugType = typeof JLPT_NEWS.debug;' + SAY)
+        self.assertIsNone(report['debug'])
+        self.assertEqual((report['runs'], report['failures'], report['debugType']), (1, [], 'function'))
+        report = self.run_loader(debug=False, status=500)
+        self.assertIsNone(report['debug'])
+        self.assertEqual(len(report['failures']), 1)
+        report = self.run_loader(debug=False, body=COUNT + SAY, noEval=True)
+        self.assertIsNone(report['debug'])
+        self.assertEqual((report['runs'], report['failures'], report['pageErrors']), (1, [], []))
 
 
 if __name__ == '__main__':

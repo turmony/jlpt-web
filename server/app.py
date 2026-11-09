@@ -276,7 +276,8 @@ def create_server(app, address):
                     headers = {}
                     if parse_qs(query).get('download') == ['1']:
                         headers['Content-Disposition'] = 'attachment; filename="jlpt-news.user.js"'
-                    script = loader_script(app.config['origin'], token, sites(app.config))
+                    script = loader_script(app.config['origin'], token, sites(app.config),
+                                           debug=app.config.get('news_debug', True))
                     return self.reply(200, script.encode('utf-8'), 'text/javascript; charset=utf-8', headers)
                 if path == '/devices' and not post:
                     return self.reply(200, {'devices': svc.devices.list()})
