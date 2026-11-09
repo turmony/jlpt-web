@@ -1,7 +1,7 @@
-// The word card shown next to a tapped word: surface and reading on the first line (with the pitch
-// accent number, e.g. 音调 [3], when the word is not shown with a 原形 line), then the part of speech,
-// the 原形 (with its accent: the number is the dictionary form's), the model's meaning (progress while loading, an error line on failure, with 重试
-// when it can be retried) and 「在本句中的作用」, which fires jlpt:select-part
+// The word card shown next to a tapped word: surface and reading on the first line, with the pitch
+// accent number right behind the reading (せいりょく[1]; behind the word itself when no reading is shown),
+// then the part of speech, the 原形, the model's meaning (progress while loading, an error line on
+// failure, with 重试 when it can be retried) and 「在本句中的作用」, which fires jlpt:select-part
 // {sentenceId, start: index, end: index} on document. Only one card exists, in the <jlpt-news>
 // shadow root's layer, fixed at the word's viewport position; tapping elsewhere, Escape or
 // scrolling the page closes it.
@@ -27,9 +27,10 @@ function node(tag, className, text) {
   return element;
 }
 
-// The pitch accent from the tokenizer as text ("3", or "2,0" when there are two): "音调 [3]" / "音调 [2] / [0]".
+// The pitch accent from the tokenizer as text ("3", or "2,0" when there are two): "[3]" / "[2]/[0]". For an
+// inflected word it is the number of its dictionary form.
 function accentText(token) {
-  return token.a ? `音调 ${String(token.a).split(',').map(n => `[${n}]`).join(' / ')}` : '';
+  return token.a ? String(token.a).split(',').map(n => `[${n}]`).join('/') : '';
 }
 
 export function closeWordCard() {
@@ -105,22 +106,26 @@ export function showWordCard(tokenEl, token, sentenceId, index) {
   const word = node('span', 'news-card-word', token.s);
   word.lang = 'ja';
   head.append(word);
+  let behind = word; // what the number goes right behind
   if (token.r && token.r !== token.s) {
     const reading = node('span', 'news-card-reading', token.r);
     reading.lang = 'ja';
     head.append(reading);
+    behind = reading;
   }
   const accent = accentText(token);
+  if (accent) {
+    const number = node('span', 'news-card-accent', accent);
+    number.title = `音调 ${accent}`;
+    behind.append(number);
+  }
   const hasLemma = !!token.l && token.l !== token.s;
-  // An inflected word's number belongs to its 原形, so it is shown there.
-  if (accent && !hasLemma) head.append(node('span', 'news-card-accent', accent));
   root.append(head, node('div', 'news-card-pos', POS[token.p] || token.p || '未知词性'));
   if (hasLemma) {
     const lemma = node('div', 'news-card-lemma', '原形：');
     const form = node('span', '', token.l);
     form.lang = 'ja';
     lemma.append(form);
-    if (accent) lemma.append('　', node('span', 'news-card-accent', accent));
     root.append(lemma);
   }
   const meaning = node('div', 'news-card-meaning');
