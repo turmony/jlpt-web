@@ -727,3 +727,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 256 项（14 项因缺 fugashi 跳过）、`test:client` 13 项、`test:browser` 91 项通过；上线后公网端到端检查全部通过（登录、安装、主脚本、预检、分词、模型列表、流式分析、作废后 401），新生成的加载器含调试面板且 `debug` 为 true，临时设备已作废。
 
 回滚：把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回 `20261109-news-userscript` 下对应目录并重启服务；`news_debug` 配置项对旧版本无影响。
+
+### 上线记录（2026-11-09，加载器版本号）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-loader-v2`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 已切换，`jlpt.service` 已重启（切换前确认无子进程）。网页提交 `faeabf8`（合并 `feat/news-loader-version`）。上一版本为 `20261109-news-debug`，路径在发布目录的 `previous-release.txt`，发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。
+
+内容：新生成的加载器名称为 `JLPT 新闻查词 v2`（`@name`、`@version` 与调试面板第一行同一个常量 `LOADER_VERSION`），之后改动加载器文本必须升版本，否则 `test_loader_version_is_bumped_when_the_loader_changes` 失败。同时修了头部占位符按顺序替换、可能被网址或站点名里的占位符样文字干扰的问题。设备必须重装才会换成 v2。
+
+验证：`test:server` 258 项（14 项因缺 fugashi 跳过）、`test:client` 13 项、`news-userscript` 浏览器测试 66 项通过；上线后公网端到端检查全部通过，新加载器头部 `@name` 为 `JLPT 新闻查词 v2`，临时设备已作废。
+
+回滚：把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回 `20261109-news-debug` 下对应目录并重启服务。
