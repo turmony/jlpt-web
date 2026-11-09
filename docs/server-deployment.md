@@ -829,3 +829,15 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 263 项（news venv）、`test:browser` 101 项、`test:client` 23 项通过。上线后公网（用与脚本相同的续接逻辑）连续 6 次分析全部以 `done` 结束，总耗时 10.1–21.2 秒，其中 4 次超过 16 秒（旧版会被切断），每个连接都在约 12 秒结束（最长 12.4 秒）；追问 4.3 秒完成；`analyze` 响应带 `X-News-Job` 与 `Access-Control-Expose-Headers`；`resume`、`cancel` 的预检 204 且来源正确；未知任务的 `resume` 返回可重试的「这次回答已过期」；`client.js` 与发布目录逐字节一致；各页面未登录 303，无来源 `models` 401，其他来源 POST 403。
 
 回滚：把 `/srv/jlpt/app` 切回 `20261109-news-pitch-accent/app`、`/srv/jlpt/static` 切回 `20261109-news-accent-inline/static`，`systemctl restart jlpt.service`。回滚后 16 秒问题回来；已打开页面里的新主脚本遇到旧服务端（响应没有 `X-News-Job`）会按旧方式处理，不会出错。
+
+### 上线记录（2026-11-09，现代界面与主题）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-modern-ui`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261109-news-resumable-jobs/app`，服务未重启，加载器仍是 v3，设备上不用操作）。网页提交 `37c23ee`（合并 `feat/news-modern-ui`）。上一版本静态目录是 `20261109-news-resumable-jobs/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `news-script/client.js` 不同。
+
+内容：脚本自带界面换成磨砂圆角风格。右下角状态钮改为带状态点的胶囊（就绪绿、分词中琥珀并呼吸、出错红）；放大镜的气泡改为磨砂圆角，手指下的词是强调色胶囊；点词卡片、分析面板、提问栏统一圆角与阴影。新增 `news-client/theme.mjs`：界面主题默认跟随页面（按 `<body>` / `<html>` 的背景色判断深浅，页面改类名或样式、系统外观变化时重新判断），菜单里可手动选「跟随页面 / 浅色 / 深色」，选择记在新闻站域名下的 `localStorage`（`jlpt-news-theme`）。文章页上的黄色选中高亮写在页面里，不随主题变化。只改外观，布局与手势不变。
+
+验证：`test:client` 27 项、`test:browser` 里 `news-userscript` 77 项、`test:server` 263 项（news venv）通过。上线后公网带雅虎来源取 `client.js` 200，与发布目录逐字节一致且含新界面代码；无来源取 `client.js` 401；加载器 200；各页面未登录 303；无来源 `models` 401；服务仍在运行。
+
+构建提示：浏览器测试读的是构建出来的 `server-public/news-script/client.js`，改了 `news-client/` 后要先运行 `node scripts/build-server.mjs`，否则测的是旧代码。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261109-news-resumable-jobs/static`，不需要重启。
