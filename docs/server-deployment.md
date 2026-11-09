@@ -861,3 +861,15 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 备份：`/etc/caddy/Caddyfile.before-portal`、`/etc/cloudflared/config.yml.before-portal`。
 
 回滚：把这两个备份拷回原位，`systemctl reload caddy`、`systemctl restart cloudflared`；DNS 里删掉 turmony.site 和 www 两条 CNAME。
+
+## 20261109-news-card-close 上线（2026-11-09）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-card-close`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261109-news-resumable-jobs/app`，服务未重启，加载器仍是 v3，设备上不用操作）。网页提交 `be3976c`（合并 `feat/news-card-close`）。上一版本静态目录是 `20261109-news-modern-ui/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `news-script/client.js` 不同。
+
+内容：查词卡右上角加「×」关闭按钮（点击区域 44px，`aria-label="关闭"`），之前只能点卡片外、按 Esc 或滚动页面来关。标题行右侧留出空位，长单词不会压到按钮。
+
+验证：`test:client` 27 项、`news-userscript` 79 项通过。完整测试时旧用例「卡片上只有一个按钮」失败，是断言过时（现在有 × 和「在本句中的作用」两个按钮），已改断言。上线后公网带雅虎来源取 `client.js` 200，与发布目录逐字节一致且含新按钮代码；无来源 401；加载器 200；未登录首页 303；服务仍在运行。
+
+注意：`feat/news-asahi` 分支（朝日新闻适配）的提交里带了本次新增的关闭按钮测试，但没有实现，也没有改上面那条旧断言；合并该分支前要先合入 main，否则这几项测试会失败。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261109-news-modern-ui/static`，不需要重启。
