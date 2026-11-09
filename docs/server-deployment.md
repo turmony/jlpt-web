@@ -716,3 +716,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 **公网入口限制单次响应约 16 秒（未解决，需要决定）：** 经公网地址（HTTP/2 入口）时，单次流式响应在 16.0 秒被切断（读到 `IncompleteRead`），已收到的数据不受影响，但之后的事件都丢失；同一请求直连服务（127.0.0.1:8765）和经本机 Caddy（127.0.0.1:8080）都完整完成。测试方法：用令牌调用 `/api/news/analyze` 与 `/api/news/ask`，分别直连、经 Caddy、经公网。结果：第一个数据事件在 16 秒内到达、总时长不到 16 秒的分析正常完成（单句约 8–10 秒）；两句段落、模型首次输出晚于约 12 秒的分析，在 16 秒被切断，服务器日志里没有记录。把心跳从注释行 `: ping` 改成数据事件 `event: ping` 没有用：心跳到达了，连接仍在 16.0 秒被切断，有数据流动时也一样（16.4 秒被切）。所以这不是心跳形式的问题，也不是本次代码的问题（上一版 20261108-news 用同样的流式方式，当时只做了本机验证）。影响：在 iPad / iPhone 上经公网使用时，较慢的分析和较长的追问可能中途失败。查词（`/api/news/gloss`）通常很短，不受影响。可选的处理方式见交接说明；决定前不要把它当作已验证。
 
 回滚：把 `/srv/jlpt/app` 与 `/srv/jlpt/static` 切回 `/srv/jlpt/releases/20261108-news/` 下对应目录，`systemctl restart jlpt.service`。`config.json`、`/srv/jlpt/venv`、`state/news/` 对旧版本无影响；`state/news/devices.json` 旧版本不读取。
+
+### 上线记录（2026-11-09，调试面板）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-debug`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 已切换，`jlpt.service` 已重启（切换前确认无子进程）。网页提交 `b9be795`（合并 `feat/news-debug-overlay`）。上一版本为 `20261109-news-userscript`，路径在发布目录的 `previous-release.txt`，发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。
+
+内容：加载器与主脚本在屏幕左上角显示调试面板（加载器是否运行、网站匹配、取到主脚本的字节数、执行方式、主脚本状态、分词词数），不含令牌；配置项 `news_debug`（缺省开启，非布尔值会使服务启动失败）。加载器由服务器生成，所以已安装的设备必须重新安装才有面板。
+
+验证：`test:server` 256 项（14 项因缺 fugashi 跳过）、`test:client` 13 项、`test:browser` 91 项通过；上线后公网端到端检查全部通过（登录、安装、主脚本、预检、分词、模型列表、流式分析、作废后 401），新生成的加载器含调试面板且 `debug` 为 true，临时设备已作废。
+
+回滚：把 `/srv/jlpt/app`、`/srv/jlpt/static` 切回 `20261109-news-userscript` 下对应目录并重启服务；`news_debug` 配置项对旧版本无影响。
