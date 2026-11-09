@@ -776,3 +776,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 已知：加载器的调试面板（`news_debug` 默认开，层级高于主脚本的浮层）出现在左上角时会盖住放大气泡的一部分；关掉需要把 `news_debug` 设为 `false` 并升加载器版本。未验证：真机上的长按拖动手感与气泡位置。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261109-news-longpress-drag/static`，不需要重启。
+
+### 上线记录（2026-11-09，拖选取消）
+
+发布目录为 `/srv/jlpt/releases/20261109-news-cancel-drag`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261109-news-no-token/app`，服务未重启，加载器仍是 v3，设备上不用操作）。网页提交 `c2c08fb`（合并 `feat/news-cancel-drag`）。上一版本静态目录是 `20261109-news-loupe/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `news-script/client.js` 不同。
+
+内容：长按拖选时，手指离句子里最近的词超过 100px（`CANCEL_DISTANCE_PX`，`news-client/reader.mjs`）就进入“将取消”状态：页面高亮变灰，放大气泡变红并显示“松手取消”；此时松手不选择、不分析，选区回到长按之前的状态；回到句子附近则恢复。气泡里多一行提示“拖离句子后松手可取消”。长按后不拖、直接滑远再松手也是取消。原来“拖到页面最下方、标题上方仍吸附”的用例改成了取消；句尾下方 30px、句首上方 30px 等 100px 以内仍吸附到最近的词。
+
+验证：`test:browser` 99 项（含新增的取消用例，iPad 与 iPhone 各一）、`test:client` 13 项、`test:server` 248 项（news venv）通过。上线后公网 `client.js`（带雅虎来源）200，与发布目录逐字节一致且含新逻辑（`jlpt-cancel` 与“松手取消”的转义串都在，esbuild 会把中文写成 `\u` 转义，所以不能直接 grep 中文）；加载器 200；无来源取 `client.js` 401；各页面未登录 303；服务仍在运行。未验证：真机上 100px 这个阈值的手感（误触或不够灵敏时改 `CANCEL_DISTANCE_PX` 即可，只需重新构建并切换静态目录）。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261109-news-loupe/static`，不需要重启。
