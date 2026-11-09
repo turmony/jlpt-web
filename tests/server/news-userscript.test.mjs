@@ -1485,3 +1485,35 @@ test('the analysis request carries the paragraph and the sentence words',()=>wit
   assert.ok(user.includes(`所在段落：\n${P1}\n`),user);
   assert.ok(user.includes(`原句：\n${S2_TEXT}`),user);
 },{hub:[analyzeStep({translation:'气象厅呼吁尽早做好准备。'})],select:'Auto'}));
+
+// -- theme: follows the page unless the reader picks a side --------------------------------------------
+
+const themeOf=page=>page.evaluate(()=>document.querySelector('jlpt-news').shadowRoot.querySelector('.layer').dataset.theme);
+const themeOption=(page,mode)=>page.locator(`jlpt-news .news-theme-option[data-mode=${mode}]`);
+
+test('the UI theme follows the page, a manual choice wins and is remembered',()=>withUserscript('iPhone 13',async(page,{site})=>{
+  await openArticle(page,site);
+  assert.equal(await themeOf(page),'light');
+  const menu=await openDock(page);
+  assert.deepEqual(await menu.locator('.news-theme-option').allInnerTexts(),['跟随页面','浅色','深色']);
+  assert.equal(await themeOption(page,'auto').getAttribute('aria-pressed'),'true');
+  // A dark page turns the UI dark by itself.
+  await page.evaluate(()=>{document.body.style.background='#15171b';});
+  await page.waitForFunction(()=>document.querySelector('jlpt-news').shadowRoot.querySelector('.layer').dataset.theme==='dark');
+  // Manual light stays light on the dark page and is saved; manual dark stays dark on a light page.
+  await themeOption(page,'light').click();
+  assert.equal(await themeOf(page),'light');
+  assert.equal(await themeOption(page,'light').getAttribute('aria-pressed'),'true');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('jlpt-news-theme')),'light');
+  await page.evaluate(()=>{document.body.style.background='';});
+  await themeOption(page,'dark').click();
+  assert.equal(await themeOf(page),'dark');
+  await page.reload();
+  await marked(page);
+  assert.equal(await themeOf(page),'dark');
+  await openDock(page);
+  assert.equal(await themeOption(page,'dark').getAttribute('aria-pressed'),'true');
+  // Back to auto: the light page makes it light again.
+  await themeOption(page,'auto').click();
+  assert.equal(await themeOf(page),'light');
+}));
