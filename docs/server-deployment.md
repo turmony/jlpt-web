@@ -900,3 +900,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 265 项（15 项按环境条件跳过）、`test:browser` 111 项通过（新增“用法总览的形式跳到接续图，核心含义跳回”）。上线后本机与公网 `/review/` 未登录 303、`/api/review/today` 401；发布目录的 `review/review.mjs`、`review/review.css` 与源码一致；用线上代码读真实学习仓库 `B-02-1`，`recall.items` 带 `card`；`jlpt.service` 与 caddy 运行中。
 
 回滚：把 `/srv/jlpt/app` 与 `/srv/jlpt/static` 切回 `20261109-news-asahi`，`systemctl restart jlpt.service`。
+
+### 上线记录（2026-11-10，跳转入口改为同色标签与胶囊）
+
+发布目录为 `/srv/jlpt/releases/20261110-review-jump-style`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261110-review-jump/app`，服务未重启）。网页提交 `344b5fb`（合并 `feat/review-jump-style`）。上一版本静态目录是 `20261110-review-jump/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份（`integrity_check` ok）与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `review/review.mjs`、`review/review.css` 不同。
+
+内容：用法总览里的语法形式改为标签：左边条用该形式在对比表中的颜色（不在对比表里的形式用金色），旁边一个“接续图 ↓”小胶囊（文字由 CSS 画出，`.recall-form` 的文字仍只有形式本身）。接续图下的核心含义改为同色左边条的卡片，标题行右侧是“用法总览 ↑”胶囊。到达处显示外扩 8px 的金色描边光环与浅底，约 1.6 秒淡出；开启减少动画时不显示。
+
+验证：`test:browser` 111 项、`test:server` 265 项（15 项按环境条件跳过）通过；iPhone 13 宽度截图检查了两端外观、长形式名换行与到达光环。上线后公网 `/review/` 未登录 303、`/api/review/today` 401，发布目录的两个文件与源码一致；页面为 `no-store`，刷新即生效。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261110-review-jump/static`，不需要重启。
