@@ -963,3 +963,11 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 上游何时解除排队不受我们控制，需要到 Qoder 后台查这两个账号的额度和优先级。
 
 回滚：jlpt 按 `previous-release.txt` 把 `/srv/jlpt/app` 切回 `20261110-review-jump/app`、`/srv/jlpt/static` 切回 `20261110-n5-0112-core/static`，再重启服务。网关把备份的 `qoder_proxy.py` 复制回 `/root/projects/qoder2api-hub/`，再重启 `qoder-proxy.service`。
+
+### 网关升级到 v1.9.6 并重新打补丁（同日）
+
+两个本地提交 rebase 到 tag `v1.9.6`（无冲突），现为 `local/queue-client-gone` 的 `8e79051`（心跳基线）和 `23d36b1`（本次修复）；v1.9.2 上的旧版本保留为分支 `local/v1.9.2-queue-client-gone`。v1.9.3–v1.9.6 是 chunked 请求体、Anthropic thinking 配置、面板动效和企业 VPC 专属域，没有新依赖，也没有排队相关修复。rebase 后 `run_all.py` 143 套（3895 项）全部通过，新测试 15/15。
+
+安装没有走面板的“一键更新”，以免先跑一段未打补丁的版本。做法是把补丁分支 `git archive` 出来，用 `qoder_updater` 自己的 `_verify_release`（ok）和 `plan_update`（229 个文件，其中 4 个新文件）选出要替换的文件，按更新器的格式备份到 `backups/update-1.9.2-20261110-171336/`，再复制并重启。线上 `qoder_proxy.py` 与分支一致；`/health` 显示 1.9.6，2 个账号就绪；面板 200，`/v1/models` 200。上游仍在排队，用 jlpt 的 `Hub` 实际请求，0.7 秒得到“模型排队中，请稍后重试”，网关约 5 秒后记“client gone … not reopening”和 499。
+
+回滚：把 `backups/update-1.9.2-20261110-171336/` 里的文件复制回 `/root/projects/qoder2api-hub/`，再重启 `qoder-proxy.service`。这样回到打过补丁的 v1.9.2。
