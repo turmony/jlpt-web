@@ -404,8 +404,7 @@ function renderUnit(view) {
   const jump = form => {
     const card = view.recall.items.find(item => item.form === form && members.has(item.card))?.card;
     if (!card) return null;
-    const row = view.compare?.forms.findIndex(row => row.form === form) ?? -1;
-    return {tint: row >= 0 ? row % 6 : null,
+    return {tint: compareTint(view.compare, form),
       go: () => jumpTo(document.getElementById(`connection-${card}`) || document.getElementById(`card-${card}`))};
   };
   const usages = recallList(view.recall.items, session.started, session.started ? {unit: unit.id, counts: view.forgets || {}} : null, jump);
@@ -441,12 +440,15 @@ function renderUnit(view) {
     if (heading) heading.id = `connection-${card.id}`;
     let next = heading && heading.nextElementSibling;
     while (next && !/^H[1-3]$/.test(next.tagName)) next = next.nextElementSibling;
-    // Only forms that made it into the comparison table get their table meaning here too; it jumps back to the form.
+    // Every member shows its core meaning here: its comparison row when it has one, else the 功能 headings of its core.
+    // It jumps back to the card's (first) form in the overview.
     const row = view.compare?.forms.find(form => form.card === card.id);
-    const meaning = row && compareMeaning(row, view.compare.forms.indexOf(row),
-      () => jumpTo([...root.querySelectorAll('.recall-group')].find(group => group.dataset.form === row.form)));
+    const forms = row ? [row.form] : [...new Set(view.recall.items.filter(item => item.card === card.id).map(item => item.form))];
+    const group = [...root.querySelectorAll('.recall-group')].find(group => group.dataset.form === forms[0]);
+    const meaning = coreMeaning(forms, row ? [row.meaning] : cardMeanings(card), form => compareTint(view.compare, form),
+      group && (() => jumpTo(group)));
     if (heading) heading.parentNode.insertBefore(details, next); else page.append(details);
-    if (meaning) details.after(meaning);
+    details.after(meaning);
   }
   root.append(h('section', {className: 'step'}, h('h2', {textContent: '二、对比页'}), page));
 
@@ -680,13 +682,37 @@ function compareCell(row, key) {
 
 const compareChip = (row, index) => h('span', {className: 'compare-chip', textContent: row.form, dataset: {tint: index % 6}});
 
-// The same 核心含义 row as in the comparison (by-item layout), for one form. A click anywhere on it calls `onJump`.
-function compareMeaning(row, index, onJump) {
-  const back = h('button', {type: 'button', className: 'meaning-jump', title: '回到用法总览'}, jumpBadge('用法总览', 'up'));
-  back.setAttribute('aria-label', `核心含义：回到用法总览的 ${row.form}`);
-  return h('div', {className: 'compare-by-item compare-meaning', dataset: {tint: index % 6}, onclick: onJump},
+// The tint of a form's comparison row, or null when the form is not in the comparison (it then shows in gold).
+function compareTint(compare, form) {
+  const index = compare?.forms.findIndex(row => row.form === form) ?? -1;
+  return index >= 0 ? index % 6 : null;
+}
+
+// What a card means, from its 功能 headings (“## 功能一：对象”); a card without them falls back to its title's meaning.
+const FUNCTION_MEANING = /^ {0,3}#{1,6}[ \t]+功能\s*[一二三四五六七八九十百零〇两\d]*\s*[：:]\s*(.+?)\s*$/gm;
+function cardMeanings(card) {
+  const meanings = [...(card.core || '').matchAll(FUNCTION_MEANING)].map(match => match[1]);
+  return meanings.length ? meanings : [card.title.replace(/^[^：]*：/, '')];
+}
+
+// A 核心含义 card under a connection image (the by-item layout of the comparison): the card's forms and what it means,
+// one line per function. A click anywhere on it calls `onJump`; without one it is plain text.
+function coreMeaning(forms, meanings, tintOf, onJump) {
+  const tint = tintOf(forms[0]);
+  const chips = forms.map(form => {
+    const chipTint = tintOf(form);
+    return h('span', {className: 'compare-chip', textContent: form, dataset: chipTint === null ? {} : {tint: chipTint}});
+  });
+  const value = meanings.length === 1 ? meanings[0] : h('ol', {className: 'meaning-list'}, ...meanings.map(text => h('li', {textContent: text})));
+  let back = null;
+  if (onJump) {
+    back = h('button', {type: 'button', className: 'meaning-jump', title: '回到用法总览'}, jumpBadge('用法总览', 'up'));
+    back.setAttribute('aria-label', `核心含义：回到用法总览的 ${forms[0]}`);
+  }
+  return h('div', {className: `compare-by-item compare-meaning${onJump ? ' is-linked' : ''}`, dataset: tint === null ? {} : {tint}, onclick: onJump},
     h('section', {className: 'compare-block'}, h('h4', {}, h('span', {textContent: '核心含义'}), back),
-      h('ul', {}, h('li', {className: 'compare-line'}, compareChip(row, index), h('span', {className: 'compare-value'}, compareCell(row, 'meaning'))))));
+      h('ul', {}, h('li', {className: chips.length > 1 ? 'compare-line is-stacked' : 'compare-line'}, chips.length ? h('span', {className: 'meaning-forms'}, ...chips) : null,
+        h('span', {className: 'compare-value'}, value)))));
 }
 
 function compareView(compare) {

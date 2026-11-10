@@ -135,11 +135,19 @@
 .jump-badge svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s cubic-bezier(.3,.7,.3,1)}
 .recall-jump:hover .jump-badge,.recall-jump:focus-visible .jump-badge{background:var(--accent-soft);color:var(--accent-text)}
 .recall-jump:hover .jump-badge svg{transform:translateY(2px)}
-.compare-meaning{margin:12px 0 4px;padding:2px 14px 4px;border:1px solid var(--line);border-left:4px solid var(--tint);border-radius:12px;background:var(--surface);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:border-color .16s,background-color .16s}
-.compare-meaning:hover{border-color:var(--tint);background:var(--raised)}
+.compare-meaning{--tint:var(--accent);margin:12px 0 4px;padding:2px 14px 4px;border:1px solid var(--line);border-left:4px solid var(--tint);border-radius:12px;background:var(--surface);-webkit-tap-highlight-color:transparent;transition:border-color .16s,background-color .16s}
+.compare-meaning.is-linked{cursor:pointer}
+.compare-meaning.is-linked:hover{border-color:var(--tint);background:var(--raised)}
 .compare-meaning .compare-block{margin-top:10px}
 .compare-meaning h4{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .compare-meaning .compare-line{border-bottom:0}
+.meaning-forms{display:flex;flex-wrap:wrap;gap:6px}
+/* Several forms on one card: the chips wrap in a row above its meanings. */
+.compare-line.is-stacked{flex-direction:column;gap:10px}
+.meaning-forms .compare-chip{min-width:4.5em;text-align:center}
+.meaning-list{margin:0;padding-left:1.4em}
+.meaning-list li+li{margin-top:4px}
+.meaning-list li::marker{color:var(--muted);font-variant-numeric:tabular-nums}
 .meaning-jump{min-height:32px;margin:-4px -6px -4px 0;padding:0;border:0;border-radius:999px;background:none}
 .meaning-jump:hover:not(:disabled){background:none}
 .meaning-jump .jump-badge{height:30px;padding:0 10px 0 12px;background:var(--accent-soft);color:var(--accent-text);font-size:13px}

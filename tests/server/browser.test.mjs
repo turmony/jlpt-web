@@ -391,6 +391,27 @@ test('a form in the usage overview jumps to its connection image, and the core m
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
+test('without a comparison every card still gets a core meaning from its functions, and it jumps back to its form',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  const file=join(tmp,'study/jlpt-notes/groups/units/B-01-1.json');
+  const material=JSON.parse(await readFile(file,'utf8'));delete material.compare;
+  await writeFile(file,JSON.stringify(material));
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page img').first().waitFor();
+  assert.equal(await page.locator('#compare').count(),0);
+  assert.equal(await page.locator('#unit-page .compare-meaning').count(),2);
+  // A card with 功能 headings lists them; one without falls back to the meaning in its title.
+  assert.deepEqual(await page.locator('#card-N5-G-0032 + .compare-meaning .compare-value li').allInnerTexts(),['对象','到达点']);
+  assert.match(await page.locator('#card-N5-G-0032 + .compare-meaning').innerText(),/核心含义[\s\S]*へ/);
+  assert.equal(await page.locator('#card-N5-G-0013 + .compare-meaning .compare-value').innerText(),'动作进行时点「に」');
+  await page.locator('#card-N5-G-0032 + .compare-meaning').getByRole('button',{name:/核心含义/}).click();
+  await page.waitForFunction(()=>Math.abs(document.querySelectorAll('#recall-list .recall-group')[1].getBoundingClientRect().top-16)<2);
+  await page.locator('#recall-list .recall-jump').first().click();
+  await page.waitForFunction(()=>Math.abs(document.getElementById('connection-N5-G-0013').getBoundingClientRect().top-16)<2);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+}));
+
 test('a unit without a sentence prompt ends with a note box only and submits without a sentence',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   const file=join(tmp,'study/jlpt-notes/groups/units/B-01-1.json');
   const material=JSON.parse(await readFile(file,'utf8'));delete material.sentence;
