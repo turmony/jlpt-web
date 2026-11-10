@@ -890,3 +890,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 安全提示：`/api/news/*` 只看 `Origin` 是否在网站表里，不要凭证（见上文「没有鉴权」）。加入 `www.asahi.com` 后，朝日页面上的任何脚本（含广告脚本）都能调用分词、分析和追问，消耗模型额度。
 
 回滚：把 `/srv/jlpt/app` 切回 `20261109-news-resumable-jobs/app`、`/srv/jlpt/static` 切回 `20261109-news-card-close/static`，`systemctl restart jlpt.service`。回滚后朝日来源被拒；已装 v4 加载器的设备在朝日页面上会显示加载失败按钮，雅虎不受影响。
+
+## 用法总览与接续图互相跳转（2026-11-10）
+
+发布目录为 `/srv/jlpt/releases/20261110-review-jump`，`/srv/jlpt/app` 与 `/srv/jlpt/static` 都已切换，`jlpt.service` 已重启（切换前确认无子进程）。网页提交 `6d3a57b`（合并 `feat/review-jump`）。上一版本为 app、static 均 `20261109-news-asahi`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 一致性备份（服务器没有 `sqlite3` 命令，用 Python `sqlite3` 的 `backup` 完成，`integrity_check` 为 ok）与 `config.json` 副本在私有 `backup/`。`/srv/jlpt/venv`、配置、服务单元、Caddyfile 均未改动。
+
+内容：`/review/` 单元页进入对比页后，“一、用法总览”里的语法形式变为按钮（带虚线下划线与 ↓），点击滚动到对比页中该形式第一张卡的接续图标题（`#connection-<卡号>`，没有标题时退回该卡的“原卡核心”折叠块）；接续图下方的“核心含义”块整块可点（标题显示“核心含义 ↑ 用法总览”），滚回用法总览中对应的形式。到达处短暂高亮，系统开启减少动画时不闪。跳转不显示已隐藏的用法。首次查看、尚未进入对比页时形式仍是纯文字。`/api/review/units/<单元>` 的 `recall.items` 每项多一个 `card` 字段。
+
+验证：`test:server` 265 项（15 项按环境条件跳过）、`test:browser` 111 项通过（新增“用法总览的形式跳到接续图，核心含义跳回”）。上线后本机与公网 `/review/` 未登录 303、`/api/review/today` 401；发布目录的 `review/review.mjs`、`review/review.css` 与源码一致；用线上代码读真实学习仓库 `B-02-1`，`recall.items` 带 `card`；`jlpt.service` 与 caddy 运行中。
+
+回滚：把 `/srv/jlpt/app` 与 `/srv/jlpt/static` 切回 `20261109-news-asahi`，`systemctl restart jlpt.service`。
