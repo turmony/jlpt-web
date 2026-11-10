@@ -910,3 +910,15 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:browser` 111 项、`test:server` 265 项（15 项按环境条件跳过）通过；iPhone 13 宽度截图检查了两端外观、长形式名换行与到达光环。上线后公网 `/review/` 未登录 303、`/api/review/today` 401，发布目录的两个文件与源码一致；页面为 `no-store`，刷新即生效。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261110-review-jump/static`，不需要重启。
+
+### 上线记录（2026-11-10，每张卡都有核心含义并可跳回）
+
+发布目录为 `/srv/jlpt/releases/20261110-review-jump-all`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261110-review-jump/app`，服务未重启）。网页提交 `bcb9bd8`（合并 `feat/review-jump-all`）。上一版本静态目录是 `20261110-review-jump-style/static`，路径在发布目录的 `previous-release.txt`；发布前 SQLite 备份（`integrity_check` ok）与 `config.json` 副本在私有 `backup/`。静态目录相对上一版只有 `review/review.mjs`、`review/review.css` 不同。
+
+问题：接续图下的“核心含义”此前只取自单元的对比表（`compare`），66 个单元里只有 17 个有对比表，356 张卡里只有 74 张有核心含义，其余卡无法从接续图跳回用法总览。（用法总览到接续图的方向原本就覆盖全部 396 个形式。）
+
+内容：每张成员卡的接续图下都显示核心含义卡片。有对比表行的卡照旧取该行；没有的取原卡核心里各“功能”标题冒号后的文字（多个功能编号列出），没有功能标题时取卡名冒号后的部分。标签为这张卡在用法总览里的全部形式，点击跳回第一个形式；一张卡多个形式时标签在含义上方排成一行。颜色：形式在对比表里时用该行颜色，否则金色。卡在用法总览里没有形式时（现有数据只有 G-015 的 N2-G-0044、N4-G-0099）只显示含义，不可点。
+
+验证：`test:browser` 112 项（新增“没有对比表时每张卡仍有核心含义并可跳回”）、`test:server` 265 项（15 项按环境条件跳过）通过。用线上代码统计真实学习仓库：356 张卡全部有功能标题，354 张可跳回。把真实单元 B-09-1 的接口数据替换进测试页面截图检查（5 张卡全部有可跳回的核心含义，含 5 个形式的 N4-G-0061 标签换行正常，无横向滚动）。上线后公网 `/review/` 未登录 303、`/api/review/today` 401，发布目录的两个文件与源码一致。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261110-review-jump-style/static`，不需要重启。
