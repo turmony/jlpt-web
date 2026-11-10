@@ -932,3 +932,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：在隔离的 CloudCLI 实例（数据库副本、临时 HOME、3011 端口，临时 Caddy 在 3012 端口按线上规则挂成 `/code/`，用测试密钥签发登录令牌）中，用 WebKit iPhone 13 / iPad Pro 11 与 Chromium 桌面截图检查：首页、打开的会话页（胶囊不压标签）、手机侧边栏打开时胶囊隐藏、关闭后恢复；点击按钮进入 `/review/`。测试实例与其数据已删除。上线后本机 3001 的 `index.html` 引用新哈希，返回的 shim 与仓库一致；公网 `/code/` 未登录 303；`cloudcli.service` 运行中，日志无错误。本站的 CloudCLI 主题固定为深色（上游 `tp()` 恒返回 `"dark"`），浅色样式只是备用。
 
 回滚：把备份目录里的 `subpath-shim.js` 复制回 `/srv/cloudcli/`，再执行 `node /srv/cloudcli/patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli`。
+
+## N5-G-0112「～からです」核心改用本课例句（2026-11-10）
+
+问题：G-020 第二个语法 N5-G-0112「～からです」的核心照录 J-nihongo「から（理由）」的例句，都是「～から、～」「～ですから」，没有一句是句末的「からです」。学习仓库提交 `ae8e404` 把核心改为出口日語例句图的 4 句（涙が出るのは玉ねぎを切ったからです 等）与板书的 2 句，补上接续和「からです／ですから」对照表，`card_revision` 升为 3；只提交了这张卡，学习仓库里其他未提交的单元文件未动。
+
+发布目录为 `/srv/jlpt/releases/20261110-n5-0112-core`，仅切换 `/srv/jlpt/static`，app 未变、服务未重启。`data/catalog.json` 用 `scripts/refresh_catalog.py` 从 `0d93492` 刷新到 `ae8e404`：599 张卡中只有 N5-G-0112 的核心变化，标题与其他核心不变；`0d93492` 以来学习仓库没有改过别的卡和图片，所以 `images/ae8e404…/` 是 `images/0d93492…/` 的硬链接副本，没有新增图片文件（图片 URL 随提交变化，手机上已缓存的图片会在查看时重新下载）。网页提交 `2f37d3f`（合并 `fix/n5-0112-core`）。`/review/` 的“原卡核心”直接读学习仓库，提交后即生效。
+
+验证：学习仓库 `validate-links`、`validate-groups` 通过，320 项测试通过（1 项跳过）；网页 265 项后端测试通过（15 项跳过）。发布目录与上一版本逐文件比对只有 `grammar/catalog.json` 不同，且与源码一致；目录引用的 1198 张图片与 `ae8e404` 中的 blob 逐一相同。线上 app 代码只读调用 `unit_view(G-020)`，返回的是新核心、旧例句已不在，前后学习仓库状态不变。公网 `/review/`、`/grammar/catalog.json` 未登录 303；没有登录会话，未在浏览器中实际打开页面。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261110-review-jump-all/static`（记录在 `previous-release.txt`），不需要重启；`/review/` 的核心需在学习仓库 `git revert ae8e404`。
