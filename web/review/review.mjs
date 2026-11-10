@@ -398,7 +398,13 @@ function renderUnit(view) {
   const root = $('unit-view');
   const scope = unit.position.slice(1).join(' › ');
   const compare = compareView(view.compare);
-  const usages = recallList(view.recall.items, session.started, session.started ? {unit: unit.id, counts: view.forgets || {}} : null);
+  // Once the comparison page is there, a form jumps to the connection image of its first card on that page.
+  const members = new Set(session.started ? view.cards.map(card => card.id) : []);
+  const jump = form => {
+    const card = view.recall.items.find(item => item.form === form && members.has(item.card))?.card;
+    return card && (() => jumpTo(document.getElementById(`connection-${card}`) || document.getElementById(`card-${card}`)));
+  };
+  const usages = recallList(view.recall.items, session.started, session.started ? {unit: unit.id, counts: view.forgets || {}} : null, jump);
   const recall = session.started
     ? [usages, compare]
     : [h('p', {className: 'muted', textContent: '先看一遍各语法形式与用法，再进入对比页。'}),
@@ -428,11 +434,13 @@ function renderUnit(view) {
     const details = h('details', {className: 'member-card', id: `card-${card.id}`},
       h('summary', {textContent: `原卡核心 · ${card.id} ${card.title}`}), markdown(labelCoreFunctions(card.core || '（原卡没有核心一节）')));
     const heading = [...page.querySelectorAll('h3')].find(node => node.querySelector(`a[href="#card-${card.id}"]`));
+    if (heading) heading.id = `connection-${card.id}`;
     let next = heading && heading.nextElementSibling;
     while (next && !/^H[1-3]$/.test(next.tagName)) next = next.nextElementSibling;
-    // Only forms that made it into the comparison table get their table meaning here too.
+    // Only forms that made it into the comparison table get their table meaning here too; it jumps back to the form.
     const row = view.compare?.forms.find(form => form.card === card.id);
-    const meaning = row && compareMeaning(row, view.compare.forms.indexOf(row));
+    const meaning = row && compareMeaning(row, view.compare.forms.indexOf(row),
+      () => jumpTo([...root.querySelectorAll('.recall-group')].find(group => group.dataset.form === row.form)));
     if (heading) heading.parentNode.insertBefore(details, next); else page.append(details);
     if (meaning) details.after(meaning);
   }
@@ -492,11 +500,21 @@ function usageSwitch(label, onToggle) {
   return {button, state};
 }
 
+// Scrolls a jump target to the top and flashes it, so the eye finds it after the move.
+function jumpTo(target) {
+  if (!target) return;
+  target.scrollIntoView({behavior: calm.matches ? 'auto' : 'smooth', block: 'start'});
+  target.classList.remove('is-jumped');
+  void target.offsetWidth;
+  target.classList.add('is-jumped');
+  target.addEventListener('animationend', () => target.classList.remove('is-jumped'), {once: true});
+}
+
 // Usage rows, grouped under their grammar form. A unit not yet started shows them (first look); once it has been
 // entered they start hidden, as bars with no text in the page, so the learner recalls each usage before checking.
-// Nothing is stored about the switches.
+// Nothing is stored about the switches. `jump(form)` gives the form's jump to its connection image, if any.
 const MASK_WIDTHS = ['86%', '58%', '72%'];
-function recallList(items, hidden, forgets) {
+function recallList(items, hidden, forgets, jump) {
   const list = h('div', {id: 'recall-list', className: 'recall-list'});
   const groups = [];
   const all = usageSwitch('全部', () => {
@@ -535,8 +553,10 @@ function recallList(items, hidden, forgets) {
     groups.push(group);
     group.set(hidden, false);
     const forget = forgets && forgetButton(forgets.unit, item.form, forgets.counts[item.form] || 0);
-    list.append(h('section', {className: 'recall-group'},
-      h('div', {className: 'recall-head'}, h('h3', {className: 'recall-form', textContent: item.form}),
+    const onJump = jump(item.form);
+    const form = onJump ? h('button', {type: 'button', className: 'recall-jump', textContent: item.form, title: '看接续图', onclick: onJump}) : item.form;
+    list.append(h('section', {className: 'recall-group', dataset: {form: item.form}},
+      h('div', {className: 'recall-head'}, h('h3', {className: 'recall-form'}, form),
         h('div', {className: 'recall-tools'}, ...(forget || []), toggle.button)), rows));
   });
   sync();
@@ -644,10 +664,12 @@ function compareCell(row, key) {
 
 const compareChip = (row, index) => h('span', {className: 'compare-chip', textContent: row.form, dataset: {tint: index % 6}});
 
-// The same 核心含义 row as in the comparison (by-item layout), for one form.
-function compareMeaning(row, index) {
-  return h('div', {className: 'compare-by-item compare-meaning'},
-    h('section', {className: 'compare-block'}, h('h4', {textContent: '核心含义'}),
+// The same 核心含义 row as in the comparison (by-item layout), for one form. A click anywhere on it calls `onJump`.
+function compareMeaning(row, index, onJump) {
+  const label = h('button', {type: 'button', className: 'meaning-jump', textContent: '核心含义', title: '回到用法总览'});
+  label.setAttribute('aria-label', `核心含义：回到用法总览的 ${row.form}`);
+  return h('div', {className: 'compare-by-item compare-meaning', onclick: onJump},
+    h('section', {className: 'compare-block'}, h('h4', {}, label),
       h('ul', {}, h('li', {className: 'compare-line'}, compareChip(row, index), h('span', {className: 'compare-value'}, compareCell(row, 'meaning'))))));
 }
 
