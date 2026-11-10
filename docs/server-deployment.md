@@ -922,3 +922,13 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:browser` 112 项（新增“没有对比表时每张卡仍有核心含义并可跳回”）、`test:server` 265 项（15 项按环境条件跳过）通过。用线上代码统计真实学习仓库：356 张卡全部有功能标题，354 张可跳回。把真实单元 B-09-1 的接口数据替换进测试页面截图检查（5 张卡全部有可跳回的核心含义，含 5 个形式的 N4-G-0061 标签换行正常，无横向滚动）。上线后公网 `/review/` 未登录 303、`/api/review/today` 401，发布目录的两个文件与源码一致。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261110-review-jump-style/static`，不需要重启。
+
+### 上线记录（2026-11-10，CloudCLI 加“学习册”入口）
+
+内容：`/code/` 的额度胶囊左边加金色“学习册”按钮（`<a href="/review/">`，书本图标与学习册站点标志相同），手机（≤767px）只显示图标：会话页的“聊天／终端／文件／git”标签从约 195px 开始，带文字时额度胶囊会压到“聊天”，只留图标后两个胶囊右缘在 171px。胶囊挂在 `body` 上，CloudCLI 外壳（`position:fixed`）里的遮罩层无论 z-index 多高都盖不住它们，所以页面上存在不带 `.invisible` 的 `.fixed.inset-0.z-50`（手机侧边栏打开、对话框）时隐藏胶囊；这也修好了原来额度胶囊压住手机侧边栏“项目”标签的问题。提交 `fb08978`（合并 `feat/cloudcli-study-link`）。
+
+发布：与前几次 shim 发布相同，只复制 `subpath-shim.js` 到 `/srv/cloudcli/` 并重新执行 `patch-subpath.mjs`，未重启 `cloudcli.service`，进行中的对话不受影响；`index.html` 只有 shim 的 `?v=` 哈希变化（`38248f9c1323`）。同时发现线上 `/srv/cloudcli/patch-subpath.mjs` 是旧版（`VERIFIED` 少 1.37.6，每次启动打印“不在已核对列表”的告警），已换成仓库版本，两者只差这一行。替换前的两个文件在 `/var/backups/cloudcli-shim-20261110T141056Z/`。
+
+验证：在隔离的 CloudCLI 实例（数据库副本、临时 HOME、3011 端口，临时 Caddy 在 3012 端口按线上规则挂成 `/code/`，用测试密钥签发登录令牌）中，用 WebKit iPhone 13 / iPad Pro 11 与 Chromium 桌面截图检查：首页、打开的会话页（胶囊不压标签）、手机侧边栏打开时胶囊隐藏、关闭后恢复；点击按钮进入 `/review/`。测试实例与其数据已删除。上线后本机 3001 的 `index.html` 引用新哈希，返回的 shim 与仓库一致；公网 `/code/` 未登录 303；`cloudcli.service` 运行中，日志无错误。本站的 CloudCLI 主题固定为深色（上游 `tp()` 恒返回 `"dark"`），浅色样式只是备用。
+
+回滚：把备份目录里的 `subpath-shim.js` 复制回 `/srv/cloudcli/`，再执行 `node /srv/cloudcli/patch-subpath.mjs /srv/cloudcli/node_modules/@cloudcli-ai/cloudcli`。
