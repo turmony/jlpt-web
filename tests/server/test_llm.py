@@ -183,6 +183,16 @@ class SlowLineAndInBandErrorTests(HubTestCase):
         ctx, got = self.run_stream(hub)
         self.assertErr(ctx, 'model', '模型排队中，请稍后重试')
 
+    def test_hub_queue_notice_is_queueing_without_waiting(self):
+        # qoder2api-hub's visible queue mode: an empty chunk carrying `qoder_queue`, then pings
+        notice = {'object': 'chat.completion.chunk', 'model': 'm',
+                  'choices': [{'index': 0, 'delta': {'content': ''}, 'finish_reason': None}],
+                  'qoder_queue': {'queued': True, 'waited_seconds': 0, 'message': '上游模型排队中'}}
+        fake, hub = self.hub([('sse', [': ping\n\n', 'data: %s\n\n' % json.dumps(notice)])])
+        ctx, got = self.run_stream(hub)
+        self.assertErr(ctx, 'model', '模型排队中，请稍后重试')
+        self.assertEqual(got, [])
+
     def test_in_band_error_mentioning_model_is_unavailable(self):
         fake, hub = self.hub([('sse', ['data: {"error":{"message":"unknown model m"}}\n\n'])])
         ctx, got = self.run_stream(hub)
