@@ -399,10 +399,14 @@ function renderUnit(view) {
   const scope = unit.position.slice(1).join(' › ');
   const compare = compareView(view.compare);
   // Once the comparison page is there, a form jumps to the connection image of its first card on that page.
+  // It wears the tint of its comparison row, the same as the core meaning under that image.
   const members = new Set(session.started ? view.cards.map(card => card.id) : []);
   const jump = form => {
     const card = view.recall.items.find(item => item.form === form && members.has(item.card))?.card;
-    return card && (() => jumpTo(document.getElementById(`connection-${card}`) || document.getElementById(`card-${card}`)));
+    if (!card) return null;
+    const row = view.compare?.forms.findIndex(row => row.form === form) ?? -1;
+    return {tint: row >= 0 ? row % 6 : null,
+      go: () => jumpTo(document.getElementById(`connection-${card}`) || document.getElementById(`card-${card}`))};
   };
   const usages = recallList(view.recall.items, session.started, session.started ? {unit: unit.id, counts: view.forgets || {}} : null, jump);
   const recall = session.started
@@ -500,6 +504,16 @@ function usageSwitch(label, onToggle) {
   return {button, state};
 }
 
+// The small label of a jump with its arrow. The word is drawn by CSS, so a form's heading text stays the form alone.
+function jumpBadge(label, direction) {
+  const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  arrow.setAttribute('viewBox', '0 0 16 16');
+  arrow.innerHTML = direction === 'up' ? '<path d="M8 12.5v-9M4 7.5l4-4 4 4"/>' : '<path d="M8 3.5v9M4 8.5l4 4 4-4"/>';
+  const badge = h('span', {className: 'jump-badge', dataset: {label}}, arrow);
+  badge.setAttribute('aria-hidden', 'true');
+  return badge;
+}
+
 // Scrolls a jump target to the top and flashes it, so the eye finds it after the move.
 function jumpTo(target) {
   if (!target) return;
@@ -512,7 +526,7 @@ function jumpTo(target) {
 
 // Usage rows, grouped under their grammar form. A unit not yet started shows them (first look); once it has been
 // entered they start hidden, as bars with no text in the page, so the learner recalls each usage before checking.
-// Nothing is stored about the switches. `jump(form)` gives the form's jump to its connection image, if any.
+// Nothing is stored about the switches. `jump(form)` gives the form's jump to its connection image ({go, tint}), if any.
 const MASK_WIDTHS = ['86%', '58%', '72%'];
 function recallList(items, hidden, forgets, jump) {
   const list = h('div', {id: 'recall-list', className: 'recall-list'});
@@ -553,8 +567,10 @@ function recallList(items, hidden, forgets, jump) {
     groups.push(group);
     group.set(hidden, false);
     const forget = forgets && forgetButton(forgets.unit, item.form, forgets.counts[item.form] || 0);
-    const onJump = jump(item.form);
-    const form = onJump ? h('button', {type: 'button', className: 'recall-jump', textContent: item.form, title: '看接续图', onclick: onJump}) : item.form;
+    const link = jump(item.form);
+    const form = link ? h('button', {type: 'button', className: 'recall-jump', title: '看接续图', onclick: link.go,
+      dataset: link.tint === null ? {} : {tint: link.tint}}, item.form, jumpBadge('接续图', 'down')) : item.form;
+    if (link) form.setAttribute('aria-label', `${item.form}：看接续图`);
     list.append(h('section', {className: 'recall-group', dataset: {form: item.form}},
       h('div', {className: 'recall-head'}, h('h3', {className: 'recall-form'}, form),
         h('div', {className: 'recall-tools'}, ...(forget || []), toggle.button)), rows));
@@ -666,10 +682,10 @@ const compareChip = (row, index) => h('span', {className: 'compare-chip', textCo
 
 // The same 核心含义 row as in the comparison (by-item layout), for one form. A click anywhere on it calls `onJump`.
 function compareMeaning(row, index, onJump) {
-  const label = h('button', {type: 'button', className: 'meaning-jump', textContent: '核心含义', title: '回到用法总览'});
-  label.setAttribute('aria-label', `核心含义：回到用法总览的 ${row.form}`);
-  return h('div', {className: 'compare-by-item compare-meaning', onclick: onJump},
-    h('section', {className: 'compare-block'}, h('h4', {}, label),
+  const back = h('button', {type: 'button', className: 'meaning-jump', title: '回到用法总览'}, jumpBadge('用法总览', 'up'));
+  back.setAttribute('aria-label', `核心含义：回到用法总览的 ${row.form}`);
+  return h('div', {className: 'compare-by-item compare-meaning', dataset: {tint: index % 6}, onclick: onJump},
+    h('section', {className: 'compare-block'}, h('h4', {}, h('span', {textContent: '核心含义'}), back),
       h('ul', {}, h('li', {className: 'compare-line'}, compareChip(row, index), h('span', {className: 'compare-value'}, compareCell(row, 'meaning'))))));
 }
 
