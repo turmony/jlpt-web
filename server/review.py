@@ -154,7 +154,9 @@ def unit_view(study_root, unit_id):
             'unit': {'id': unit.id, 'title': unit.title, 'kind': unit.kind, 'position': _position(groups, unit)},
             'session': {'started': bool(submission), 'submitted': _finished(submission),
                         'submitted_at': submission.get('submitted_at')},
-            'recall': {'items': [{'form': item['form'], 'usage': item['usage']} for item in material['recall_items']]},
+            # `card` lets each form in the overview jump to its card's connection image.
+            'recall': {'items': [{'form': item['form'], 'usage': item['usage'], 'card': item['card']}
+                                 for item in material['recall_items']]},
         }
         if 'compare' in material:
             view['compare'] = material['compare']

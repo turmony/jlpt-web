@@ -39,7 +39,8 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual(view['unit'], {'id': 'B-01-1', 'title': 'に', 'kind': 'system',
                                         'position': ['基础体系表', 'B-01 助词用法地图', 'B-01-1 に']})
         self.assertEqual(view['session'], {'started': False, 'submitted': False, 'submitted_at': None})
-        self.assertEqual(view['recall'], {'items': [{'form': 'に', 'usage': '时间点'}, {'form': 'へ', 'usage': '动作的方向'}]})
+        self.assertEqual(view['recall'], {'items': [{'form': 'に', 'usage': '时间点', 'card': 'N5-G-0013'},
+                                                    {'form': 'へ', 'usage': '动作的方向', 'card': 'N5-G-0032'}]})
         for key in ('page', 'cards', 'paper', 'sentence', 'note'):
             self.assertNotIn(key, view)
 
