@@ -251,6 +251,10 @@ class Hub:
                         continue
                     if obj.get('error'):
                         self._raise_in_band(obj['error'])
+                    if obj.get('qoder_queue'):
+                        # The hub waits out an upstream queue in-stream (60 s rounds); that never
+                        # fits the first-output deadline, so say so now instead of timing out.
+                        raise NewsError('model', R_QUEUE)
                     text, reasoning = _delta(obj)
                     if text:
                         got_text = got_output = True
