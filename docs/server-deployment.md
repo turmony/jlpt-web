@@ -942,3 +942,24 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：学习仓库 `validate-links`、`validate-groups` 通过，320 项测试通过（1 项跳过）；网页 265 项后端测试通过（15 项跳过）。发布目录与上一版本逐文件比对只有 `grammar/catalog.json` 不同，且与源码一致；目录引用的 1198 张图片与 `ae8e404` 中的 blob 逐一相同。线上 app 代码只读调用 `unit_view(G-020)`，返回的是新核心、旧例句已不在，前后学习仓库状态不变。公网 `/review/`、`/grammar/catalog.json` 未登录 303；没有登录会话，未在浏览器中实际打开页面。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261110-review-jump-all/static`（记录在 `previous-release.txt`），不需要重启；`/review/` 的核心需在学习仓库 `git revert ae8e404`。
+
+## 新闻查词排队：立即提示，网关不再替已离开的请求排队（2026-11-10）
+
+问题：16:45 起查词全部报“模型 30 秒内没有输出”。根因在上游：Qoder 对两个账号（国内 `01a0b598`、国际 `01a02960`）的所有模型都返回 `10605 / RESOURCE_LIMIT` 排队（`queueType: p4`、`retryAfterSeconds: 60`）。前一天 14:21 之后网关没有任何 chat 请求，今天第一次查词就在排队，不是我们用完了额度。放大因素有两个：(1) 上游先回 HTTP 200，再在流里发排队信封，这条路径上网关只发 `: ping`，jlpt 分不出排队和模型慢，30 秒后报超时；(2) jlpt 断开后，网关还在 sleep + 重开上游约 181 秒，每点一次重试就多挂一条排队循环（16:46 前后同时有 6 条）。
+
+**qoder2api-hub**（线上是 v1.9.2 自更新目录，不受 git 管理）：在 `/root/projects/qoder2api-hub-wt` 从 tag `v1.9.2` 建本地分支 `local/queue-client-gone`。`3d3237b` 把原先未提交、已在线上运行的心跳补丁作为基线提交，`8470140` 是本次修复：
+- 流内排队信封在 visible 模式下先发一条 `qoder_queue` 提示帧，格式与 HTTP 层排队相同；
+- 心跳或提示帧写失败（客户端已断）时立即停止等待，记一条 499，不再重开上游。
+
+新增 `tests/_test_queue_client_gone.py`（15 项）。`run_all.py` 共 141 套，并行跑有 2 套超时；这 2 套连同另外 4 套不是 GREEN 的单独跑，基线和修复后都全部通过。上线：确认线上文件与 `3d3237b` 逐字节一致后，把修复后的 `qoder_proxy.py` 复制进 `/root/projects/qoder2api-hub` 并重启 `qoder-proxy.service`（当时无进行中的请求）。原文件备份在 `/var/backups/qoder-proxy-20261110T170752Z/`。**注意：** 面板的“一键更新”会覆盖这个文件，升级后需要把这两个提交重新应用到新版本上，或确认上游已有同等修复。
+
+**jlpt-web**：`server/llm.py` 读到带 `qoder_queue` 的帧，立即报“模型排队中，请稍后重试”（stage `model`，可重试）并断开，不再等满 30 秒。网页提交 `e42f820`（合并 `fix/news-queue-notice`）。发布目录 `/srv/jlpt/releases/20261110-news-queue-notice`，app 与 static 都已切换（static 与上一版相同），`jlpt.service` 已重启，切换前确认无子进程。发布前 SQLite 备份（`integrity_check` ok）与 `config.json` 在私有 `backup/`。与上一版 app 相比，`server/` 下只有 `llm.py` 不同。
+
+验证：网页 266 项后端测试（news venv，4 项跳过）通过。上线时上游仍在排队，线上验证结果：
+- 直接请求网关，1 秒内收到 `qoder_queue` 帧；15 秒断开后，网关同一秒记“client gone … not reopening”和 499（修复前要 181 秒）。
+- 用发布目录的 `Hub` 实际请求，0.3 秒返回“模型排队中，请稍后重试”，网关 5 秒后放弃该请求。
+- 公网 `/review/` 未登录 303。
+
+上游何时解除排队不受我们控制，需要到 Qoder 后台查这两个账号的额度和优先级。
+
+回滚：jlpt 按 `previous-release.txt` 把 `/srv/jlpt/app` 切回 `20261110-review-jump/app`、`/srv/jlpt/static` 切回 `20261110-n5-0112-core/static`，再重启服务。网关把备份的 `qoder_proxy.py` 复制回 `/root/projects/qoder2api-hub/`，再重启 `qoder-proxy.service`。
