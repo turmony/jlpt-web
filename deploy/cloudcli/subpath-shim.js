@@ -110,7 +110,8 @@
     }
   }
 
-  // Subscription quota pill (5-hour and weekly windows) from quota.py.
+  // A link back to the JLPT study site (its home is /review/), then the subscription quota pill
+  // (5-hour and weekly windows) from quota.py.
   // Also turns off upstream's content-visibility on transcript rows: WebKit lays an
   // off-screen row out at its 180/240px estimate and then at its real height without
   // correcting the scroll position, so on iPhone/iPad the transcript jumps by up to
@@ -120,7 +121,14 @@
   const style = document.createElement('style');
   style.textContent = `
     .chat-messages-pane .chat-message { content-visibility: visible; }
-    .cc-quota { position: fixed; z-index: 60; top: calc(env(safe-area-inset-top) + 66px); right: 16px; font: 500 12px/1 system-ui, sans-serif; }
+    .cc-quota { position: fixed; z-index: 60; top: calc(env(safe-area-inset-top) + 66px); right: 16px; display: flex; gap: 6px; font: 500 12px/1 system-ui, sans-serif; }
+    .cc-quota .cc-study { display: flex; gap: 5px; align-items: center; min-height: 28px; padding: 0 11px 0 9px; color: #92400e; background: rgba(255,251,235,.94); border: 1px solid #fcd34d; border-radius: 999px; box-shadow: 0 1px 3px rgba(0,0,0,.08); text-decoration: none; -webkit-tap-highlight-color: transparent; transition: background-color .15s, border-color .15s; }
+    .cc-quota .cc-study:hover { background: #fef3c7; border-color: #f59e0b; }
+    .cc-quota .cc-study:active { transform: scale(.96); }
+    .cc-quota .cc-study:focus-visible { outline: 2px solid #f59e0b; outline-offset: 2px; }
+    .cc-quota .cc-study svg { width: 13px; height: 15px; flex-shrink: 0; }
+    .dark .cc-quota .cc-study { color: #f3c869; background: rgba(39,39,42,.94); border-color: rgba(237,180,65,.55); }
+    .dark .cc-quota .cc-study:hover { background: rgba(237,180,65,.16); border-color: #edb441; }
     .cc-quota button { display: flex; gap: 6px; align-items: center; min-height: 28px; padding: 0 10px; color: #3f3f46; background: rgba(255,255,255,.92); border: 1px solid #e4e4e7; border-radius: 999px; box-shadow: 0 1px 3px rgba(0,0,0,.08); cursor: pointer; font: inherit; }
     .cc-quota [data-level="warn"] { color: #b45309; }
     .cc-quota [data-level="high"] { color: #dc2626; }
@@ -129,6 +137,12 @@
     .dark .cc-quota [data-level="warn"] { color: #fbbf24; }
     .dark .cc-quota [data-level="high"] { color: #f87171; }
     @media (max-width: 767px) { .cc-quota { top: calc(env(safe-area-inset-top) + 58px); right: auto; left: 12px; } .cc-quota .cc-quota-panel { right: auto; left: 0; } }
+    /* On a phone the pills share a row with the session tabs (聊天, terminal, files, git) that start near x=195,
+       so the study link shrinks to its book icon. */
+    @media (max-width: 767px) { .cc-quota .cc-study { padding: 0 10px; } .cc-quota .cc-study span { display: none; } }
+    /* The pills live outside the app's shell, so its overlays (the phone sidebar, dialogs) cannot cover them;
+       step aside while one is open. The closed phone sidebar stays mounted with .invisible. */
+    body:has(.fixed.inset-0.z-50:not(.invisible)) .cc-quota { visibility: hidden; }
     .cc-kbdebug { position: fixed; z-index: 70; top: calc(var(--cc-vv-top, 0px) + 4px); left: 4px; right: 4px; max-height: 45vh; overflow: hidden; margin: 0; padding: 6px 8px; color: #fff; background: rgba(0,0,0,.72); border-radius: 6px; font: 10px/1.4 ui-monospace, monospace; white-space: pre-wrap; pointer-events: none; }
   ` + (kbfix && vv ? `
     .fixed.inset-0[style*="keyboard-height"] { top: var(--cc-vv-top, 0px) !important; bottom: auto !important; height: var(--cc-vv-height, 100%) !important; }
@@ -136,8 +150,9 @@
   ` : '');
   const root = document.createElement('div');
   root.className = 'cc-quota';
-  root.innerHTML = '<button type="button" aria-expanded="false" title="Claude 订阅额度">额度 …</button><div class="cc-quota-panel" hidden></div>';
-  const [pill, panel] = root.children;
+  root.innerHTML = '<a class="cc-study" href="/review/" title="打开 JLPT 学习册（今日安排）" aria-label="学习册"><svg viewBox="0 0 28 32" fill="none" aria-hidden="true"><path d="M5 3h18v25H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Zm2 0v21m-4 0h20M12 9h6m-6 5h6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>学习册</span></a>'
+    + '<button type="button" aria-expanded="false" title="Claude 订阅额度">额度 …</button><div class="cc-quota-panel" hidden></div>';
+  const [, pill, panel] = root.children;
   pill.addEventListener('click', () => {
     panel.hidden = !panel.hidden;
     pill.setAttribute('aria-expanded', String(!panel.hidden));
