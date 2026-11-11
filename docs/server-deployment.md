@@ -985,3 +985,15 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:browser` 28 项（新增“两张带标题的对比表各自显示、颜色跨表连续”）与 `test:server` 通过；学习仓库 325 项测试（1 项跳过）、`validate-groups`、`validate-links`、`validate-doc-links` 通过。线上 app 代码只读调用 `unit_view(G-022)`，返回新标题与两张表。用 G-022 的真实对比表数据替换进测试页面截图，手机与宽屏都无横向滚动。公网 `/review/` 未登录 303、`/api/review/today` 401。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261110-news-queue-notice/static`（记录在发布目录的 `previous-release.txt`），不需要重启；同时须把学习仓库 G-022 的 `compare` 改回单表（或 `git revert 8f4e6cf`），否则旧网页打不开该单元。
+
+## 用法总览开头的说明（2026-11-11）
+
+问题：学习者要求 G-022 两组（既然组／正因为组）的核心差异不写在单元标题里，改写在“用法总览”开头。
+
+内容：学习仓库单元材料新增可选 `overview_note`（1–200 字，学习仓库 `b071904`，规则见设计文档 5.4.1a）；`server/review.py:unit_view` 有此字段时原样返回，`review.mjs` 在“一、用法总览”标题下、范围行之前显示，进入对比页前后都在。G-022 标题改回「既然～就・正因为～：…」。网页提交 `1ef71b4`（合并 `3d588d6`）。
+
+发布目录 `/srv/jlpt/releases/20261111-overview-note`，app 与 static 都已切换并重启 `jlpt.service`（切换前服务无子进程）。相对上一版 app 只有 `server/review.py`、`web/review/*` 与测试、文档不同；静态目录只有 `review/review.mjs`、`review/review.css` 不同，均与源码一致。发布前 SQLite 备份（`integrity_check` ok）与 `config.json` 副本在私有 `backup/`。
+
+验证：`test:server` 267 项（15 项跳过）、`test:browser` 29 项（新增“用法总览开头显示说明”）通过；学习仓库 329 项测试（1 项跳过）与 `validate-groups`、`validate-links` 通过。线上 app 代码只读调用 `unit_view(G-022)`，返回新标题、说明与两张表。公网 `/review/` 未登录 303、`/api/review/today` 401。
+
+回滚：按 `previous-release.txt` 把 `/srv/jlpt/app` 切回 `20261110-news-queue-notice/app`、`/srv/jlpt/static` 切回 `20261111-compare-tables/static`，再重启服务；旧版会忽略 `overview_note`，不需要改学习仓库。
