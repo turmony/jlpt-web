@@ -44,6 +44,13 @@ class ReviewModuleTests(unittest.TestCase):
         for key in ('page', 'cards', 'paper', 'sentence', 'note'):
             self.assertNotIn(key, view)
 
+    def test_unit_view_returns_overview_note_only_when_the_unit_has_one(self):
+        self.assertNotIn('overview_note', review.unit_view(self.study, 'B-01-1'))
+        prepare_unit(self.notes, 'B-01-1')
+        path = self.notes / 'groups/units/B-01-1.json'
+        path.write_text(json.dumps({**json.loads(path.read_text()), 'overview_note': '两组的差异在后项。'}, ensure_ascii=False))
+        self.assertEqual(review.unit_view(self.study, 'B-01-1')['overview_note'], '两组的差异在后项。')
+
     def test_unit_view_returns_compare_only_when_the_unit_has_one(self):
         self.assertNotIn('compare', review.unit_view(self.study, 'B-01-1'))
         prepare_unit(self.notes, 'B-01-1', compare=COMPARE)

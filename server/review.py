@@ -158,6 +158,8 @@ def unit_view(study_root, unit_id):
             'recall': {'items': [{'form': item['form'], 'usage': item['usage'], 'card': item['card']}
                                  for item in material['recall_items']]},
         }
+        if 'overview_note' in material:
+            view['overview_note'] = material['overview_note']
         if 'compare' in material:
             view['compare'] = material['compare']
         if not submission:

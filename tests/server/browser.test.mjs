@@ -391,6 +391,19 @@ test('a form in the usage overview jumps to its connection image, and the core m
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
+test('a unit\'s overview note heads the usage overview, before and after entering',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  const file=join(tmp,'study/jlpt-notes/groups/units/B-01-1.json');
+  await writeFile(file,JSON.stringify({...JSON.parse(await readFile(file,'utf8')),overview_note:'两组的差异在后项。'}));
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
+  const note=page.locator('#unit-view .step').first().locator('h2 + .overview-note');
+  assert.equal(await note.innerText(),'两组的差异在后项。');
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page img').first().waitFor();
+  assert.equal(await note.innerText(),'两组的差异在后项。');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+}));
+
 test('a unit with two titled comparison tables shows each under its title, with tints running on across them',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   const file=join(tmp,'study/jlpt-notes/groups/units/B-01-1.json');
   const material=JSON.parse(await readFile(file,'utf8'));
