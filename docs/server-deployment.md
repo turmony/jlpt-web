@@ -971,3 +971,17 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 安装没有走面板的“一键更新”，以免先跑一段未打补丁的版本。做法是把补丁分支 `git archive` 出来，用 `qoder_updater` 自己的 `_verify_release`（ok）和 `plan_update`（229 个文件，其中 4 个新文件）选出要替换的文件，按更新器的格式备份到 `backups/update-1.9.2-20261110-171336/`，再复制并重启。线上 `qoder_proxy.py` 与分支一致；`/health` 显示 1.9.6，2 个账号就绪；面板 200，`/v1/models` 200。上游仍在排队，用 jlpt 的 `Hub` 实际请求，0.7 秒得到“模型排队中，请稍后重试”，网关约 5 秒后记“client gone … not reopening”和 499。
 
 回滚：把 `backups/update-1.9.2-20261110-171336/` 里的文件复制回 `/root/projects/qoder2api-hub/`，再重启 `qoder-proxy.service`。这样回到打过补丁的 v1.9.2。
+
+## 对比表可分多张（2026-11-11）
+
+问题：G-022 的六个语法分属两组（既然组からには・以上は・うえは，后项说该怎么做；正因为组ことだから・だけに・とあって，后项说果然怎样），学习者要求每组单独一张对比表，原先单元只能有一张。
+
+内容：学习仓库的 `compare` 可写成多张带 `title` 的表（学习仓库 `8f4e6cf`，校验在 `groups._compare`，规则见设计文档 5.4.2）。网页在“对比表”标题下按顺序逐张显示：小标题、情境、各自的“按项目比／按语法看”切换和宽屏表格；颜色标签跨表连续编号，接续图下“核心含义”的颜色与查找也跨表。只有一张表（对象）的旧数据照旧显示。网页提交 `5692b73`（合并 `9f19669`）。
+
+注意：线上服务直接读 `/root/projects/jlpt-study`，学习仓库改成列表的单元在旧版 `review.mjs` 下整页出错，所以两边要一起上线。
+
+发布目录 `/srv/jlpt/releases/20261111-compare-tables`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261110-news-queue-notice/app`，服务未重启），静态目录相对上一版只有 `review/review.mjs`、`review/review.css` 不同，且与源码一致。
+
+验证：`test:browser` 28 项（新增“两张带标题的对比表各自显示、颜色跨表连续”）与 `test:server` 通过；学习仓库 325 项测试（1 项跳过）、`validate-groups`、`validate-links`、`validate-doc-links` 通过。线上 app 代码只读调用 `unit_view(G-022)`，返回新标题与两张表。用 G-022 的真实对比表数据替换进测试页面截图，手机与宽屏都无横向滚动。公网 `/review/` 未登录 303、`/api/review/today` 401。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261110-news-queue-notice/static`（记录在发布目录的 `previous-release.txt`），不需要重启；同时须把学习仓库 G-022 的 `compare` 改回单表（或 `git revert 8f4e6cf`），否则旧网页打不开该单元。
