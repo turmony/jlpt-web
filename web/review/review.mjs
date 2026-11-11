@@ -442,7 +442,7 @@ function renderUnit(view) {
     while (next && !/^H[1-3]$/.test(next.tagName)) next = next.nextElementSibling;
     // Every member shows its core meaning here: its comparison row when it has one, else the 功能 headings of its core.
     // It jumps back to the card's (first) form in the overview.
-    const row = view.compare?.forms.find(form => form.card === card.id);
+    const row = compareRows(view.compare).find(form => form.card === card.id);
     const forms = row ? [row.form] : [...new Set(view.recall.items.filter(item => item.card === card.id).map(item => item.form))];
     const group = [...root.querySelectorAll('.recall-group')].find(group => group.dataset.form === forms[0]);
     const meaning = coreMeaning(forms, row ? [row.meaning] : cardMeanings(card), form => compareTint(view.compare, form),
@@ -682,9 +682,13 @@ function compareCell(row, key) {
 
 const compareChip = (row, index) => h('span', {className: 'compare-chip', textContent: row.form, dataset: {tint: index % 6}});
 
+// `compare` is one table, or a list of titled tables; tints run on across the tables, so no two rows share one early.
+const compareTables = compare => !compare ? [] : Array.isArray(compare) ? compare : [compare];
+const compareRows = compare => compareTables(compare).flatMap(table => table.forms);
+
 // The tint of a form's comparison row, or null when the form is not in the comparison (it then shows in gold).
 function compareTint(compare, form) {
-  const index = compare?.forms.findIndex(row => row.form === form) ?? -1;
+  const index = compareRows(compare).findIndex(row => row.form === form);
   return index >= 0 ? index % 6 : null;
 }
 
@@ -716,14 +720,26 @@ function coreMeaning(forms, meanings, tintOf, onJump) {
 }
 
 function compareView(compare) {
-  if (!compare) return null;
+  const tables = compareTables(compare);
+  if (!tables.length) return null;
+  let offset = 0;
+  const parts = tables.flatMap(table => {
+    const part = compareTable(table, offset);
+    offset += table.forms.length;
+    return table.title ? [h('h4', {className: 'compare-subtitle', textContent: table.title}), ...part] : part;
+  });
+  return h('section', {id: 'compare', className: 'compare'}, h('h3', {className: 'compare-title', textContent: '对比表'}), ...parts);
+}
+
+// One table: its scene, the two phone layouts with their switch, and the wide table. `offset` starts its tints.
+function compareTable(compare, offset) {
   const {forms} = compare;
-  const chip = compareChip;
+  const chip = (row, index) => compareChip(row, offset + index);
   const byItem = h('div', {className: 'compare-stack compare-by-item'}, ...COMPARE_ITEMS.map(([key, label]) =>
     h('section', {className: 'compare-block'}, h('h4', {textContent: label}),
       h('ul', {}, ...forms.map((row, index) => h('li', {className: 'compare-line'}, chip(row, index), h('span', {className: 'compare-value'}, compareCell(row, key))))))));
   const byForm = h('div', {className: 'compare-stack compare-by-form', hidden: true}, ...forms.map((row, index) =>
-    h('section', {className: 'compare-block', dataset: {tint: index % 6}}, h('h4', {}, chip(row, index)),
+    h('section', {className: 'compare-block', dataset: {tint: (offset + index) % 6}}, h('h4', {}, chip(row, index)),
       h('dl', {}, ...COMPARE_ITEMS.flatMap(([key, label]) => [h('dt', {textContent: label}), h('dd', {}, compareCell(row, key))])))));
   const table = h('table', {className: 'compare-table'},
     h('thead', {}, h('tr', {}, h('th', {scope: 'col', textContent: '项目'}), ...forms.map((row, index) => h('th', {scope: 'col'}, chip(row, index))))),
@@ -737,10 +753,8 @@ function compareView(compare) {
   });
   buttons.forEach((button, index) => button.addEventListener('click', () => choose(modes[index][0])));
   choose('item');
-  return h('section', {id: 'compare', className: 'compare'},
-    h('h3', {className: 'compare-title', textContent: '对比表'}),
-    h('p', {className: 'muted', textContent: `情境：${compare.scene}`}),
-    h('div', {className: 'compare-modes'}, ...buttons), byItem, byForm, h('div', {className: 'compare-wide'}, table));
+  return [h('p', {className: 'muted', textContent: `情境：${compare.scene}`}),
+    h('div', {className: 'compare-modes'}, ...buttons), byItem, byForm, h('div', {className: 'compare-wide'}, table)];
 }
 
 async function startUnit(id, button) {

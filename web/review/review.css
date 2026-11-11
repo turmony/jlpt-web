@@ -163,6 +163,8 @@
 .recall-text{flex:1;min-width:0;overflow-wrap:anywhere}
 .compare{margin:28px 0 0}
 .compare-title{margin:0 0 4px;font-size:18px}
+.compare-subtitle{margin:22px 0 2px;font-size:16px;color:var(--ink)}
+.compare-title + .compare-subtitle{margin-top:10px}
 .compare-modes{display:flex;gap:8px;margin:10px 0 4px}
 .compare-mode{flex:1;min-height:44px;border:1px solid var(--control-line);border-radius:var(--radius-small);background:var(--surface);color:var(--muted);font:inherit}
 .compare-mode[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-text);font-weight:600}

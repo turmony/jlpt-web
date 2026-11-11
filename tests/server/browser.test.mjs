@@ -391,6 +391,33 @@ test('a form in the usage overview jumps to its connection image, and the core m
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
 }));
 
+test('a unit with two titled comparison tables shows each under its title, with tints running on across them',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  const file=join(tmp,'study/jlpt-notes/groups/units/B-01-1.json');
+  const material=JSON.parse(await readFile(file,'utf8'));
+  // Each table needs two rows; the rows of cards outside the unit only fill them up.
+  const [at,to]=material.compare.forms;
+  const filler=(card,form)=>({...at,card,form,example:{...at.example,ja:`三時${form}。`,target:form}});
+  material.compare=[{title:'时间',scene:'约定见面',forms:[at,filler('N5-G-0040','まで')]},
+    {title:'方向',scene:'出门',forms:[to,filler('N5-G-0041','から')]}];
+  await writeFile(file,JSON.stringify(material));
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
+  await page.locator('#compare').waitFor();
+  assert.equal(await page.locator('#compare .compare-title').count(),1);
+  assert.deepEqual(await page.locator('#compare .compare-subtitle').allInnerTexts(),['时间','方向']);
+  assert.match(await page.locator('#compare').innerText(),/时间[\s\S]*情境：约定见面[\s\S]*方向[\s\S]*情境：出门/);
+  assert.equal(await page.getByRole('button',{name:'按语法看'}).count(),2);
+  assert.deepEqual(await page.locator('.compare-by-item .compare-block:first-child .compare-chip').evaluateAll(chips=>chips.map(chip=>chip.dataset.tint)),['0','1','2','3']);
+  // Switching one table leaves the other as it was.
+  await page.getByRole('button',{name:'按语法看'}).nth(1).click();
+  assert.deepEqual(await page.locator('.compare-by-item').evaluateAll(views=>views.map(view=>view.hidden)),[false,true]);
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page img').first().waitFor();
+  assert.equal(await page.locator('#card-N5-G-0032 + .compare-meaning').getAttribute('data-tint'),'2');
+  assert.equal(await page.locator('#card-N5-G-0032 + .compare-meaning .compare-value').innerText(),'方向');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+}));
+
 test('without a comparison every card still gets a core meaning from its functions, and it jumps back to its form',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   const file=join(tmp,'study/jlpt-notes/groups/units/B-01-1.json');
   const material=JSON.parse(await readFile(file,'utf8'));delete material.compare;
