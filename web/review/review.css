@@ -162,6 +162,7 @@
 .recall-row::marker{color:var(--muted);font-variant-numeric:tabular-nums}
 .recall-text{flex:1;min-width:0;overflow-wrap:anywhere}
 .compare{margin:28px 0 0}
+.overview-note{margin:0 0 12px;padding:10px 14px;border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:var(--radius-small);background:var(--surface);line-height:1.7}
 .compare-title{margin:0 0 4px;font-size:18px}
 .compare-subtitle{margin:22px 0 2px;font-size:16px;color:var(--ink)}
 .compare-title + .compare-subtitle{margin-top:10px}

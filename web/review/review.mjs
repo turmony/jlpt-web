@@ -420,6 +420,7 @@ function renderUnit(view) {
     h('h1', {id: 'unit-title', className: 'paper-title', textContent: `${unit.id} ${unit.title}`}),
     h('p', {className: 'muted', textContent: unit.position.join(' › ')}),
     h('section', {className: 'step'}, h('h2', {textContent: '一、用法总览'}),
+      view.overview_note ? h('p', {className: 'overview-note', textContent: view.overview_note}) : null,
       h('p', {textContent: `范围：${scope}（共 ${view.recall.items.length} 项）`}), ...recall));
   if (!session.started) { root.append(pager('unit', unit.id)); return; }
 
