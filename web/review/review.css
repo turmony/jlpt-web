@@ -183,10 +183,6 @@
 .compare-by-form dl{margin:0}
 .compare-by-form dt{margin:10px 0 2px;font-size:13px;color:var(--muted)}
 .compare-by-form dd{margin:0;overflow-wrap:anywhere}
-.compare-example{display:block}
-.compare-ja{display:block}
-.compare-ja strong{color:var(--accent-text);font-weight:700}
-.compare-zh{display:block;margin-top:2px;font-size:14px;color:var(--muted)}
 .compare-wide{display:none}
 @media (min-width:720px){
   .compare-modes,.compare-stack{display:none}
