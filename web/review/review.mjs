@@ -669,17 +669,9 @@ function forgetButton(unitId, form, initial) {
 }
 
 // The optional comparison of look-alike forms: stacked by item or by form on a phone, a real table when wide.
-const COMPARE_ITEMS = [['connection', '接续'], ['memo', '一句话记忆'], ['meaning', '核心含义'],
-  ['tone', '语气与感情色彩'], ['example', '代表例句']];
+const COMPARE_ITEMS = [['connection', '接续'], ['meaning', '核心含义'], ['tone', '语气与感情色彩']];
 
-function compareCell(row, key) {
-  if (key !== 'example') return document.createTextNode(row[key]);
-  const {ja, target, zh} = row.example;
-  const at = ja.indexOf(target);
-  return h('span', {className: 'compare-example'},
-    h('span', {className: 'compare-ja'}, ja.slice(0, at), h('strong', {textContent: target}), ja.slice(at + target.length)),
-    h('span', {className: 'compare-zh', textContent: zh}));
-}
+const compareCell = (row, key) => document.createTextNode(row[key]);
 
 const compareChip = (row, index) => h('span', {className: 'compare-chip', textContent: row.form, dataset: {tint: index % 6}});
 
@@ -732,7 +724,7 @@ function compareView(compare) {
   return h('section', {id: 'compare', className: 'compare'}, h('h3', {className: 'compare-title', textContent: '对比表'}), ...parts);
 }
 
-// One table: its scene, the two phone layouts with their switch, and the wide table. `offset` starts its tints.
+// One table: the two phone layouts with their switch, and the wide table. `offset` starts its tints.
 function compareTable(compare, offset) {
   const {forms} = compare;
   const chip = (row, index) => compareChip(row, offset + index);
@@ -754,8 +746,7 @@ function compareTable(compare, offset) {
   });
   buttons.forEach((button, index) => button.addEventListener('click', () => choose(modes[index][0])));
   choose('item');
-  return [h('p', {className: 'muted', textContent: `情境：${compare.scene}`}),
-    h('div', {className: 'compare-modes'}, ...buttons), byItem, byForm, h('div', {className: 'compare-wide'}, table)];
+  return [h('div', {className: 'compare-modes'}, ...buttons), byItem, byForm, h('div', {className: 'compare-wide'}, table)];
 }
 
 async function startUnit(id, button) {

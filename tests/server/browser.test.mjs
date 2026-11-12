@@ -303,10 +303,10 @@ test('the comparison stacks by item on a phone, switches to per-form cards and h
   await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#compare').waitFor();
   assert.equal(await page.locator('.compare-title').innerText(),'对比表');
-  assert.match(await page.locator('#compare').innerText(),/情境：约定见面/);
-  assert.deepEqual(await page.locator('.compare-by-item .compare-block h4').allInnerTexts(),['接续','一句话记忆','核心含义','语气与感情色彩','代表例句']);
+  assert.doesNotMatch(await page.locator('#compare').innerText(),/情境|一句话记忆|代表例句/);
+  assert.deepEqual(await page.locator('.compare-by-item .compare-block h4').allInnerTexts(),['接续','核心含义','语气与感情色彩']);
   assert.equal(await page.locator('.compare-by-item .compare-block').first().locator('.compare-line').count(),2);
-  assert.equal(await page.locator('.compare-by-item .compare-ja strong').first().innerText(),'に');
+  assert.equal(await page.locator('.compare-by-item .compare-block').first().locator('.compare-value').first().innerText(),'时间词＋に');
   assert.equal(await page.locator('.compare-by-form').isVisible(),false);
   assert.equal(await page.locator('.compare-table').isVisible(),false);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
@@ -325,7 +325,7 @@ test('the comparison is a real table on a wide screen',()=>withSite(chromium,{vi
   assert.equal(await page.locator('.compare-by-item').isVisible(),false);
   assert.equal(await page.locator('.compare-mode').first().isVisible(),false);
   assert.deepEqual(await page.locator('.compare-table thead th').allInnerTexts(),['项目','に','へ']);
-  assert.equal(await page.locator('.compare-table tbody tr').count(),5);
+  assert.equal(await page.locator('.compare-table tbody tr').count(),3);
 }));
 
 for(const [name,engine] of Object.entries({chromium,webkit})) {
@@ -409,16 +409,15 @@ test('a unit with two titled comparison tables shows each under its title, with 
   const material=JSON.parse(await readFile(file,'utf8'));
   // Each table needs two rows; the rows of cards outside the unit only fill them up.
   const [at,to]=material.compare.forms;
-  const filler=(card,form)=>({...at,card,form,example:{...at.example,ja:`三時${form}。`,target:form}});
-  material.compare=[{title:'时间',scene:'约定见面',forms:[at,filler('N5-G-0040','まで')]},
-    {title:'方向',scene:'出门',forms:[to,filler('N5-G-0041','から')]}];
+  const filler=(card,form)=>({...at,card,form});
+  material.compare=[{title:'时间',forms:[at,filler('N5-G-0040','まで')]},{title:'方向',forms:[to,filler('N5-G-0041','から')]}];
   await writeFile(file,JSON.stringify(material));
   await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
   await page.locator('#status').getByRole('button',{name:'开始'}).click();
   await page.locator('#compare').waitFor();
   assert.equal(await page.locator('#compare .compare-title').count(),1);
   assert.deepEqual(await page.locator('#compare .compare-subtitle').allInnerTexts(),['时间','方向']);
-  assert.match(await page.locator('#compare').innerText(),/时间[\s\S]*情境：约定见面[\s\S]*方向[\s\S]*情境：出门/);
+  assert.doesNotMatch(await page.locator('#compare').innerText(),/情境/);
   assert.equal(await page.getByRole('button',{name:'按语法看'}).count(),2);
   assert.deepEqual(await page.locator('.compare-by-item .compare-block:first-child .compare-chip').evaluateAll(chips=>chips.map(chip=>chip.dataset.tint)),['0','1','2','3']);
   // Switching one table leaves the other as it was.
