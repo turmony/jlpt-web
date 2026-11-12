@@ -997,3 +997,17 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 267 项（15 项跳过）、`test:browser` 29 项（新增“用法总览开头显示说明”）通过；学习仓库 329 项测试（1 项跳过）与 `validate-groups`、`validate-links` 通过。线上 app 代码只读调用 `unit_view(G-022)`，返回新标题、说明与两张表。公网 `/review/` 未登录 303、`/api/review/today` 401。
 
 回滚：按 `previous-release.txt` 把 `/srv/jlpt/app` 切回 `20261110-news-queue-notice/app`、`/srv/jlpt/static` 切回 `20261111-compare-tables/static`，再重启服务；旧版会忽略 `overview_note`，不需要改学习仓库。
+
+## 对比表只保留三项（2026-11-12）
+
+问题：学习者决定取消对比表中的“一句话记忆”“代表例句”与表头的“情境：…”一行。
+
+内容：网页对比表固定接续、核心含义、语气与感情色彩三项（“按项目比”“按语法看”与宽屏表格同步），删去例句渲染与 `.compare-example` 等样式，不再显示 `scene`。学习仓库同步：`groups._compare` 只接受 `forms`（多表另加 `title`）与每行 `card`、`form`、`connection`、`meaning`、`tone`，22 个已有单元（G-001～G-015、G-018～G-024）删去 `memo`、`example`、`scene`，规则见设计文档 5.4.2。网页提交 `dbae8bb`（合并 `745e77b`）。
+
+注意：线上服务用学习仓库 `src/jlpt_notes/groups.py` 校验单元材料，而旧版 `review.mjs` 遇到没有 `example` 的行会出错，所以先切网页、再改学习仓库的校验与数据；新版网页对带旧字段的数据也能正常显示。
+
+发布目录 `/srv/jlpt/releases/20261112-compare-three-items`，只切换了 `/srv/jlpt/static`（`/srv/jlpt/app` 仍是 `20261111-overview-note/app`，服务未重启），静态目录相对上一版只有 `review/review.mjs`、`review/review.css` 不同，且与构建产物一致。
+
+验证：`test:server` 267 项（15 项跳过）、`test:browser` 114 项中 113 项通过，唯一失败的宽屏表格用例只因仍期望 5 行，改为 3 行后单独重跑对比表相关 4 项通过（`JLPT_STUDY_ROOT` 指向已改校验的学习仓库副本；先 `npm run build`，浏览器测试读 `server-public/`）；学习仓库 326 项测试（1 项跳过）、`validate-groups`、`validate-links` 通过。线上 app 代码只读调用 `unit_view`（G-001、G-022、G-024），每行只含 `card`、`form`、`connection`、`meaning`、`tone`。
+
+回滚：把 `/srv/jlpt/static` 切回 `20261111-overview-note/static`（见 `previous-release.txt`），不需要重启；同时须恢复学习仓库的校验与 22 个单元的旧字段（还原对应提交），否则旧网页打不开带对比表的单元。
