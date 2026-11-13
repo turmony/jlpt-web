@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import threading
+import traceback
 import uuid
 from collections import Counter
 from contextlib import contextmanager
@@ -146,7 +147,8 @@ def _with_titles(study_root, state):
 def _rewrite_records(study_root):
     """Rebuild `groups/review-records.json` after a raw review write; `None`, or why it failed.
 
-    The raw write already stands and is never undone: a failure is only reported back as `records_error`.
+    The raw write already stands and is never undone, so any failure here is only reported back as
+    `records_error`: an error answer would make the learner repeat an action that was in fact recorded.
     """
     try:
         spaced = load_spaced(study_root)
@@ -154,13 +156,17 @@ def _rewrite_records(study_root):
         return str(error)
     try:
         spaced.write_records(_notes(study_root))
-    except (spaced.SpacedError, OSError) as error:
+    except spaced.SpacedError as error:
         return str(error)
+    except Exception as error:
+        sys.stderr.write('review records rewrite failed:\n' + traceback.format_exc())
+        sys.stderr.flush()
+        return f'{type(error).__name__}: {error}'
     return None
 
 
 def _with_records_error(result, error):
-    return {**result, 'records_error': error} if error else result
+    return {**result, 'records_error': error} if error is not None else result
 
 
 def _prepared_unit(groups, notes, unit_id):

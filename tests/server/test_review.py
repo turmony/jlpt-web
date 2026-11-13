@@ -1,3 +1,4 @@
+import io
 import json
 import tempfile
 import threading
@@ -244,6 +245,24 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual(undone['count'], 0)
         self.assertIn('groups/review-records.json', undone['records_error'])
         self.assertEqual(json.loads((self.notes / 'groups/forgets.json').read_text())['events'], [])
+
+    def test_any_unexpected_records_failure_is_only_a_records_error(self):
+        _, yesterday = self.days()
+        learn_group_unit(self.study, 'G-009', yesterday)
+        spaced = review.load_spaced(self.study)
+        with mock.patch.object(spaced, 'write_records', side_effect=KeyError('G-009')), \
+                mock.patch('sys.stderr', new_callable=io.StringIO) as log:
+            made = review.forget(self.study, 'G-009', 'に')
+            self.assertEqual((set(made), made['count']), ({'event', 'count', 'records_error'}, 1))
+            self.assertTrue(made['records_error'].startswith('KeyError'), made['records_error'])
+            self.assertEqual([event['id'] for event in json.loads((self.notes / 'groups/forgets.json').read_text())['events']],
+                             [made['event']])
+            undone = review.undo_forget(self.study, 'G-009', made['event'])
+            self.assertEqual((undone['count'], undone['records_error'][:8]), (0, 'KeyError'))
+            state = review.submit_spaced(self.study, ['G-009'])
+            self.assertEqual((state['done_today'], state['records_error'][:8]), (['G-009'], 'KeyError'))
+        self.assertIn('Traceback', log.getvalue())
+        self.assertIn("KeyError: 'G-009'", log.getvalue())
 
     def test_forget_without_the_spaced_module_still_records_the_forget(self):
         review.recall(self.study, 'B-01-1')
