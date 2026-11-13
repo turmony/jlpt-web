@@ -6,13 +6,14 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
 from server import review
 from server.app import Application, create_server
 from server.auth import Auth
 from server.store import Conflict
-from tests.server.review_fixture import (COMPARE, finish_unit, make_study, paper_slug, prepare_review, prepare_unit,
-                                         write_json)
+from tests.server.review_fixture import (COMPARE, finish_unit, learn_group_unit, make_study, paper_slug, prepare_review,
+                                         prepare_unit, write_json)
 
 UNIT_PAPER = '2026-10-17-b-01-1'
 
@@ -119,27 +120,30 @@ class ReviewModuleTests(unittest.TestCase):
         with self.assertRaisesRegex(review.StudyDataError, 'groups/submissions/r1/B-01-1.json'):
             review.unit_view(self.study, 'B-01-1')
 
-    def plan_spaced(self, anchors, done=None):
-        """Write the plan file; every anchored unit counts as submitted the day before its first review."""
-        write_json(self.notes / 'groups/spaced-reviews.json', {'schema_version': 1, 'anchors': anchors, 'done': done or []})
-        for unit, anchor in anchors.items():
-            day = datetime.fromisoformat(anchor) - timedelta(days=1)
-            write_json(self.notes / 'groups/submissions/r1' / f'{unit}.json',
-                       {'unit_id': unit, 'submitted_at': f'{day:%Y-%m-%d}T20:00:00+08:00'})
-
-    def test_spaced_today_lists_due_units_with_titles(self):
+    def days(self):
+        """Today and yesterday in Beijing time, as the spaced review counts days."""
         today = datetime.now(review.load_spaced(self.study).TZ).date()
-        self.plan_spaced({'B-01-1': today.isoformat(), 'G-009': today.isoformat(), 'G-010': (today + timedelta(days=1)).isoformat()})
+        return today, today - timedelta(days=1)
+
+    def records(self):
+        return json.loads((self.notes / 'groups/review-records.json').read_text())
+
+    def test_spaced_today_lists_due_units_eligible_units_and_titles(self):
+        today, yesterday = self.days()
+        learn_group_unit(self.study, 'G-009', yesterday, title='につき・こととて')
+        learn_group_unit(self.study, 'G-010', today)
         state = review.spaced_today(self.study)
         self.assertEqual(state['today'], today.isoformat())
-        self.assertEqual([(group['day'], group['units']) for group in state['groups']], [(1, ['B-01-1', 'G-009'])])
-        self.assertEqual(state['titles'], {'B-01-1': 'に'})
+        self.assertEqual(state['due'], [{'unit': 'G-009', 'due': today.isoformat(), 'overdue': 0, 'forms': ['に', 'へ']}])
+        self.assertEqual(state['eligible'], ['G-009'])
+        self.assertEqual(state['done_today'], [])
+        self.assertEqual(state['titles'], {'G-009': 'につき・こととて'})
+        self.assertNotIn('groups', state)
+        self.assertNotIn('pending', state)
 
-    def test_an_anchor_without_a_submission_is_not_listed(self):
-        today = datetime.now(review.load_spaced(self.study).TZ).date().isoformat()
-        self.plan_spaced({'G-001': today})
-        (self.notes / 'groups/submissions/r1/G-001.json').unlink()
-        self.assertEqual(review.spaced_today(self.study)['groups'], [])
+    def test_spaced_today_without_any_review_file_is_empty(self):
+        state = review.spaced_today(self.study)
+        self.assertEqual((state['due'], state['done_today'], state['eligible'], state['titles']), ([], [], [], {}))
 
     def test_today_carries_the_daily_new_units_only_when_the_plan_sets_them(self):
         self.assertIsNone(review.today(self.study)['daily'])
@@ -148,21 +152,111 @@ class ReviewModuleTests(unittest.TestCase):
         self.assertEqual((daily['limit'], daily['done_today'], daily['full']), (2, 0, False))
         self.assertEqual([(slot['id'], slot['status']) for slot in daily['slots']], [('B-01-1', 'current'), ('B-01-2', 'unprepared')])
 
-    def test_spaced_today_without_a_plan_file_is_empty(self):
-        state = review.spaced_today(self.study)
-        self.assertEqual((state['groups'], state['done_today'], state['pending']), ([], [], 0))
-
-    def test_submit_spaced_records_only_due_units(self):
-        today = datetime.now(review.load_spaced(self.study).TZ).date().isoformat()
-        self.plan_spaced({'G-001': today, 'G-002': today})
-        state = review.submit_spaced(self.study, ['G-001'])
-        self.assertEqual((state['done_today'], state['pending']), (['G-001'], 1))
+    def test_submit_spaced_accepts_due_and_extra_units_and_writes_the_records(self):
+        today, yesterday = self.days()
+        learn_group_unit(self.study, 'G-008', today - timedelta(days=3), title='がち')
+        learn_group_unit(self.study, 'G-009', yesterday)
+        # G-008 was reviewed yesterday, so it is not due again today; it can still be reviewed as an extra.
+        write_json(self.notes / 'groups/spaced-reviews.json',
+                   {'schema_version': 2, 'done': [{'unit': 'G-008', 'date': yesterday.isoformat(),
+                                                   'at': f'{yesterday}T21:00:00+08:00'}]})
+        self.assertEqual([entry['unit'] for entry in review.spaced_today(self.study)['due']], ['G-009'])
+        state = review.submit_spaced(self.study, ['G-009', 'G-008'])
+        self.assertEqual((state['due'], state['done_today']), ([], ['G-008', 'G-009']))
+        self.assertEqual(state['titles'], {'G-008': 'がち', 'G-009': 'に・へ'})
+        self.assertNotIn('records_error', state)
         stored = json.loads((self.notes / 'groups/spaced-reviews.json').read_text())
-        self.assertEqual(stored['done'], [{'unit': 'G-001', 'step': 1, 'date': today}])
-        with self.assertRaises(Conflict):
-            review.submit_spaced(self.study, ['G-001'])
+        self.assertEqual([(item['unit'], item['date']) for item in stored['done']],
+                         [('G-008', yesterday.isoformat()), ('G-009', today.isoformat()), ('G-008', today.isoformat())])
+        self.assertEqual([(entry['unit'], entry['result']) for entry in self.records()['reviews'] if entry['date'] == today.isoformat()],
+                         [('G-008', '记得'), ('G-009', '记得')])
+        # A unit already reviewed today is skipped, not refused.
+        self.assertEqual(review.submit_spaced(self.study, ['G-009'])['done_today'], ['G-008', 'G-009'])
+        self.assertEqual(len(json.loads((self.notes / 'groups/spaced-reviews.json').read_text())['done']), 3)
         with self.assertRaises(ValueError):
             review.submit_spaced(self.study, [])
+
+    def test_submit_spaced_refuses_an_ineligible_unit(self):
+        today, yesterday = self.days()
+        learn_group_unit(self.study, 'G-009', yesterday)
+        learn_group_unit(self.study, 'G-010', today)
+        path = self.notes / 'groups/spaced-reviews.json'
+        write_json(path, {'schema_version': 2, 'done': []})
+        before = path.read_text()
+        for units in (['G-009', 'G-010'], ['G-009', 'G-011'], ['B-01-1']):
+            with self.subTest(units=units), self.assertRaisesRegex(Conflict, units[-1]):
+                review.submit_spaced(self.study, units)
+        self.assertEqual(path.read_text(), before)
+        self.assertFalse((self.notes / 'groups/review-records.json').exists())
+
+    def test_submit_spaced_survives_a_records_failure(self):
+        _, yesterday = self.days()
+        learn_group_unit(self.study, 'G-009', yesterday)
+        # The records cannot be replaced: the review is still recorded and the message says why.
+        (self.notes / 'groups/review-records.json').mkdir(parents=True)
+        state = review.submit_spaced(self.study, ['G-009'])
+        self.assertEqual(state['done_today'], ['G-009'])
+        self.assertIn('groups/review-records.json', state['records_error'])
+        stored = json.loads((self.notes / 'groups/spaced-reviews.json').read_text())
+        self.assertEqual([item['unit'] for item in stored['done']], ['G-009'])
+
+    def test_submit_spaced_reports_a_records_data_error(self):
+        _, yesterday = self.days()
+        learn_group_unit(self.study, 'G-009', yesterday)
+        learn_group_unit(self.study, 'G-008', yesterday)
+        spaced = review.load_spaced(self.study)
+        refusal = spaced.SpacedError('data', 'groups/forgets.json 无法使用：坏了')
+        with mock.patch.object(spaced, 'write_records', side_effect=refusal):
+            state = review.submit_spaced(self.study, ['G-009'])
+        self.assertEqual((state['done_today'], state['records_error']), (['G-009'], 'groups/forgets.json 无法使用：坏了'))
+        with mock.patch.object(spaced, 'write_records', side_effect=PermissionError(13, '拒绝访问')):
+            self.assertIn('拒绝访问', review.submit_spaced(self.study, ['G-008'])['records_error'])
+        stored = json.loads((self.notes / 'groups/spaced-reviews.json').read_text())
+        self.assertEqual([item['unit'] for item in stored['done']], ['G-009', 'G-008'])
+
+    def test_forget_and_undo_rewrite_the_records(self):
+        today, yesterday = self.days()
+        learn_group_unit(self.study, 'G-009', yesterday)
+        review.submit_spaced(self.study, ['G-009'])
+
+        def today_review():
+            return next(entry for entry in self.records()['reviews'] if (entry['date'], entry['unit']) == (today.isoformat(), 'G-009'))
+
+        self.assertEqual(([entry['form'] for entry in today_review()['forgot']], [entry['form'] for entry in today_review()['remembered']]),
+                         ([], ['に', 'へ']))
+        made = review.forget(self.study, 'G-009', 'に')
+        self.assertEqual(set(made), {'event', 'count'})
+        self.assertEqual(([entry['form'] for entry in today_review()['forgot']], [entry['form'] for entry in today_review()['remembered']]),
+                         (['に'], ['へ']))
+        self.assertEqual(today_review()['result'], '忘了')
+        self.assertEqual(review.undo_forget(self.study, 'G-009', made['event']), {'count': 0})
+        self.assertEqual(([entry['form'] for entry in today_review()['forgot']], [entry['form'] for entry in today_review()['remembered']]),
+                         ([], ['に', 'へ']))
+
+    def test_forget_and_undo_survive_a_records_failure(self):
+        _, yesterday = self.days()
+        learn_group_unit(self.study, 'G-009', yesterday)
+        (self.notes / 'groups/review-records.json').mkdir(parents=True)
+        made = review.forget(self.study, 'G-009', 'に')
+        self.assertEqual(made['count'], 1)
+        self.assertIn('groups/review-records.json', made['records_error'])
+        undone = review.undo_forget(self.study, 'G-009', made['event'])
+        self.assertEqual(undone['count'], 0)
+        self.assertIn('groups/review-records.json', undone['records_error'])
+        self.assertEqual(json.loads((self.notes / 'groups/forgets.json').read_text())['events'], [])
+
+    def test_forget_without_the_spaced_module_still_records_the_forget(self):
+        review.recall(self.study, 'B-01-1')
+        (self.study / 'src/jlpt_notes/spaced_review.py').unlink()
+        made = review.forget(self.study, 'B-01-1', 'に')
+        self.assertEqual(made['count'], 1)
+        self.assertIn('src/jlpt_notes/spaced_review.py', made['records_error'])
+        self.assertIn('src/jlpt_notes/spaced_review.py', review.undo_forget(self.study, 'B-01-1', made['event'])['records_error'])
+
+    def test_invalid_plan_settings_are_a_study_data_error(self):
+        write_json(self.notes / 'groups/plan.json', {'schema_version': 1, 'round': 1, 'retention': 'x'})
+        with self.assertRaisesRegex(review.StudyDataError, 'groups/plan.json'):
+            review.spaced_today(self.study)
 
     def test_damaged_spaced_file_is_a_study_data_error_with_its_path(self):
         (self.notes / 'groups/spaced-reviews.json').write_text('{')
@@ -388,20 +482,23 @@ class ReviewHTTPTests(unittest.TestCase):
         return json.loads((self.notes / 'groups/submissions/r1/B-01-1.json').read_text())
 
     def test_spaced_endpoints_over_http(self):
-        today = datetime.now(review.load_spaced(self.study).TZ).date().isoformat()
-        write_json(self.notes / 'groups/spaced-reviews.json',
-                   {'schema_version': 1, 'anchors': {'G-001': today, 'G-002': today}, 'done': []})
+        today = datetime.now(review.load_spaced(self.study).TZ).date()
         for unit in ('G-001', 'G-002'):
-            write_json(self.notes / 'groups/submissions/r1' / f'{unit}.json',
-                       {'unit_id': unit, 'submitted_at': '2026-10-01T20:00:00+08:00'})
+            learn_group_unit(self.study, unit, today - timedelta(days=1))
         for request in (lambda: self.request('/api/review/spaced'), lambda: self.request('/api/review/spaced/submit', {'units': ['G-001']})):
             self.assertEqual(request().status, 401)
         self.login()
         state = json.load(self.request('/api/review/spaced'))
-        self.assertEqual([group['units'] for group in state['groups']], [['G-001', 'G-002']])
+        self.assertEqual(set(state), {'today', 'due', 'done_today', 'eligible', 'titles'})
+        self.assertEqual(([entry['unit'] for entry in state['due']], state['eligible'], state['titles']),
+                         (['G-001', 'G-002'], ['G-001', 'G-002'], {'G-001': 'に・へ', 'G-002': 'に・へ'}))
         after = json.load(self.request('/api/review/spaced/submit', {'units': ['G-001']}))
-        self.assertEqual((after['done_today'], after['pending']), (['G-001'], 1))
-        self.assertEqual(self.request('/api/review/spaced/submit', {'units': ['G-001']}).status, 409)
+        self.assertEqual(([entry['unit'] for entry in after['due']], after['done_today']), (['G-002'], ['G-001']))
+        self.assertNotIn('records_error', after)
+        self.assertEqual([entry['unit'] for entry in json.loads((self.notes / 'groups/review-records.json').read_text())['reviews']],
+                         ['G-001'])
+        self.assertEqual(json.load(self.request('/api/review/spaced/submit', {'units': ['G-001']}))['done_today'], ['G-001'])
+        self.assertEqual(self.request('/api/review/spaced/submit', {'units': ['G-002', 'G-003']}).status, 409)
         self.assertEqual(self.request('/api/review/spaced/submit', {'units': []}).status, 400)
         self.assertEqual(self.request('/api/review/spaced/submit', {}).status, 400)
         self.assertEqual(self.request('/api/review/spaced/submit', {'units': ['G-002']}, origin='https://evil.example').status, 403)
