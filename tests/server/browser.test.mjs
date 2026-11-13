@@ -478,6 +478,24 @@ test('a unit without a sentence prompt ends with a note box only and submits wit
   const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
   assert.equal('sentence' in sub,false);
   assert.equal(sub.note,'对比页少了例句');
+  assert.equal(await page.locator('#notice').isHidden(),true);
+}));
+
+test('交卷 still goes through when the review records cannot be rebuilt, and says so',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  await mkdir(join(tmp,'study/jlpt-notes/groups/review-records.json'),{recursive:true});
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page').waitFor();
+  await page.locator('.option-list').first().locator('.option-block').nth(1).click();
+  await page.locator('#sentence').fill('三時に会いましょう。');
+  page.on('dialog',dialog=>dialog.accept());
+  await page.getByRole('button',{name:'交卷'}).click();
+  await page.locator('#status',{hasText:'已交卷，待判分'}).waitFor();
+  await page.locator('#notice',{hasText:'已记录，但复习记录生成失败'}).waitFor();
+  assert.match(await page.locator('#notice').innerText(),/groups\/review-records\.json/);
+  const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
+  assert.equal(typeof sub.submitted_at,'string');
 }));
 
 for(const [name,engine] of Object.entries({chromium,webkit})) {

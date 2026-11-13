@@ -523,6 +523,7 @@ function renderUnit(view) {
     try {
       const state = await api(`/units/${encodeURIComponent(unit.id)}/submit`, {answers: sheet.getAnswers(), ...(view.sentence ? {sentence: $('sentence').value} : {}), note: $('note').value});
       await afterSubmit(state, prefix);
+      recordsNotice(state);
     } catch (error) {
       submit.disabled = false;
       notice(error);

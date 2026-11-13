@@ -410,6 +410,31 @@ class ReviewModuleTests(unittest.TestCase):
         (self.notes / f'quizzes/answers/{UNIT_PAPER}-answers.md').unlink()
         self.assertEqual(review.unit_view(self.study, 'B-01-1')['key'], [])
 
+    def submit_group_unit(self, unit_id='G-009'):
+        """Finish both B units, then enter and 交卷 grammar-network unit `unit_id` through the server."""
+        for minute, finished in enumerate(('B-01-1', 'B-01-2')):
+            finish_unit(self.notes, finished, minute)
+        _, yesterday = self.days()
+        learn_group_unit(self.study, unit_id, yesterday)
+        (self.notes / 'groups/submissions/r1' / f'{unit_id}.json').unlink()
+        review.recall(self.study, unit_id)
+        return review.submit_unit(self.study, unit_id, {'1': {'answer': '2'}}, None, '')
+
+    def test_submit_unit_rewrites_the_review_records(self):
+        state = self.submit_group_unit()
+        self.assertEqual(state['pending_grading'][-1]['id'], 'G-009')
+        self.assertNotIn('records_error', state)
+        self.assertEqual([unit['unit'] for unit in self.records()['units']], ['G-009'])
+
+    def test_submit_unit_survives_a_records_failure(self):
+        spaced = review.load_spaced(self.study)
+        with mock.patch.object(spaced, 'write_records', side_effect=PermissionError(13, '拒绝访问')):
+            state = self.submit_group_unit()
+        self.assertIn('拒绝访问', state['records_error'])
+        self.assertEqual(state['pending_grading'][-1]['id'], 'G-009')
+        self.assertIn('submitted_at', json.loads((self.notes / 'groups/submissions/r1/G-009.json').read_text()))
+        self.assertFalse((self.notes / 'groups/review-records.json').exists())
+
     def test_submit_unit_rejects_bad_answers_without_submitting(self):
         review.recall(self.study, 'B-01-1')
         with self.assertRaises(ValueError):

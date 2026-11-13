@@ -297,12 +297,14 @@ def _forget_counts(events, unit_id):
 
 
 def submit_unit(study_root, unit_id, answers, sentence, note):
+    """交卷 a unit, then rebuild the review records: a newly learned unit joins them."""
     notes = _notes(study_root)
     with _write_lock, _rules(study_root) as groups:
         _ensure_answerable(groups, notes, unit_id, '尚未进入对比页')
         papers.write_plan_answers(study_root, groups.unit_material(notes, unit_id)['paper'], answers)
         groups.submit_unit(notes, unit_id, sentence, note)
-        return groups.plan_state(notes)
+        error = _rewrite_records(study_root)
+        return _with_records_error(groups.plan_state(notes), error)
 
 
 def submit_review(study_root, review_id, answers):
