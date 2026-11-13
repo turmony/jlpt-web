@@ -6,9 +6,14 @@
   <p id="notice" class="paper-notice" role="alert" hidden></p>
 
   <section id="spaced-review" class="panel spaced" aria-labelledby="spaced-title">
-    <h2 id="spaced-title">今日复习</h2>
+    <h2 id="spaced-title">复习</h2>
     <p id="spaced-summary" class="muted" aria-live="polite">正在读取复习清单…</p>
-    <div id="spaced-groups"></div>
+    <div id="spaced-due" class="spaced-units"></div>
+    <div id="spaced-extra" class="spaced-extra" hidden>
+      <h3>另外复习</h3>
+      <div id="spaced-ranges"></div>
+      <button id="spaced-add-range" type="button">＋再加一段</button>
+    </div>
     <div id="spaced-bar" class="spaced-bar" hidden>
       <span id="spaced-count" class="muted"></span>
       <button id="spaced-submit" class="primary" type="button" disabled>确认提交</button>
