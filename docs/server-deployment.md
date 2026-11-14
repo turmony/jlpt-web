@@ -1018,7 +1018,7 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 
 内容：学习仓库 `spaced_review.py` 改用 FSRS-6，按（单元，语法形式）排期，目标记忆率 0.95、间隔上限 180 天，`spaced-reviews.json` 升为第 2 版，新增程序生成的 `groups/review-records.json`（学习仓库合并 `914969a`、数据与规则 `49cdb46`，设计见学习仓库 `docs/superpowers/specs/2026-11-13-unified-review-fsrs-design.md`）。网页：首页“今日复习”与手动复习合成一个“复习”面板，到期单元默认选中并标出到期形式，可另加单元范围，一次提交；`server/review.py` 的到期清单与提交改走 FSRS，提交复习、交卷、点或撤销“忘了”后重写复习记录，重写出错只作为 `records_error` 返回、不影响原操作。网页提交 `05c04f6`～`9dfcf42`（合并 `b76d2f3`）。
 
-注意：线上服务直接加载学习仓库的 `src/jlpt_notes/spaced_review.py`，新旧网页与新旧学习仓库互不兼容，所以学习仓库合并、`review-records --migrate` 迁移、切换网页并重启要连续做完。发布当天在临时目录复制了三份 `jlpt-notes` 做预演，把磁盘写满过一次；副本已删，事后确认 SQLite `quick_check` ok、两份复习原始数据与备份一致。根分区 19G 已用约 90%，旧发布目录（各约 680M）可考虑清理。
+注意：线上服务直接加载学习仓库的 `src/jlpt_notes/spaced_review.py`，新旧网页与新旧学习仓库互不兼容，所以学习仓库合并、`review-records --migrate` 迁移、切换网页并重启要连续做完。发布当天在临时目录复制了三份 `jlpt-notes` 做预演，把磁盘写满过一次；副本已删，事后确认 SQLite `quick_check` ok、两份复习原始数据与备份一致。之后清理了 11-10 的五个发布目录、`20261111-compare-tables` 与 `20261111-overview-note/static`（各版 static 的图片互为硬链接，要全部删掉才腾出空间），只留当前版与回滚要用的 `20261111-overview-note/app`（含 11-11 备份）、`20261112-compare-three-items/static`，根分区已用 82%。
 
 发布目录 `/srv/jlpt/releases/20261114-unified-review`，app 与 static 都已切换并重启 `jlpt.service`（切换前服务无子进程）。相对上一版，app 只有 `server/review.py`、`web/review/*` 与测试、文档不同；静态目录只有 `review/index.html`、`review/review.mjs`、`review/review.css` 不同。发布前的 `spaced-reviews.json`（第 1 版）、`forgets.json`、`config.json` 与 SQLite 备份（`integrity_check` ok）在私有 `backup/`。
 
