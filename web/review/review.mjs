@@ -16,6 +16,11 @@ async function api(path, data) {
   return value;
 }
 
+// The change itself was recorded; only the review records could not be rebuilt.
+function recordsNotice(result) {
+  if (result?.records_error) notice(`已记录，但复习记录生成失败：${result.records_error}`);
+}
+
 function notice(error) {
   $('notice').textContent = error ? error.message || String(error) : '';
   $('notice').hidden = !error;
@@ -58,9 +63,11 @@ async function refresh() {
   renderStatus();
 }
 
-// ---- Spaced review: tick the units reviewed today, then confirm ----
+// ---- Review: due units are preselected; extra units come in as ranges; one submit ----
 let spaced = null;
 const picked = new Set();
+// Each range is {from, to}: unit ids chosen in its two selects.
+let ranges = [];
 
 async function refreshSpaced() {
   try {
@@ -68,59 +75,92 @@ async function refreshSpaced() {
   } catch (error) {
     spaced = null;
     $('spaced-summary').textContent = `复习清单读取失败：${error.message || error}`;
-    $('spaced-groups').replaceChildren();
+    $('spaced-due').replaceChildren();
+    $('spaced-extra').hidden = true;
     $('spaced-bar').hidden = true;
     return;
   }
+  picked.clear();
+  for (const entry of spaced.due) picked.add(entry.unit);
+  ranges = [];
   renderSpaced();
 }
 
-function monthDay(iso) {
-  const [, month, day] = iso.split('-');
-  return `${Number(month)}/${Number(day)}`;
+const unitLabel = id => spaced.titles[id] ? `${id} ${spaced.titles[id]}` : id;
+
+// Selected due units plus every unit from each range's two ends (any order) and between them in `eligible`.
+function chosenUnits() {
+  const chosen = new Set(picked);
+  for (const range of ranges) {
+    const ends = [spaced.eligible.indexOf(range.from), spaced.eligible.indexOf(range.to)].sort((a, b) => a - b);
+    if (ends[0] < 0) continue;
+    for (const id of spaced.eligible.slice(ends[0], ends[1] + 1)) chosen.add(id);
+  }
+  return [...chosen];
+}
+
+function updateSpacedCount() {
+  const total = chosenUnits().length;
+  $('spaced-count').textContent = `本次共 ${total} 个单元`;
+  $('spaced-submit').disabled = !total;
+}
+
+function rangeRow(range) {
+  const select = (className, key) => {
+    const node = h('select', {className}, ...spaced.eligible.map(id => h('option', {value: id, textContent: unitLabel(id), selected: id === range[key]})));
+    node.setAttribute('aria-label', key === 'from' ? '从' : '到');
+    node.addEventListener('change', () => { range[key] = node.value; updateSpacedCount(); });
+    return node;
+  };
+  const remove = h('button', {type: 'button', className: 'range-remove', textContent: '删除', onclick: () => {
+    ranges = ranges.filter(item => item !== range);
+    renderSpaced();
+  }});
+  return h('div', {className: 'spaced-range'}, select('range-from', 'from'), '到', select('range-to', 'to'), remove);
 }
 
 function renderSpaced() {
-  const due = new Set(spaced.groups.flatMap(group => group.units));
-  for (const id of [...picked]) if (!due.has(id)) picked.delete(id);
-  $('spaced-summary').textContent = spaced.pending ? `有 ${spaced.pending} 个单元待复习：点选已复习的，再确认提交`
-    : spaced.done_today.length ? '今日复习已完成' : '今天没有到期的复习';
-  $('spaced-groups').replaceChildren(...spaced.groups.map(group => {
-    const all = group.units.every(id => picked.has(id));
-    const toggle = () => {
-      for (const id of group.units) (all ? picked.delete(id) : picked.add(id));
-      renderSpaced();
-    };
-    return h('div', {className: 'spaced-group'},
-      h('div', {className: 'spaced-head'},
-        h('strong', {textContent: `${monthDay(group.learned)} 学的 · 第 ${group.day} 天复习`}),
-        group.overdue ? h('span', {className: 'spaced-late', textContent: `逾期 ${group.overdue} 天`}) : null,
-        h('button', {type: 'button', className: 'spaced-all', textContent: all ? '取消本组' : '全选本组', onclick: toggle})),
-      h('div', {className: 'spaced-units'}, ...group.units.map(id => {
-        const title = spaced.titles[id];
-        const button = h('button', {type: 'button', className: 'spaced-unit', onclick: () => {
-          picked.has(id) ? picked.delete(id) : picked.add(id);
-          renderSpaced();
-        }}, id, title ? h('small', {textContent: title}) : null);
-        button.setAttribute('aria-pressed', String(picked.has(id)));
-        return button;
-      })));
+  const {due, done_today: done, eligible} = spaced;
+  $('spaced-summary').textContent = due.length ? `今天到期 ${due.length} 个单元：点掉没复习的，再确认提交`
+    : done.length ? '今日到期的已复习完' : '今天没有到期的复习';
+  $('spaced-due').replaceChildren(...due.map(entry => {
+    const title = spaced.titles[entry.unit];
+    const late = entry.overdue ? `逾期 ${entry.overdue} 天 · ` : '';
+    const button = h('button', {type: 'button', className: 'spaced-unit', onclick: () => {
+      picked.has(entry.unit) ? picked.delete(entry.unit) : picked.add(entry.unit);
+      button.setAttribute('aria-pressed', String(picked.has(entry.unit)));
+      updateSpacedCount();
+    }}, entry.unit, h('small', {textContent: title || entry.unit}), h('span', {className: 'spaced-forms', textContent: late + entry.forms.join('、')}));
+    button.setAttribute('aria-pressed', String(picked.has(entry.unit)));
+    return button;
   }));
-  $('spaced-bar').hidden = !spaced.pending;
-  $('spaced-count').textContent = `已选 ${picked.size} / ${spaced.pending}`;
-  $('spaced-submit').disabled = !picked.size;
-  $('spaced-done').textContent = `今日已复习：${spaced.done_today.join('、')}`;
-  $('spaced-done').hidden = !spaced.done_today.length;
+  $('spaced-extra').hidden = !eligible.length;
+  $('spaced-ranges').replaceChildren(...ranges.map(rangeRow));
+  $('spaced-bar').hidden = !due.length && !eligible.length;
+  updateSpacedCount();
+  $('spaced-done').textContent = `今日已复习：${done.join('、')}`;
+  $('spaced-done').hidden = !done.length;
 }
+
+$('spaced-add-range').addEventListener('click', () => {
+  if (!spaced?.eligible.length) return;
+  const last = spaced.eligible.at(-1);
+  ranges.push({from: last, to: last});
+  renderSpaced();
+});
 
 $('spaced-submit').addEventListener('click', async () => {
   const button = $('spaced-submit');
   button.disabled = true;
   notice(null);
   try {
-    spaced = await api('/spaced/submit', {units: [...picked]});
+    const result = await api('/spaced/submit', {units: chosenUnits()});
+    spaced = result;
     picked.clear();
+    for (const entry of spaced.due) picked.add(entry.unit);
+    ranges = [];
     renderSpaced();
+    recordsNotice(result);
   } catch (error) {
     notice(error);
     await refreshSpaced();
@@ -483,6 +523,7 @@ function renderUnit(view) {
     try {
       const state = await api(`/units/${encodeURIComponent(unit.id)}/submit`, {answers: sheet.getAnswers(), ...(view.sentence ? {sentence: $('sentence').value} : {}), note: $('note').value});
       await afterSubmit(state, prefix);
+      recordsNotice(state);
     } catch (error) {
       submit.disabled = false;
       notice(error);
@@ -640,7 +681,7 @@ function forgetButton(unitId, form, initial) {
     show(true);
     press();
     offerUndo();
-    queue = queue.then(() => api(path, {form})).then(made => { events.push(made.event); }, error => {
+    queue = queue.then(() => api(path, {form})).then(made => { events.push(made.event); recordsNotice(made); }, error => {
       total -= 1;
       open = Math.max(0, open - 1);
       show(true);
@@ -657,7 +698,7 @@ function forgetButton(unitId, form, initial) {
     queue = queue.then(() => {
       const event = events.pop();
       if (!event) throw new Error('这一次还没记上，无法撤销');
-      return api(path + '/undo', {event}).catch(error => { events.push(event); throw error; });
+      return api(path + '/undo', {event}).then(recordsNotice, error => { events.push(event); throw error; });
     }).catch(error => {
       total += 1;
       show(true);

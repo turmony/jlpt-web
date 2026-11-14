@@ -1,15 +1,18 @@
 """Grammar-network review plan, served to `/review/`.
 
 The plan rules have one implementation: the study repository's
-`src/jlpt_notes/groups.py`, loaded here by file path. This module only reads
-the unit page, member cards, images and papers for the web, and turns rule
-refusals and damaged study data into HTTP-shaped errors.
+`src/jlpt_notes/groups.py`, and the spaced review (FSRS) rules theirs,
+`src/jlpt_notes/spaced_review.py`, both loaded here by file path. This module
+only reads the unit page, member cards, images and papers for the web, has the
+review records rebuilt after every review write, and turns rule refusals and
+damaged study data into HTTP-shaped errors.
 """
 import importlib.util
 import json
 import re
 import sys
 import threading
+import traceback
 import uuid
 from collections import Counter
 from contextlib import contextmanager
@@ -118,23 +121,52 @@ def today(study_root):
 
 
 def spaced_today(study_root):
-    """Learned units due for their spaced review today, with unit titles from the committed catalog."""
+    """The review panel: units due today (FSRS), units reviewed today, units that may be reviewed, and their titles."""
     notes = _notes(study_root)
     with _spaced_rules(study_root) as spaced:
         return _with_titles(study_root, spaced.due_state(notes))
 
 
 def submit_spaced(study_root, units):
+    """Record the selected units as reviewed today (all or none), then rebuild the review records."""
     notes = _notes(study_root)
-    with _write_lock, _spaced_rules(study_root) as spaced:
-        return _with_titles(study_root, spaced.record(notes, units))
+    with _write_lock:
+        with _spaced_rules(study_root) as spaced:
+            state = spaced.record(notes, units)
+        error = _rewrite_records(study_root)
+        return _with_records_error(_with_titles(study_root, state), error)
 
 
 def _with_titles(study_root, state):
-    shown = {unit for group in state['groups'] for unit in group['units']} | set(state['done_today'])
+    shown = set(state['eligible']) | set(state['done_today']) | {entry['unit'] for entry in state['due']}
     with _rules(study_root) as groups:
         titles = {unit.id: unit.title for unit in groups.load_catalog(_notes(study_root)).units if unit.id in shown}
     return {**state, 'titles': titles}
+
+
+def _rewrite_records(study_root):
+    """Rebuild `groups/review-records.json` after a raw review write; `None`, or why it failed.
+
+    The raw write already stands and is never undone, so any failure here is only reported back as
+    `records_error`: an error answer would make the learner repeat an action that was in fact recorded.
+    """
+    try:
+        spaced = load_spaced(study_root)
+    except StudyDataError as error:
+        return str(error)
+    try:
+        spaced.write_records(_notes(study_root))
+    except spaced.SpacedError as error:
+        return str(error)
+    except Exception as error:
+        sys.stderr.write('review records rewrite failed:\n' + traceback.format_exc())
+        sys.stderr.flush()
+        return f'{type(error).__name__}: {error}'
+    return None
+
+
+def _with_records_error(result, error):
+    return {**result, 'records_error': error} if error is not None else result
 
 
 def _prepared_unit(groups, notes, unit_id):
@@ -221,7 +253,8 @@ def forget(study_root, unit_id, form, now=None):
         event = {'id': uuid.uuid4().hex, 'unit': unit_id, 'form': form, 'cards': cards,
                  'at': (now or datetime.now(TZ)).isoformat(timespec='seconds')}
         _save_forget_log(notes, [*events, event])
-        return {'event': event['id'], 'count': _forget_counts([*events, event], unit_id)[form]}
+        return _with_records_error({'event': event['id'], 'count': _forget_counts([*events, event], unit_id)[form]},
+                                   _rewrite_records(study_root))
 
 
 def undo_forget(study_root, unit_id, event_id, now=None):
@@ -236,7 +269,8 @@ def undo_forget(study_root, unit_id, event_id, now=None):
             raise Conflict('已超过两分钟，不能撤销这次忘了')
         events.remove(event)
         _save_forget_log(notes, events)
-        return {'count': _forget_counts(events, unit_id).get(event['form'], 0)}
+        return _with_records_error({'count': _forget_counts(events, unit_id).get(event['form'], 0)},
+                                   _rewrite_records(study_root))
 
 
 def _forget_log(notes):
@@ -263,12 +297,14 @@ def _forget_counts(events, unit_id):
 
 
 def submit_unit(study_root, unit_id, answers, sentence, note):
+    """交卷 a unit, then rebuild the review records: a newly learned unit joins them."""
     notes = _notes(study_root)
     with _write_lock, _rules(study_root) as groups:
         _ensure_answerable(groups, notes, unit_id, '尚未进入对比页')
         papers.write_plan_answers(study_root, groups.unit_material(notes, unit_id)['paper'], answers)
         groups.submit_unit(notes, unit_id, sentence, note)
-        return groups.plan_state(notes)
+        error = _rewrite_records(study_root)
+        return _with_records_error(groups.plan_state(notes), error)
 
 
 def submit_review(study_root, review_id, answers):

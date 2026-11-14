@@ -1,8 +1,9 @@
 """A throwaway study repository for the /review/ tests.
 
-It carries the real rule module (`src/jlpt_notes/groups.py`) copied from the
-study repository, a committed mapping with system units B-01-1…, two grammar
-cards with connection images, and the uncommitted materials of unit B-01-1.
+It carries the real rule modules (`src/jlpt_notes/groups.py` and
+`spaced_review.py`) copied from the study repository, a committed mapping with
+system units B-01-1…, two grammar cards with connection images, and the
+uncommitted materials of unit B-01-1.
 """
 import json
 import os
@@ -123,6 +124,28 @@ def finish_unit(notes, unit_id, minute, sentence=True):
                {'schema_version': 1, 'unit_id': unit_id, 'round': 1, 'paper': paper_slug(unit_id),
                 **({'sentence': {'card': 'N5-G-0013', 'text': '三時に会いましょう。'}} if sentence else {}), 'note': '',
                 'submitted_at': f'2026-10-17T20:{minute:02d}:00+08:00'})
+
+
+def learn_group_unit(study, unit_id, day, title='に・へ'):
+    """A grammar-network unit 交卷 on `day` (a date, midnight Beijing time), as the spaced review sees it.
+
+    Its `mapping.json` entry is committed (the catalog reads Git HEAD); the unit page, material (usage overview
+    forms に and へ) and paper are prepared, and the finished submission is written.
+    """
+    notes = study / 'jlpt-notes'
+    path = notes / 'groups/mapping.json'
+    data = json.loads(path.read_text(encoding='utf-8'))
+    if TOPS[0] not in data['batches']:
+        data['batches'].append(TOPS[0])
+    data['units'][unit_id] = {'title': title, 'order': 100 + int(unit_id[2:]), 'top': TOPS[0], 'mid': '不明確',
+                              'antonyms': []}
+    write_json(path, data)
+    git(study, 'add', 'jlpt-notes/groups/mapping.json')
+    git(study, 'commit', '-q', '-m', f'map {unit_id}')
+    prepare_unit(notes, unit_id, sentence=False)
+    write_json(notes / 'groups/submissions/r1' / f'{unit_id}.json',
+               {'schema_version': 1, 'unit_id': unit_id, 'round': 1, 'paper': paper_slug(unit_id), 'note': '',
+                'submitted_at': f'{day:%Y-%m-%d}T00:00:00+08:00'})
 
 
 def prepare_review(notes, review_id, covers):

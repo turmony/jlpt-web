@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
 import {withSite} from './site-helper.mjs';
 const require=createRequire(new URL('../../mobile/package.json',import.meta.url));
 const {chromium,webkit,devices}=require('playwright');
@@ -45,37 +46,44 @@ test('a home-screen launch at grammar memory opens the review plan first',()=>wi
   assert.equal(app.url(),url+'/grammar/');
 }));
 
-test('today\'s spaced review groups due units by learning date and records the ticked ones',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+test('the review panel preselects due units, adds a range of other units and submits them together',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
   const beijing=offset=>new Date(Date.now()+8*3600e3+offset*864e5).toISOString().slice(0,10);
-  const plan=join(tmp,'study/jlpt-notes/groups/spaced-reviews.json');
-  await writeFile(plan,JSON.stringify({schema_version:1,anchors:{'G-001':beijing(0),'G-002':beijing(0),'G-003':beijing(-2)},done:[]}));
-  const folder=join(tmp,'study/jlpt-notes/groups/submissions/r1');
-  await mkdir(folder,{recursive:true});
-  for (const [unit,offset] of [['G-001',-1],['G-002',-1],['G-003',-3]]) await writeFile(join(folder,`${unit}.json`),JSON.stringify({unit_id:unit,submitted_at:`${beijing(offset)}T20:00:00+08:00`}));
+  // G-001 was reviewed yesterday (not due, but it can still be added as an extra); G-002 and G-003 are due.
+  const learn=[['G-001',-3,'に・へ'],['G-002',-2,'から・まで'],['G-003',-1,'で・を']];
+  const code='import sys;from datetime import date;from pathlib import Path;from tests.server.review_fixture import learn_group_unit\n'
+    +learn.map(([unit,offset,title])=>`learn_group_unit(Path(sys.argv[1]),'${unit}',date.fromisoformat('${beijing(offset)}'),title='${title}')`).join('\n');
+  execFileSync('python3',['-c',code,join(tmp,'study')],{cwd:new URL('../..',import.meta.url).pathname});
+  await writeFile(join(tmp,'study/jlpt-notes/groups/spaced-reviews.json'),JSON.stringify({schema_version:2,done:[{unit:'G-001',date:beijing(-1),at:`${beijing(-1)}T21:00:00+08:00`}]}));
   await page.reload();
   const block=page.locator('#spaced-review');
-  await block.getByText('有 3 个单元待复习').waitFor();
-  const groups=block.locator('.spaced-group');
-  assert.equal(await groups.count(),2);
-  assert.match(await groups.nth(0).innerText(),/第 1 天复习[\s\S]*逾期 2 天[\s\S]*G-003/);
-  assert.doesNotMatch(await groups.nth(1).innerText(),/逾期/);
-  assert.equal(await page.locator('#spaced-submit').isDisabled(),true);
-  await groups.nth(1).getByRole('button',{name:'G-001'}).click();
-  assert.equal(await groups.nth(1).getByRole('button',{name:'G-001'}).getAttribute('aria-pressed'),'true');
-  assert.equal(await page.locator('#spaced-count').innerText(),'已选 1 / 3');
-  await groups.nth(0).getByRole('button',{name:'全选本组'}).click();
-  assert.equal(await page.locator('#spaced-count').innerText(),'已选 2 / 3');
-  await groups.nth(0).getByRole('button',{name:'取消本组'}).click();
-  await groups.nth(0).getByRole('button',{name:'全选本组'}).click();
+  await page.locator('#spaced-due .spaced-unit').first().waitFor();
+  assert.equal(await page.locator('#spaced-title').innerText(),'复习');
+  assert.equal(await page.locator('#spaced-summary').innerText(),'今天到期 2 个单元：点掉没复习的，再确认提交');
+  const units=page.locator('#spaced-due .spaced-unit');
+  assert.equal(await units.count(),2);
+  for (const at of [0,1]) assert.equal(await units.nth(at).getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('#spaced-count').innerText(),'本次共 2 个单元');
+  await units.nth(0).click();
+  assert.equal(await units.nth(0).getAttribute('aria-pressed'),'false');
+  assert.equal(await page.locator('#spaced-count').innerText(),'本次共 1 个单元');
+  await page.locator('#spaced-add-range').click();
+  assert.equal(await block.locator('.spaced-range').count(),1);
+  await block.locator('.range-from').selectOption('G-003');
+  await block.locator('.range-to').selectOption('G-001');
+  assert.equal(await page.locator('#spaced-count').innerText(),'本次共 3 个单元');
   await page.locator('#spaced-submit').click();
-  await block.getByText('有 1 个单元待复习').waitFor();
-  assert.equal(await page.locator('#spaced-done').innerText(),'今日已复习：G-001、G-003');
-  assert.equal(await block.locator('.spaced-unit').count(),1);
-  const stored=JSON.parse(await readFile(plan,'utf8'));
-  assert.deepEqual(stored.done.map(item=>[item.unit,item.step,item.date]),[['G-001',1,beijing(0)],['G-003',1,beijing(0)]]);
+  await block.getByText('今日已复习：G-001、G-002、G-003').waitFor();
+  assert.equal(await page.locator('#spaced-done').innerText(),'今日已复习：G-001、G-002、G-003');
+  assert.equal(await page.locator('#spaced-due .spaced-unit').count(),0);
+  assert.equal(await block.locator('.spaced-range').count(),0);
+  const stored=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/spaced-reviews.json'),'utf8'));
+  assert.equal(stored.schema_version,2);
+  // The yesterday record of G-001 stays; the three submitted now are added.
+  assert.equal(stored.done.length,4);
+  assert.deepEqual(stored.done.filter(item=>item.date===beijing(0)).map(item=>item.unit).sort(),['G-001','G-002','G-003']);
   await page.reload();
-  await block.getByText('有 1 个单元待复习').waitFor();
-  assert.equal(await block.locator('.spaced-unit[aria-pressed=true]').count(),0);
+  await block.getByText('今日已复习：G-001、G-002、G-003').waitFor();
+  assert.equal(await page.locator('#spaced-done').innerText(),'今日已复习：G-001、G-002、G-003');
 }));
 
 test('today\'s new units follow daily_new and what was actually submitted',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
@@ -470,6 +478,24 @@ test('a unit without a sentence prompt ends with a note box only and submits wit
   const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
   assert.equal('sentence' in sub,false);
   assert.equal(sub.note,'对比页少了例句');
+  assert.equal(await page.locator('#notice').isHidden(),true);
+}));
+
+test('交卷 still goes through when the review records cannot be rebuilt, and says so',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url,tmp)=>{
+  await mkdir(join(tmp,'study/jlpt-notes/groups/review-records.json'),{recursive:true});
+  await page.locator('#progress-summary',{hasText:'已学 0 / 2'}).waitFor();
+  await page.locator('#status').getByRole('button',{name:'开始'}).click();
+  await page.getByRole('button',{name:'进入对比页'}).click();
+  await page.locator('#unit-page').waitFor();
+  await page.locator('.option-list').first().locator('.option-block').nth(1).click();
+  await page.locator('#sentence').fill('三時に会いましょう。');
+  page.on('dialog',dialog=>dialog.accept());
+  await page.getByRole('button',{name:'交卷'}).click();
+  await page.locator('#status',{hasText:'已交卷，待判分'}).waitFor();
+  await page.locator('#notice',{hasText:'已记录，但复习记录生成失败'}).waitFor();
+  assert.match(await page.locator('#notice').innerText(),/groups\/review-records\.json/);
+  const sub=JSON.parse(await readFile(join(tmp,'study/jlpt-notes/groups/submissions/r1/B-01-1.json'),'utf8'));
+  assert.equal(typeof sub.submitted_at,'string');
 }));
 
 for(const [name,engine] of Object.entries({chromium,webkit})) {
