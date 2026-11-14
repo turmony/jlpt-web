@@ -1011,3 +1011,17 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 267 项（15 项跳过）、`test:browser` 114 项中 113 项通过，唯一失败的宽屏表格用例只因仍期望 5 行，改为 3 行后单独重跑对比表相关 4 项通过（`JLPT_STUDY_ROOT` 指向已改校验的学习仓库副本；先 `npm run build`，浏览器测试读 `server-public/`）；学习仓库 326 项测试（1 项跳过）、`validate-groups`、`validate-links` 通过。线上 app 代码只读调用 `unit_view`（G-001、G-022、G-024），每行只含 `card`、`form`、`connection`、`meaning`、`tone`。
 
 回滚：把 `/srv/jlpt/static` 切回 `20261111-overview-note/static`（见 `previous-release.txt`），不需要重启；同时须恢复学习仓库的校验与 22 个单元的旧字段（还原对应提交），否则旧网页打不开带对比表的单元。
+
+## 统一复习：FSRS 排期与复习面板合一（2026-11-14）
+
+问题：原来每个单元固定在学后第 1、3、8、21 天各复习一次就结束，“忘了”不影响排期，没记住也会结束；记住的形式不留记录，复盘分不清牢不牢；学习者在计划外连续复习一段单元也没处记。
+
+内容：学习仓库 `spaced_review.py` 改用 FSRS-6，按（单元，语法形式）排期，目标记忆率 0.95、间隔上限 180 天，`spaced-reviews.json` 升为第 2 版，新增程序生成的 `groups/review-records.json`（学习仓库合并 `914969a`、数据与规则 `49cdb46`，设计见学习仓库 `docs/superpowers/specs/2026-11-13-unified-review-fsrs-design.md`）。网页：首页“今日复习”与手动复习合成一个“复习”面板，到期单元默认选中并标出到期形式，可另加单元范围，一次提交；`server/review.py` 的到期清单与提交改走 FSRS，提交复习、交卷、点或撤销“忘了”后重写复习记录，重写出错只作为 `records_error` 返回、不影响原操作。网页提交 `05c04f6`～`9dfcf42`（合并 `b76d2f3`）。
+
+注意：线上服务直接加载学习仓库的 `src/jlpt_notes/spaced_review.py`，新旧网页与新旧学习仓库互不兼容，所以学习仓库合并、`review-records --migrate` 迁移、切换网页并重启要连续做完。发布当天在临时目录复制了三份 `jlpt-notes` 做预演，把磁盘写满过一次；副本已删，事后确认 SQLite `quick_check` ok、两份复习原始数据与备份一致。根分区 19G 已用约 90%，旧发布目录（各约 680M）可考虑清理。
+
+发布目录 `/srv/jlpt/releases/20261114-unified-review`，app 与 static 都已切换并重启 `jlpt.service`（切换前服务无子进程）。相对上一版，app 只有 `server/review.py`、`web/review/*` 与测试、文档不同；静态目录只有 `review/index.html`、`review/review.mjs`、`review/review.css` 不同。发布前的 `spaced-reviews.json`（第 1 版）、`forgets.json`、`config.json` 与 SQLite 备份（`integrity_check` ok）在私有 `backup/`。
+
+验证：`test:server` 276 项（15 项跳过）、`test:browser` 30 项通过；学习仓库 470 项测试（1 项跳过）与 `validate-groups`、`validate-links` 通过。在真实数据副本上预演迁移，20 个单元到期、无警告。线上 app 代码给出的到期清单与 `spaced-due` 一致（20 个单元，顺序相同）；对 G-001「っぽい」点“忘了”后复习记录出现当天一条，撤销后复习记录与 `forgets.json` 逐字节恢复。公网 `/review/` 未登录 303、`/api/review/today` 401。
+
+回滚：按 `previous-release.txt` 把 `/srv/jlpt/app` 切回 `20261111-overview-note/app`、`/srv/jlpt/static` 切回 `20261112-compare-three-items/static`，再重启服务；同时学习仓库 `git revert -m 1 914969a`，并从 `backup/` 恢复第 1 版 `spaced-reviews.json` 与 `forgets.json`（旧版程序读不了第 2 版）。
