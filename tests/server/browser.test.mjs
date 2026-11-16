@@ -15,7 +15,7 @@ test('home and login open the review plan; grammar page links back',()=>withSite
   await page.locator('#start-reading:not([disabled])').waitFor();
   assert.equal(await page.getByRole('link',{name:'今日安排'}).getAttribute('href'),'/review/');
   assert.equal(await page.getByRole('link',{name:'做题'}).getAttribute('href'),'/papers.html');
-  assert.equal(await page.getByRole('link',{name:'云开发'}).getAttribute('href'),'/code/');
+  assert.equal(await page.getByRole('link',{name:'云开发'}).count(),0);
   assert.equal((await page.goto(url+'/practice.html')).status(),404);
 }));
 
@@ -573,12 +573,14 @@ test('the last unit of a category can page forward to the next category\'s first
   assert.equal(await page.locator('.directory-list li',{hasText:'B-01-2'}).getByRole('button').count(),1);
 }));
 
-test('the review, papers and grammar pages no longer link to a news script page',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
-  const link=()=>page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'新闻脚本'});
-  assert.equal(await link().count(),0);
+test('the review, papers and grammar pages no longer link to a news script or cloudcli page',()=>withSite(chromium,{...devices['iPhone 13'],locale:'zh-CN'},async(page,url)=>{
+  const link=name=>page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name});
+  assert.equal(await link('新闻脚本').count(),0);
+  assert.equal(await link('云开发').count(),0);
   await page.goto(url+'/papers.html');
-  assert.equal(await link().count(),0);
+  assert.equal(await link('新闻脚本').count(),0);
+  assert.equal(await link('云开发').count(),0);
   await page.goto(url+'/grammar/');await page.locator('#start-reading:not([disabled])').waitFor();
-  assert.equal(await link().count(),0);
-  assert.equal(await page.getByRole('navigation',{name:'学习导航'}).getByRole('link',{name:'云开发'}).count(),1);
+  assert.equal(await link('新闻脚本').count(),0);
+  assert.equal(await link('云开发').count(),0);
 }));

@@ -1025,3 +1025,11 @@ node scripts/news_check.mjs --feed it --per-feed 2  # 只查某个分类，--fee
 验证：`test:server` 276 项（15 项跳过）、`test:browser` 30 项通过；学习仓库 470 项测试（1 项跳过）与 `validate-groups`、`validate-links` 通过。在真实数据副本上预演迁移，20 个单元到期、无警告。线上 app 代码给出的到期清单与 `spaced-due` 一致（20 个单元，顺序相同）；对 G-001「っぽい」点“忘了”后复习记录出现当天一条，撤销后复习记录与 `forgets.json` 逐字节恢复。公网 `/review/` 未登录 303、`/api/review/today` 401。
 
 回滚：按 `previous-release.txt` 把 `/srv/jlpt/app` 切回 `20261111-overview-note/app`、`/srv/jlpt/static` 切回 `20261112-compare-three-items/static`，再重启服务；同时学习仓库 `git revert -m 1 914969a`，并从 `backup/` 恢复第 1 版 `spaced-reviews.json` 与 `forgets.json`（旧版程序读不了第 2 版）。
+
+## 卸载 CloudCLI（`/code/` 云开发，2026-11-15）
+
+已停用并卸载 CloudCLI（`/code/` 云开发界面）及其额度服务：
+
+- 停用并删除 `cloudcli.service`、`cloudcli-quota.service` 与 `/etc/systemd/system/cloudcli-quota.service.d/`；删除 `/srv/cloudcli`（约 943 MB）与 `/root/.cloudcli`（约 33 MB，保留 `/root/.claude`），清理旧版 CloudCLI 备份；删除前配置与数据库备份保存在 `/var/backups/remove-cloudcli-20261115T161254Z/`。
+- 从线上 `/etc/caddy/Caddyfile` 移除 `/code /code/*` 例外与 `import /etc/caddy/cloudcli.caddy`，删除 `/etc/caddy/cloudcli.caddy` 与 `/etc/caddy/cloudcli-proxy.caddy` 并校验重载 Caddy；从 `/srv/portal/index.html`（及仓库 `deploy/portal/index.html`）移除 `/code/` 卡片。
+- 仓库移除 `deploy/cloudcli/` 目录，并从 `web/review/index.html`、`scripts/build-server.mjs`、`web/papers.html`、`web/papers.css` 中移除「云开发」入口与按钮，同步更新测试与文档。

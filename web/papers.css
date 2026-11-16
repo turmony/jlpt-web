@@ -49,4 +49,3 @@
 .submitted h2{margin-bottom:8px}
 .prompt-row{display:flex;gap:10px;align-items:center;margin:14px 0}
 .prompt-row code{flex:1;min-width:0;padding:10px 12px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-small);font-size:14px;overflow-wrap:anywhere}
-.open-code{display:inline-flex;align-items:center;min-height:44px;padding:8px 20px;border-radius:var(--radius-small);text-decoration:none}

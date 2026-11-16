@@ -99,7 +99,8 @@ class StaticStorageTests(unittest.TestCase):
             self.assertIn('JLPT_NEWS', client)
             self.assertIn(self.MARKER, client)
             page = (deployed / 'grammar/index.html').read_text()
-            self.assertIn('<a href="/papers.html">做题</a><a href="/code/">云开发</a>', page)
+            self.assertIn('<a href="/review/">今日安排</a><a href="/papers.html">做题</a>', page)
+            self.assertNotIn('/code/', page)
 
 
 class NewsClientBuildTests(unittest.TestCase):
