@@ -137,10 +137,11 @@ class _Recorded(list):
 
 class RecordingHub(FakeHub):
     """FakeHub whose requests and disconnect count are visible to the browser tests as files."""
-    def __init__(self, base, script=None, models=None):
-        self._disconnects_file = base / 'news-hub-disconnects'
+    def __init__(self, base, script=None, models=None, name=''):
+        suffix = f'-{name}' if name else ''
+        self._disconnects_file = base / f'news-hub{suffix}-disconnects'
         super().__init__(script, models)
-        self.requests = _Recorded(base / 'news-hub-requests.json')
+        self.requests = _Recorded(base / f'news-hub{suffix}-requests.json')
 
     @property
     def disconnects(self):
@@ -168,9 +169,21 @@ def news_wiring(base):
         spec = json.loads(Path(os.environ['NEWS_HUB_SCRIPT']).read_text('utf-8'))
     if isinstance(spec, list):
         spec = {'script': spec}
-    hub_server = RecordingHub(base, spec.get('script'), spec.get('models'))
-    news_module.to_sentences = fixture_sentences
-    service = NewsService(app.config, base, hub=Hub(hub_server.base_url, 'fixture-key'))
+    if isinstance(spec, dict) and ('codebuddy' in spec or 'qoder' in spec):
+        cb_spec = spec.get('codebuddy') or {}
+        q_spec = spec.get('qoder') or {}
+        if cb_spec:
+            cb_hub = RecordingHub(base, cb_spec.get('script'), cb_spec.get('models'), name='codebuddy')
+            app.config['codebuddy'] = {'base_url': cb_hub.base_url, 'api_key': 'cb-fixture-key'}
+        if q_spec:
+            q_hub = RecordingHub(base, q_spec.get('script'), q_spec.get('models'), name='qoder')
+            app.config['llm'] = {'base_url': q_hub.base_url, 'api_key': 'q-fixture-key'}
+        news_module.to_sentences = fixture_sentences
+        service = NewsService(app.config, base)
+    else:
+        hub_server = RecordingHub(base, spec.get('script'), spec.get('models'))
+        news_module.to_sentences = fixture_sentences
+        service = NewsService(app.config, base, hub=Hub(hub_server.base_url, 'fixture-key'))
     tokenize_log = _Recorded(base / 'news-tokenize-requests.json')
     tokenize = service.tokenize
 

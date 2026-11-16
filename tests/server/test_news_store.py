@@ -48,10 +48,26 @@ class StoreTests(unittest.TestCase):
         self.assertTrue((news / 'glossary.sqlite').exists())
 
     def test_settings_default_and_roundtrip(self):
-        self.assertEqual(self.store.settings(), {'model': None})
-        self.store.save_settings({'model': 'GLM-5.3-Flash'})
-        self.assertEqual(self.store.settings(), {'model': 'GLM-5.3-Flash'})
-        self.assertEqual(NewsStore(Path(self.tmp.name)).settings(), {'model': 'GLM-5.3-Flash'})
+        self.assertEqual(self.store.settings(), {'provider': 'codebuddy', 'models': {}, 'efforts': {}, 'model': None})
+        self.store.save_settings({
+            'provider': 'qoder',
+            'models': {'qoder': 'GLM-5.3-Flash'},
+            'efforts': {'qoder': {'GLM-5.3-Flash': 'max'}, 'codebuddy': {'global:hy4flash-free': 'on'}},
+        })
+        expected = {
+            'provider': 'qoder',
+            'models': {'qoder': 'GLM-5.3-Flash'},
+            'efforts': {'qoder': {'GLM-5.3-Flash': 'max'}, 'codebuddy': {'global:hy4flash-free': 'on'}},
+            'model': None,
+        }
+        self.assertEqual(self.store.settings(), expected)
+        self.assertEqual(NewsStore(Path(self.tmp.name)).settings(), expected)
+        # Legacy single-model file reads back safely with codebuddy default provider.
+        self.store.save_settings({'model': 'DeepSeek-Flash'})
+        self.assertEqual(
+            self.store.settings(),
+            {'provider': 'codebuddy', 'models': {}, 'efforts': {}, 'model': 'DeepSeek-Flash'},
+        )
 
     def test_concurrent_access_is_safe(self):
         errors = []

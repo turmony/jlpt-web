@@ -18,7 +18,7 @@ from .llm import Hub, R_UNAVAILABLE
 from .news_errors import NewsError
 from .news_jobs import ClientGone, JobBoard
 from .news_prompts import MAX_HISTORY_ROUNDS, analysis_messages, ask_messages, gloss_messages
-from .news_store import NewsStore
+from .news_store import DEFAULT_PROVIDER, NewsStore
 from .news_text import TokenizerUnavailable, to_sentences
 from .news_xml import AnalysisParser, parse_gloss
 
@@ -35,7 +35,14 @@ MAX_TOKENS = 400            # words in that sentence
 MAX_TOKEN = 100             # characters in one word
 
 R_NO_MODEL = '请先点右下角按钮，在菜单里选择模型'
-R_NO_HUB = '未配置 qoder2api-hub'
+R_NO_HUB = '未配置 CodeBuddy 网关'
+
+PROVIDERS = (
+    ('codebuddy', 'CodeBuddy', 'CodeBuddy 网关'),
+    ('qoder', 'Qoder', 'qoder2api-hub'),
+)
+_PROVIDER_BY_ID = {pid: (label, gw) for pid, label, gw in PROVIDERS}
+DEFAULT_MODELS = {'codebuddy': 'global:hy4flash-free'}
 
 _CARD_CUT = re.compile('[：（(]')
 _CARD_SPLIT = re.compile('[／・/]')
@@ -111,15 +118,30 @@ def start_cleanup(service, interval=CLEANUP_INTERVAL, stop=None):
     return thread
 
 
+def _provider_entry(cfg):
+    return isinstance(cfg, dict) and isinstance(cfg.get('base_url'), str) and cfg.get('base_url').strip()
+
+
 class NewsService:
     def __init__(self, config, state, hub=None):
         self.config = config
         self.store = NewsStore(state)
         self.store.cleanup()
-        llm = config.get('llm') or {}
-        if hub is None and llm.get('base_url'):
-            hub = Hub(llm['base_url'], llm.get('api_key') or '')
-        self.hub = hub
+        self._single_hub = hub is not None
+        self._hubs = {}
+        if hub is not None:
+            self._hubs[DEFAULT_PROVIDER] = hub
+        else:
+            raw_providers = dict(config.get('llm_providers') or {}) if isinstance(config.get('llm_providers'), dict) else {}
+            candidates = {
+                'codebuddy': raw_providers.get('codebuddy') or config.get('codebuddy'),
+                'qoder': raw_providers.get('qoder') or config.get('llm'),
+            }
+            for pid, _label, gw_name in PROVIDERS:
+                entry = candidates.get(pid)
+                if _provider_entry(entry):
+                    self._hubs[pid] = Hub(entry['base_url'], entry.get('api_key') or '', label=gw_name)
+        self.hub = self._hubs.get(DEFAULT_PROVIDER) or self._hubs.get('qoder')
         self.slots = threading.BoundedSemaphore(MODEL_SLOTS)
         self.jobs = JobBoard()
         self._lock = threading.Lock()
@@ -156,36 +178,156 @@ class NewsService:
         emit('progress', {'stage': stage, 'text': text})
 
     # -- models ----------------------------------------------------------------
-    def _hub(self):
-        if self.hub is None:
-            raise NewsError('gateway', R_NO_HUB, retryable=False)
-        return self.hub
+    @staticmethod
+    def _validate_provider(provider):
+        if not isinstance(provider, str) or provider not in _PROVIDER_BY_ID:
+            raise client_error('模型来源无效')
+        return provider
 
-    def models(self):
+    def _active_provider(self, settings=None):
+        pid = (settings if settings is not None else self.store.settings()).get('provider')
+        return pid if pid in _PROVIDER_BY_ID else DEFAULT_PROVIDER
+
+    def _merged_models(self, settings):
+        models_map = dict(settings.get('models') or {})
+        if not models_map and settings.get('model'):
+            legacy_pid = DEFAULT_PROVIDER if self._single_hub else 'qoder'
+            models_map[legacy_pid] = settings['model']
+        return models_map
+
+    @staticmethod
+    def _merged_efforts(settings):
+        raw = settings.get('efforts') or {}
+        return {pid: dict(inner) for pid, inner in raw.items() if isinstance(pid, str) and isinstance(inner, dict)}
+
+    @staticmethod
+    def _find_model(items, model_id):
+        for m in items:
+            if m['id'] == model_id:
+                return m
+        return None
+
+    def _effective_effort(self, pid, model_id, settings, items):
+        if not model_id:
+            return None
+        item = self._find_model(items, model_id)
+        if not item:
+            return None
+        thinking = item.get('thinking') or {}
+        options = thinking.get('options') or []
+        saved = self._merged_efforts(settings).get(pid, {}).get(model_id)
+        if thinking.get('mode') != 'fixed' and saved in options:
+            return saved
+        return thinking.get('default') if thinking else item.get('effort')
+
+    def _saved_model(self, settings, pid):
+        return self._merged_models(settings).get(pid)
+
+    def _effective_selected(self, pid, settings, items):
+        chosen = self._saved_model(settings, pid)
+        if chosen:
+            return chosen
+        default_id = DEFAULT_MODELS.get(pid)
+        if default_id and any(m['id'] == default_id for m in items):
+            return default_id
+        return None
+
+    def _hub(self, provider=None):
+        pid = provider or self._active_provider()
+        hub = self._hubs.get(pid)
+        if hub is None:
+            gw_name = _PROVIDER_BY_ID[pid][1]
+            raise NewsError('gateway', '未配置 %s' % gw_name, retryable=False)
+        return hub
+
+    def _providers_info(self):
+        return [
+            {'id': pid, 'label': label, 'configured': pid in self._hubs}
+            for pid, label, _gw in PROVIDERS
+        ]
+
+    def models(self, provider=None):
         with _located('模型列表'):
-            return {'models': self._hub().models(), 'selected': self.store.settings().get('model')}
+            settings = self.store.settings()
+            pid = self._validate_provider(provider) if provider is not None else self._active_provider(settings)
+            items = self._hub(pid).models()
+            selected = self._effective_selected(pid, settings, items)
+            return {
+                'provider': pid,
+                'providers': self._providers_info(),
+                'models': items,
+                'selected': selected,
+                'effort': self._effective_effort(pid, selected, settings, items),
+                'efforts': self._merged_efforts(settings).get(pid, {}),
+            }
+
+    def save_settings(self, provider=None, model=None, effort=None):
+        if provider is None and model is None and effort is None:
+            raise client_error('设置参数无效')
+        settings = self.store.settings()
+        pid = self._validate_provider(provider) if provider is not None else self._active_provider(settings)
+        models_map = self._merged_models(settings)
+        efforts_map = self._merged_efforts(settings)
+        items = None
+        if model is not None:
+            if not isinstance(model, str) or not model.strip() or len(model) > 200:
+                raise client_error('模型名无效')
+            with _located('保存模型'):
+                items = self._hub(pid).models()
+                if not self._find_model(items, model):
+                    raise NewsError('model', R_UNAVAILABLE, retryable=False)
+            models_map[pid] = model
+        if effort is not None:
+            if not isinstance(effort, str) or not effort.strip() or len(effort) > 40:
+                raise client_error('思考强度无效')
+            with _located('保存思考强度'):
+                if items is None:
+                    items = self._hub(pid).models()
+                target_model = model if model is not None else self._effective_selected(pid, {'models': models_map}, items)
+                if not target_model:
+                    raise NewsError('model', R_NO_MODEL, retryable=False)
+                item = self._find_model(items, target_model)
+                if not item:
+                    raise NewsError('model', R_UNAVAILABLE, retryable=False)
+                thinking = item.get('thinking') or {}
+                mode = thinking.get('mode')
+                options = thinking.get('options') or []
+                if mode in ('fixed', 'none'):
+                    if mode == 'none' or effort != thinking.get('default'):
+                        raise client_error('当前模型不支持调节思考强度')
+                elif effort not in options:
+                    raise client_error('思考强度无效')
+                efforts_map.setdefault(pid, {})[target_model] = effort
+        new_settings = {'provider': pid, 'models': models_map, 'efforts': efforts_map}
+        self.store.save_settings(new_settings)
+        selected = models_map.get(pid)
+        if items is not None:
+            eff_model = selected or self._effective_selected(pid, new_settings, items)
+            res = {'selected': eff_model, 'effort': self._effective_effort(pid, eff_model, new_settings, items)}
+            if provider is not None:
+                res['provider'] = pid
+            return res
+        return {'provider': pid, 'selected': selected}
 
     def save_model(self, model):
-        if not isinstance(model, str) or not model.strip() or len(model) > 200:
-            raise client_error('模型名无效')
-        with _located('保存模型'):
-            if not any(m['id'] == model for m in self._hub().models()):
-                raise NewsError('model', R_UNAVAILABLE, retryable=False)
-        settings = self.store.settings()
-        settings['model'] = model
-        self.store.save_settings(settings)
-        return {'selected': model}
+        return self.save_settings(model=model)
 
     def _model(self):
-        """(model id, effort) of the selected model, which must still be offered by the hub."""
-        hub = self._hub()
-        model = self.store.settings().get('model')
+        """(provider, hub, model id, effort) of the active selection, which must still be offered."""
+        settings = self.store.settings()
+        pid = self._active_provider(settings)
+        hub = self._hub(pid)
+        items = hub.models()
+        model = self._effective_selected(pid, settings, items)
         if not model:
             raise NewsError('model', R_NO_MODEL, retryable=False)
-        for m in hub.models():
-            if m['id'] == model:
-                return model, m.get('effort')
-        raise NewsError('model', R_UNAVAILABLE, retryable=False)
+        if not self._find_model(items, model):
+            raise NewsError('model', R_UNAVAILABLE, retryable=False)
+        return pid, hub, model, self._effective_effort(pid, model, settings, items)
+
+    @staticmethod
+    def _glossary_key(provider, model):
+        return model if provider == 'qoder' else f'{provider}:{model}'
 
     @contextlib.contextmanager
     def _slot(self, emit=None):
@@ -201,11 +343,11 @@ class NewsService:
         finally:
             self.slots.release()
 
-    def _stream(self, model, messages, effort, on_text, emit=None):
+    def _stream(self, hub, model, messages, effort, on_text, emit=None):
         """Feed model text to on_text(chunk) -> bool (whether it emitted). Pings a quiet stream so
         a closed client is noticed, including while the model only thinks (the hub's '' heartbeats,
         which never reach on_text); closing the generator drops the upstream request."""
-        gen = self.hub.stream(model, messages, effort)
+        gen = hub.stream(model, messages, effort)
         last = time.monotonic()
         try:
             for chunk in gen:
@@ -226,8 +368,9 @@ class NewsService:
         if not lemma.strip():
             raise client_error('查词参数无效')
         with _located('查词：%s' % lemma):
-            model, effort = self._model()
-            cached = self.store.glossary_get(model, lemma, pos)
+            provider, hub, model, effort = self._model()
+            cache_key = self._glossary_key(provider, model)
+            cached = self.store.glossary_get(cache_key, lemma, pos)
             if cached is not None:
                 return {'meaning': cached}
             parts = []
@@ -236,9 +379,9 @@ class NewsService:
                 parts.append(chunk)
                 return False
             with self._slot():
-                self._stream(model, gloss_messages(lemma, reading, pos), effort, on_text)
+                self._stream(hub, model, gloss_messages(lemma, reading, pos), effort, on_text)
             meaning = parse_gloss(''.join(parts))
-            self.store.glossary_put(model, lemma, pos, meaning)
+            self.store.glossary_put(cache_key, lemma, pos, meaning)
             return {'meaning': meaning}
 
     # -- tokenizing ----------------------------------------------------------------
@@ -346,7 +489,7 @@ class NewsService:
     def analyze(self, paragraph, tokens, start, end, emit):
         with _located('句子分析'):
             sentence, selection = self._sentence_texts(tokens, start, end)
-            model, effort = self._model()
+            _provider, hub, model, effort = self._model()
             parser = AnalysisParser()
             parts = []
             sections = [0]
@@ -366,7 +509,7 @@ class NewsService:
 
             with self._slot(emit):
                 self._progress(emit, 'model', '等待模型回应…')
-                self._stream(model, analysis_messages(paragraph, sentence, selection), effort, on_text, emit)
+                self._stream(hub, model, analysis_messages(paragraph, sentence, selection), effort, on_text, emit)
             send(parser.close())
             if not sections[0]:
                 raise NewsError('format', '回复不符合分析模板')
@@ -375,7 +518,7 @@ class NewsService:
     def ask(self, paragraph, tokens, start, end, analysis_text, history, question, emit):
         with _located('追问'):
             sentence, selection = self._sentence_texts(tokens, start, end)
-            model, effort = self._model()
+            _provider, hub, model, effort = self._model()
 
             def on_text(chunk):
                 emit('delta', {'text': chunk})
@@ -384,5 +527,5 @@ class NewsService:
             messages = ask_messages(sentence, selection, analysis_text, history[-MAX_HISTORY_ROUNDS:], question)
             with self._slot(emit):
                 self._progress(emit, 'model', '等待模型回应…')
-                self._stream(model, messages, effort, on_text, emit)
+                self._stream(hub, model, messages, effort, on_text, emit)
             emit('done', {})

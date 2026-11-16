@@ -180,7 +180,7 @@ def create_server(app, address):
             if path == '/api/session':
                 return self.reply(200, {'ok': True})
             if path.startswith('/api/news/'):
-                return self.news_route(path[len('/api/news'):], post)
+                return self.news_route(path[len('/api/news'):], post, parsed.query)
             if path.startswith('/api/review/'):
                 return self.review(path[len('/api/review'):], parsed.query, post)
             if path == '/api/quiz/papers' and not post:
@@ -233,7 +233,7 @@ def create_server(app, address):
                     return self.reply(200, review.submit_review(study, review_id, self.json_body().get('answers')))
             self.reply(404, {'error': '页面不存在'})
 
-        def news_route(self, path, post):
+        def news_route(self, path, post, query=''):
             svc = app.news
 
             def body():
@@ -256,9 +256,13 @@ def create_server(app, address):
                         return self.reply(503, {'error': '主脚本未构建'})
                     return self.reply(200, code, 'text/javascript; charset=utf-8')
                 if path == '/models' and not post:
-                    return self.reply(200, svc.models())
+                    values = parse_qs(query).get('provider')
+                    if values is not None and len(values) != 1:
+                        raise news.client_error('模型来源无效')
+                    return self.reply(200, svc.models(values[0] if values else None))
                 if path == '/settings' and post:
-                    return self.reply(200, svc.save_model(body().get('model')))
+                    data = body()
+                    return self.reply(200, svc.save_settings(data.get('provider'), data.get('model'), data.get('effort')))
                 if path == '/gloss' and post:
                     data = body()
                     return self.reply(200, svc.gloss(data.get('lemma'), data.get('reading'), data.get('pos')))

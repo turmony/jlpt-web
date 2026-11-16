@@ -71,7 +71,7 @@ class AccessTests(base.NewsHTTPBase):
                                           {'model': 'DeepSeek-Flash'}, cookie=False)
         self.assertEqual(status, 200, raw)
         self.assertEqual(response.getheader('Access-Control-Allow-Origin'), SITE)
-        self.assertEqual(json.loads(raw), {'selected': 'DeepSeek-Flash'})
+        self.assertEqual(json.loads(raw), {'selected': 'DeepSeek-Flash', 'effort': 'low'})
 
     def test_an_authorization_header_from_an_old_loader_is_ignored(self):
         status, _response, raw = self.call('GET', '/api/news/models', {'Origin': SITE, 'Authorization': 'Bearer old'},

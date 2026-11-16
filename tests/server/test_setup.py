@@ -120,6 +120,28 @@ class SetupTests(unittest.TestCase):
                 self.assertNotIn(secret, result.stdout + result.stderr, args)
                 self.assertFalse(config_path.exists() and 'llm' in json.loads(config_path.read_text()), args)
 
+    def test_configure_server_writes_codebuddy_alongside_qoder_without_echoing_key(self):
+        q_secret = 'sk-qoder-SECRET-1111111111'
+        cb_secret = 'wbk_codebuddy_SECRET_2222222'
+        with tempfile.TemporaryDirectory() as tmp:
+            result, config_path = self._configure(
+                tmp,
+                '--llm-base-url', 'http://127.0.0.1:8790', '--llm-api-key', q_secret,
+                '--codebuddy-base-url', 'http://127.0.0.1:7864/', '--codebuddy-api-key', cb_secret,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn(q_secret, result.stdout + result.stderr)
+            self.assertNotIn(cb_secret, result.stdout + result.stderr)
+            saved = json.loads(config_path.read_text())
+            self.assertEqual(saved['llm'], {'base_url': 'http://127.0.0.1:8790', 'api_key': q_secret})
+            self.assertEqual(saved['codebuddy'], {'base_url': 'http://127.0.0.1:7864', 'api_key': cb_secret})
+            # Updating URL via env empty key preserves stored codebuddy key.
+            result, config_path = self._configure(tmp, '--codebuddy-base-url', 'http://127.0.0.1:7865',
+                                                  env={'JLPT_CODEBUDDY_API_KEY': ''})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(config_path.read_text())['codebuddy'],
+                             {'base_url': 'http://127.0.0.1:7865', 'api_key': cb_secret})
+
     def test_service_runs_in_news_venv_and_installer_builds_it(self):
         service = Path('deploy/jlpt.service').read_text()
         self.assertIn('ExecStart=/srv/jlpt/venv/bin/python -m server --config /srv/jlpt/state/config.json', service)

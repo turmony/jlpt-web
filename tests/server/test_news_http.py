@@ -169,7 +169,9 @@ class AccessTests(NewsHTTPBase):
         self.login()
         self.assertNotIn('llm', self.config)
         err = self.json('/api/news/models', status=502)['error']
-        self.assertEqual((err['stage'], err['reason']), ('gateway', '未配置 qoder2api-hub'))
+        self.assertEqual((err['stage'], err['reason']), ('gateway', '未配置 CodeBuddy 网关'))
+        err_q = self.json('/api/news/models?provider=qoder', status=502)['error']
+        self.assertEqual((err_q['stage'], err_q['reason']), ('gateway', '未配置 qoder2api-hub'))
         err = self.json('/api/news/gloss', {'lemma': '本', 'reading': 'ほん', 'pos': '名詞'}, status=502)['error']
         self.assertEqual(err['stage'], 'gateway')
 
@@ -198,6 +200,116 @@ class ModelTests(NewsHTTPBase):
         err = self.json('/api/news/settings', {'model': 'Gone'}, status=502)['error']
         self.assertEqual((err['stage'], err['reason']), ('model', '当前模型不可用，请重新选择'))
         self.assertEqual(self.json('/api/news/settings', {'model': 7}, status=400)['error']['stage'], 'client')
+
+
+class MultiProviderTests(NewsHTTPBase):
+    def _wire_both(self, cb_script, q_script, cb_models=None, q_models=None, legacy_model=None):
+        cb_models = cb_models if cb_models is not None else [
+            {'id': 'Auto', 'name': 'Auto', 'credits': 'x0.15'},
+            {'id': 'global:hy4flash-free', 'name': 'Hy4 flash', 'credits': 'x0.00',
+             'reasoning_supported_efforts': ['high']},
+            {'id': 'global:deepseek-v4.1-flash-sg', 'name': 'Deepseek-V4.1-Flash', 'credits': 'x0.11'},
+        ]
+        q_models = q_models if q_models is not None else [
+            {'id': 'Auto', 'enabled': True},
+            {'id': 'DeepSeek-Flash', 'name_local': 'DeepSeek-V4-Flash', 'enabled': True,
+             'reasoning_efforts': ['low', 'high']},
+        ]
+        self.cb_fake = FakeHub(cb_script, cb_models)
+        self.addCleanup(self.cb_fake.close)
+        self.q_fake = FakeHub(q_script, q_models)
+        self.addCleanup(self.q_fake.close)
+        cfg = dict(self.config,
+                   codebuddy={'base_url': self.cb_fake.base_url, 'api_key': 'cb-key'},
+                   llm={'base_url': self.q_fake.base_url, 'api_key': 'q-key'})
+        self.svc = NewsService(cfg, Path(cfg['state']))
+        self.app.news = self.svc
+        if legacy_model is not None:
+            self.svc.store.save_settings({'model': legacy_model})
+
+    def test_defaults_to_codebuddy_migrates_legacy_qoder_and_isolates_cache(self):
+        self._wire_both(
+            cb_script=[('chunks', ['<meaning>CB免费</meaning>'], 0), ('chunks', ['<meaning>CB-Auto</meaning>'], 0)],
+            q_script=[('chunks', ['<meaning>Q-Flash</meaning>'], 0), ('chunks', ['<meaning>Q-Auto</meaning>'], 0)],
+            legacy_model='DeepSeek-Flash',
+        )
+        self.login()
+
+        # Default provider is codebuddy and auto-selects global:hy4flash-free with thinking off -> 'none'.
+        body = self.json('/api/news/models')
+        self.assertEqual(body['provider'], 'codebuddy')
+        self.assertEqual([p['id'] for p in body['providers']], ['codebuddy', 'qoder'])
+        self.assertTrue(all(p['configured'] for p in body['providers']))
+        self.assertEqual(body['selected'], 'global:hy4flash-free')
+        self.assertEqual(body['effort'], 'off')
+        self.assertEqual(self.json('/api/news/gloss', {'lemma': '山', 'reading': 'やま', 'pos': '名詞'}),
+                         {'meaning': 'CB免费'})
+        self.assertEqual(self.cb_fake.requests[0]['model'], 'global:hy4flash-free')
+        self.assertEqual(self.cb_fake.requests[0]['reasoning_effort'], 'none')
+        self.assertEqual(len(self.q_fake.requests), 0)
+
+        # Switch to qoder: remembers migrated DeepSeek-Flash and routes there.
+        sw = self.json('/api/news/settings', {'provider': 'qoder'})
+        self.assertEqual(sw, {'provider': 'qoder', 'selected': 'DeepSeek-Flash'})
+        q_body = self.json('/api/news/models')
+        self.assertEqual(q_body['provider'], 'qoder')
+        self.assertEqual(q_body['selected'], 'DeepSeek-Flash')
+        self.assertEqual(q_body['effort'], 'low')
+        self.assertEqual(self.json('/api/news/gloss', {'lemma': '川', 'reading': 'かわ', 'pos': '名詞'}),
+                         {'meaning': 'Q-Flash'})
+        self.assertEqual(self.q_fake.requests[-1]['model'], 'DeepSeek-Flash')
+
+        # Identical model id 'Auto' keeps isolated glossary cache per provider.
+        self.json('/api/news/settings', {'provider': 'codebuddy', 'model': 'Auto'})
+        self.assertEqual(self.json('/api/news/gloss', {'lemma': '水', 'reading': 'みず', 'pos': '名詞'}),
+                         {'meaning': 'CB-Auto'})
+        self.json('/api/news/settings', {'provider': 'qoder', 'model': 'Auto'})
+        self.assertEqual(self.json('/api/news/gloss', {'lemma': '水', 'reading': 'みず', 'pos': '名詞'}),
+                         {'meaning': 'Q-Auto'})
+
+        # Invalid provider is a client error.
+        self.assertEqual(self.json('/api/news/models?provider=bad', status=400)['error']['stage'], 'client')
+        self.assertEqual(self.json('/api/news/settings', {'provider': 'bad'}, status=400)['error']['stage'], 'client')
+
+    def test_thinking_effort_settings_per_model_and_validation(self):
+        cb_models = [
+            {'id': 'global:hy4flash-free', 'name': 'Hy4 flash', 'credits': 'x0.00',
+             'reasoning_supported_efforts': ['high']},
+            {'id': 'global:glm-5.3-flash', 'name': 'GLM-5.3-Flash', 'credits': 'x0.08',
+             'reasoning_supported_efforts': ['low', 'high', 'max']},
+            {'id': 'global:max-model', 'name': 'Max', 'credits': 'x1.33',
+             'reasoning_supported_efforts': ['high']},
+        ]
+        self._wire_both(
+            cb_script=[('chunks', ['<meaning>词义</meaning>'], 0)] * 4,
+            q_script=[('chunks', ['<meaning>Q词义</meaning>'], 0)],
+            cb_models=cb_models,
+        )
+        self.login()
+
+        # Toggle hy4flash-free from default 'off' to 'on' -> sends 'high'.
+        self.assertEqual(self.json('/api/news/settings', {'effort': 'on'}),
+                         {'selected': 'global:hy4flash-free', 'effort': 'on'})
+        self.json('/api/news/gloss', {'lemma': '空', 'reading': 'そら', 'pos': '名詞'})
+        self.assertEqual(self.cb_fake.requests[-1]['reasoning_effort'], 'high')
+
+        # Switch to multi-tier model: defaults to 'low', does not accept 'off', accepts 'max'.
+        self.assertEqual(self.json('/api/news/settings', {'model': 'global:glm-5.3-flash'}),
+                         {'selected': 'global:glm-5.3-flash', 'effort': 'low'})
+        self.assertEqual(self.json('/api/news/settings', {'effort': 'off'}, status=400)['error']['stage'], 'client')
+        self.assertEqual(self.json('/api/news/settings', {'effort': 'max'}),
+                         {'selected': 'global:glm-5.3-flash', 'effort': 'max'})
+        self.json('/api/news/gloss', {'lemma': '海', 'reading': 'うみ', 'pos': '名詞'})
+        self.assertEqual(self.cb_fake.requests[-1]['reasoning_effort'], 'max')
+
+        # Switching back to hy4flash-free restores saved 'on'; switching to fixed Max rejects changing effort.
+        self.assertEqual(self.json('/api/news/settings', {'model': 'global:hy4flash-free'}),
+                         {'selected': 'global:hy4flash-free', 'effort': 'on'})
+        self.assertEqual(self.json('/api/news/settings', {'model': 'global:max-model'}),
+                         {'selected': 'global:max-model', 'effort': 'high'})
+        self.assertEqual(self.json('/api/news/settings', {'effort': 'off'}, status=400)['error']['stage'], 'client')
+        self.json('/api/news/gloss', {'lemma': '山', 'reading': 'やま', 'pos': '名詞'})
+        self.assertEqual(self.cb_fake.requests[-1]['reasoning_effort'], 'high')
 
     def test_gloss_cached_second_call_hits_no_hub(self):
         self.use(script=[('chunks', ['<gloss><meaning>', '书；书本</meaning></gloss>'], 0)])

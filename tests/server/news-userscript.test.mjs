@@ -1057,6 +1057,139 @@ for(const device of NEWS_DEVICES) {
   }));
 }
 
+const providerOption=(page,id)=>page.locator(`jlpt-news .news-provider-option[data-provider=${id}]`);
+
+test('the dock defaults to CodeBuddy, allows switching to Qoder, and remembers both',()=>withUserscript('iPhone 13',async(page,{site})=>{
+  await openArticle(page,site);
+  let menu=await openDock(page);
+  assert.deepEqual(await menu.locator('.news-provider-option').allInnerTexts(),['CodeBuddy','Qoder']);
+  await menu.locator('.news-model',{hasText:'模型：Hy4 flash（免费）'}).waitFor();
+  assert.equal(await providerOption(page,'codebuddy').getAttribute('aria-pressed'),'true');
+  assert.equal(await providerOption(page,'qoder').getAttribute('aria-pressed'),'false');
+  await menu.locator('.news-model').click();
+  assert.deepEqual(await menu.locator('.news-model-list button').allInnerTexts(),['Auto（x0.15）','Hy4 flash（免费）']);
+  await menu.locator('.news-model-list button',{hasText:'Auto（x0.15）'}).click();
+  await menu.locator('.news-model',{hasText:'模型：Auto（x0.15）'}).waitFor();
+
+  // Switch to Qoder, pick a Qoder model, reload, and verify persistence.
+  await providerOption(page,'qoder').click();
+  await menu.locator('.news-model',{hasText:'模型：未选择'}).waitFor();
+  assert.equal(await providerOption(page,'qoder').getAttribute('aria-pressed'),'true');
+  await menu.locator('.news-model').click();
+  assert.deepEqual(await menu.locator('.news-model-list button').allInnerTexts(),['Auto','DeepSeek-V4-Flash']);
+  await menu.locator('.news-model-list button',{hasText:'DeepSeek-V4-Flash'}).click();
+  await menu.locator('.news-model',{hasText:'模型：DeepSeek-V4-Flash'}).waitFor();
+
+  await page.reload();
+  await marked(page);
+  menu=await openDock(page);
+  await menu.locator('.news-model',{hasText:'模型：DeepSeek-V4-Flash'}).waitFor();
+  assert.equal(await providerOption(page,'qoder').getAttribute('aria-pressed'),'true');
+
+  // Switch back to CodeBuddy and confirm its selected model was preserved separately.
+  await providerOption(page,'codebuddy').click();
+  await menu.locator('.news-model',{hasText:'模型：Auto（x0.15）'}).waitFor();
+  assert.equal(await providerOption(page,'codebuddy').getAttribute('aria-pressed'),'true');
+},{hub:{
+  codebuddy:{models:[
+    {id:'global:default-model',name:'Auto',credits:'x0.15'},
+    {id:'global:hy4flash-free',name:'Hy4 flash',credits:'x0.00',reasoning_supported_efforts:['high']},
+  ]},
+  qoder:{models:[
+    {id:'Auto',enabled:true},
+    {id:'DeepSeek-Flash',name_local:'DeepSeek-V4-Flash',enabled:true,reasoning_efforts:['low','high']},
+  ]},
+}}));
+
+test('the dock adapts thinking controls for toggle, multi-level, and fixed models',()=>withUserscript('iPhone 13',async(page,{site,tmp})=>{
+  await openArticle(page,site);
+  let menu=await openDock(page);
+  const thinkingBox=menu.locator('.news-thinking-box');
+  const thinkingOpt=(effort)=>menu.locator(`.news-thinking-option[data-effort="${effort}"]`);
+
+  // Default Hy4 flash（免费）: toggle mode defaulting to 关闭 ('none' upstream).
+  await menu.locator('.news-model',{hasText:'模型：Hy4 flash（免费）'}).waitFor();
+  await thinkingBox.waitFor({state:'visible'});
+  assert.equal(await menu.locator('.news-thinking-label').innerText(),'思考模式');
+  assert.deepEqual(await menu.locator('.news-thinking-option').allInnerTexts(),['关闭','开启']);
+  assert.equal(await thinkingOpt('off').getAttribute('aria-pressed'),'true');
+  assert.equal(await thinkingOpt('on').getAttribute('aria-pressed'),'false');
+  await thinkingOpt('on').click();
+  await page.waitForFunction(()=>document.querySelector('jlpt-news')?.shadowRoot?.querySelector('.news-thinking-option[data-effort="on"]')?.getAttribute('aria-pressed')==='true');
+
+  // Switch to multi-level model (GLM-5.3-Flash): levels only (no 关闭 button).
+  await menu.locator('.news-model').click();
+  await menu.locator('.news-model-list button',{hasText:'GLM-5.3-Flash（x0.08）'}).click();
+  await menu.locator('.news-model',{hasText:'模型：GLM-5.3-Flash（x0.08）'}).waitFor();
+  assert.equal(await menu.locator('.news-thinking-label').innerText(),'思考强度');
+  assert.deepEqual(await menu.locator('.news-thinking-option').allInnerTexts(),['低','高','最大']);
+  assert.equal(await thinkingOpt('low').getAttribute('aria-pressed'),'true');
+  await thinkingOpt('max').click();
+  await page.waitForFunction(()=>document.querySelector('jlpt-news')?.shadowRoot?.querySelector('.news-thinking-option[data-effort="max"]')?.getAttribute('aria-pressed')==='true');
+
+  // Reload persists 'max' for GLM-5.3-Flash and sends reasoning_effort='max' on lookup.
+  await page.reload();
+  await marked(page);
+  menu=await openDock(page);
+  assert.equal(await thinkingOpt('max').getAttribute('aria-pressed'),'true');
+  await dockButton(page).click();
+  const [A]=await ids(page,'台風は強い勢力で島に接近する');
+  await tap(page,tok(page,A,3));
+  await card(page).locator('.news-card-meaning',{hasText:'意义'}).waitFor();
+  const cbReqs=JSON.parse(await readFile(join(tmp,'news-hub-codebuddy-requests.json'),'utf-8'));
+  assert.equal(cbReqs.at(-1).model,'global:glm-5.3-flash');
+  assert.equal(cbReqs.at(-1).reasoning_effort,'max');
+
+  // Switch back to Hy4 flash（免费）-> remembers 'on' and sends 'high'; Max shows fixed read-only note.
+  menu=await openDock(page);
+  await menu.locator('.news-model').click();
+  await menu.locator('.news-model-list button',{hasText:'Hy4 flash（免费）'}).click();
+  await menu.locator('.news-thinking-label',{hasText:'思考模式'}).waitFor();
+  assert.equal(await thinkingOpt('on').getAttribute('aria-pressed'),'true');
+  await menu.locator('.news-model').click();
+  await menu.locator('.news-model-list button',{hasText:'Max（x1.33）'}).click();
+  await menu.locator('.news-thinking-fixed').getByText('固定开启（high，不支持关闭）').waitFor();
+  assert.equal(await menu.locator('.news-thinking-option').count(),0);
+
+  // Switch to Qoder: multi-tier shows levels, Auto hides thinking box.
+  await providerOption(page,'qoder').click();
+  await menu.locator('.news-model').click();
+  await menu.locator('.news-model-list button',{hasText:'DeepSeek-V4-Flash'}).click();
+  await menu.locator('.news-thinking-label',{hasText:'思考强度'}).waitFor();
+  assert.deepEqual(await menu.locator('.news-thinking-option').allInnerTexts(),['低','高','最大']);
+  await menu.locator('.news-model').click();
+  await menu.locator('.news-model-list button',{hasText:'Auto'}).click();
+  await thinkingBox.waitFor({state:'hidden'});
+},{hub:{
+  codebuddy:{
+    models:[
+      {id:'global:hy4flash-free',name:'Hy4 flash',credits:'x0.00',reasoning_supported_efforts:['high']},
+      {id:'global:glm-5.3-flash',name:'GLM-5.3-Flash',credits:'x0.08',reasoning_supported_efforts:['low','high','max']},
+      {id:'global:max-model',name:'Max',credits:'x1.33',reasoning_supported_efforts:['high']},
+    ],
+    script:[['chunks',['<meaning>意义</meaning>'],0]],
+  },
+  qoder:{
+    models:[
+      {id:'Auto',enabled:true},
+      {id:'DeepSeek-Flash',name_local:'DeepSeek-V4-Flash',enabled:true,reasoning_efforts:['low','high','max']},
+    ],
+    script:[['chunks',['<meaning>Q</meaning>'],0]],
+  },
+}}));
+
+test('tapping a word to look it up closes an open dock and model picker',()=>withUserscript('iPhone 13',async(page,{site})=>{
+  await openArticle(page,site);
+  const [A]=await ids(page,'台風は強い勢力で島に接近する');
+  const menu=await openDock(page);
+  await menu.locator('.news-model').click();
+  await menu.locator('.news-model-list').waitFor({state:'visible'});
+  await tap(page,tok(page,A,3));
+  await dockMenu(page).waitFor({state:'hidden'});
+  await menu.locator('.news-model-panel').waitFor({state:'hidden'});
+  await card(page).locator('.news-card-meaning',{hasText:'势力；力量，强度'}).waitFor();
+},{hub:GLOSS_HUB,select:'Auto'}));
+
 // -- analysis panel and follow-up questions ---------------------------------------------------------
 // The FakeHub answers analyses with the spec §5 XML in pieces and questions with plain text; what it
 // received is read back from news-hub-requests.json in the state dir.

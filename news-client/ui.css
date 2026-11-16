@@ -212,16 +212,27 @@
 .news-model-list button[aria-current="true"] { border-color: var(--accent-ink); background: var(--accent-soft); color: var(--accent-ink); }
 .news-model-problem:not(:empty) { padding: 6px 4px 2px; }
 
-/* 「外观」: follow the page / light / dark, a segmented control. */
-.news-theme {
+/* 「外观」「模型来源」「思考强度」: segmented controls sharing pill styling. */
+.news-theme, .news-provider, .news-thinking {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin-bottom: 10px;
   padding: 3px;
   border-radius: 12px;
   background: var(--tint);
 }
-.news-theme-option {
+.news-provider { margin-bottom: 8px; }
+.news-thinking-box { margin-top: 8px; }
+.news-thinking-box[hidden] { display: none; }
+.news-thinking-label {
+  margin-bottom: 4px;
+  padding-left: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.news-thinking { margin-bottom: 0; }
+.news-theme-option, .news-provider-option, .news-thinking-option {
   flex: 1 1 0;
   min-height: 36px;
   padding: 4px 6px;
@@ -234,11 +245,21 @@
   white-space: nowrap;
   cursor: pointer;
 }
-.news-theme-option[aria-pressed=true] {
+.news-theme-option[aria-pressed=true],
+.news-provider-option[aria-pressed=true],
+.news-thinking-option[aria-pressed=true] {
   background: var(--surface-solid);
   color: var(--text);
   font-weight: 600;
   box-shadow: var(--shadow-s);
+}
+.news-thinking-fixed {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--tint);
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
 }
 
 /* Word card (wordcard.mjs), fixed next to the tapped word. */

@@ -283,12 +283,18 @@ class ModelsTests(HubTestCase):
     def test_models_names_efforts_and_filtering(self):
         fake, hub = self.hub([], self.MODELS)
         self.assertEqual(hub.models(), [
-            {'id': 'Auto', 'name': 'Auto', 'effort': None},
-            {'id': 'DeepSeek-Flash', 'name': 'DeepSeek-V4-Flash', 'effort': 'low'},
-            {'id': 'DeepSeek-V4-Pro', 'name': 'DeepSeek-V4-Pro', 'effort': 'high'},
-            {'id': 'Odd', 'name': 'Odd', 'effort': 'medium'},
-            {'id': 'Weird', 'name': 'Weird', 'effort': None},
-            {'id': 'Empty', 'name': 'Empty', 'effort': None},
+            {'id': 'Auto', 'name': 'Auto', 'effort': None,
+             'thinking': {'mode': 'none', 'options': [], 'default': None}},
+            {'id': 'DeepSeek-Flash', 'name': 'DeepSeek-V4-Flash', 'effort': 'low',
+             'thinking': {'mode': 'levels', 'options': ['low', 'high', 'max'], 'default': 'low'}},
+            {'id': 'DeepSeek-V4-Pro', 'name': 'DeepSeek-V4-Pro', 'effort': 'high',
+             'thinking': {'mode': 'levels', 'options': ['high', 'max'], 'default': 'high'}},
+            {'id': 'Odd', 'name': 'Odd', 'effort': 'medium',
+             'thinking': {'mode': 'levels', 'options': ['medium', 'xhigh'], 'default': 'medium'}},
+            {'id': 'Weird', 'name': 'Weird', 'effort': None,
+             'thinking': {'mode': 'none', 'options': [], 'default': None}},
+            {'id': 'Empty', 'name': 'Empty', 'effort': None,
+             'thinking': {'mode': 'none', 'options': [], 'default': None}},
         ])
 
     def test_models_cached_for_five_minutes(self):
@@ -301,6 +307,95 @@ class ModelsTests(HubTestCase):
         self.assertEqual(hub.models(), first)
         now[0] += 2
         self.assertEqual([m['id'] for m in hub.models()], ['New'])
+
+    def test_codebuddy_models_shape_credits_and_supported_efforts(self):
+        models = [
+            {'id': 'global:default-model', 'name': 'Auto', 'credits': 'x0.15'},
+            {'id': 'global:hy4flash', 'name': 'Hy4 flash', 'credits': 'x0.03',
+             'reasoning_supported_efforts': ['high']},
+            {'id': 'global:hy4flash-free', 'name': 'Hy4 flash', 'credits': 'x0.00',
+             'reasoning_supported_efforts': ['high']},
+            {'id': 'global:glm-5.3-flash', 'name': 'GLM-5.3-Flash', 'credits': 'x0.08',
+             'supported_reasoning_levels': [{'effort': 'max'}, {'effort': 'low'}, {'effort': 'high'}]},
+            {'id': 'global:max-model', 'name': 'Max', 'credits': 'x1.33 credits',
+             'reasoning_supported_efforts': ['high']},
+            {'id': 'global:kimi-k3', 'name': 'Kimi-K3', 'credits': 'x1.62',
+             'reasoning_supported_efforts': ['medium']},
+            {'id': 'dup-a', 'name': 'SameName'},
+            {'id': 'dup-b', 'name': 'SameName'},
+        ]
+        _fake, hub = self.hub([], models)
+        self.assertEqual(hub.models(), [
+            {'id': 'global:default-model', 'name': 'Auto（x0.15）', 'effort': 'off',
+             'thinking': {'mode': 'toggle', 'options': ['off', 'on'], 'default': 'off'}},
+            {'id': 'global:hy4flash', 'name': 'Hy4 flash（x0.03）', 'effort': 'off',
+             'thinking': {'mode': 'toggle', 'options': ['off', 'on'], 'default': 'off'}},
+            {'id': 'global:hy4flash-free', 'name': 'Hy4 flash（免费）', 'effort': 'off',
+             'thinking': {'mode': 'toggle', 'options': ['off', 'on'], 'default': 'off'}},
+            {'id': 'global:glm-5.3-flash', 'name': 'GLM-5.3-Flash（x0.08）', 'effort': 'low',
+             'thinking': {'mode': 'levels', 'options': ['low', 'high', 'max'], 'default': 'low'}},
+            {'id': 'global:max-model', 'name': 'Max（x1.33）', 'effort': 'high',
+             'thinking': {'mode': 'fixed', 'options': ['high'], 'default': 'high'}},
+            {'id': 'global:kimi-k3', 'name': 'Kimi-K3（x1.62）', 'effort': 'medium',
+             'thinking': {'mode': 'fixed', 'options': ['medium'], 'default': 'medium'}},
+            {'id': 'dup-a', 'name': 'SameName（dup-a）', 'effort': None,
+             'thinking': {'mode': 'none', 'options': [], 'default': None}},
+            {'id': 'dup-b', 'name': 'SameName（dup-b）', 'effort': None,
+             'thinking': {'mode': 'none', 'options': [], 'default': None}},
+        ])
+
+    def test_toggle_off_and_on_map_to_upstream_reasoning_effort(self):
+        models = [
+            {'id': 'global:hy4flash-free', 'name': 'Hy4 flash', 'credits': 'x0.00',
+             'reasoning_supported_efforts': ['high']},
+            {'id': 'global:default-model', 'name': 'Auto', 'credits': 'x0.15'},
+            {'id': 'QSingle', 'reasoning_efforts': ['medium'], 'reasoning_can_disable': True},
+        ]
+        fake, hub = self.hub([('chunks', ['ok'], 0)] * 6, models)
+        specs = {m['id']: m['thinking'] for m in hub.models()}
+        self.assertEqual(specs['QSingle'], {'mode': 'toggle', 'options': ['off', 'on'], 'default': 'off'})
+        list(hub.stream('global:hy4flash-free', MSG, 'off'))
+        list(hub.stream('global:hy4flash-free', MSG, 'on'))
+        list(hub.stream('global:default-model', MSG, 'off'))
+        list(hub.stream('global:default-model', MSG, 'on'))
+        list(hub.stream('QSingle', MSG, 'off'))
+        list(hub.stream('QSingle', MSG, 'on'))
+        self.assertEqual(fake.requests[0]['reasoning_effort'], 'none')
+        self.assertEqual(fake.requests[1]['reasoning_effort'], 'high')
+        self.assertNotIn('reasoning_effort', fake.requests[2])
+        self.assertEqual(fake.requests[3]['reasoning_effort'], 'high')
+        self.assertNotIn('reasoning_effort', fake.requests[4])
+        self.assertEqual(fake.requests[5]['reasoning_effort'], 'medium')
+
+    def test_custom_gateway_label_in_errors(self):
+        fake = FakeHub([])
+        url = fake.base_url
+        fake.close()
+        with self.assertRaises(NewsError) as ctx:
+            Hub(url, KEY, label='CodeBuddy 网关').models()
+        self.assertErr(ctx, 'gateway', 'CodeBuddy 网关 未运行或无法连接')
+        fake2, hub2 = self.hub([('cut_after', ['部分'])])
+        hub2 = Hub(fake2.base_url, KEY, label='CodeBuddy 网关')
+        with self.assertRaises(NewsError) as ctx2:
+            list(hub2.stream('m', MSG, None))
+        self.assertErr(ctx2, 'stream', 'CodeBuddy 网关 中途断开')
+
+    def test_filters_non_chat_media_and_internal_models(self):
+        models = [
+            {'id': 'global:default-model', 'name': 'Auto', 'credits': 'x0.15'},
+            {'id': 'global:hy-image-3.5', 'name': 'HY-Image-3.5', 'tags': ['text-to-image', 'image-to-image']},
+            {'id': 'global:kling-video-v3', 'name': 'Kling-Video-V3', 'tags': ['text-to-video', 'image-to-video']},
+            {'id': 'nes-embed', 'name': 'Embed'},
+        ]
+        _fake, hub = self.hub([], models)
+        self.assertEqual([m['id'] for m in hub.models()], ['global:default-model'])
+
+    def test_11158_tier_blocked_is_non_retryable_model_error(self):
+        msg = '{"error":{"code":"no_healthy_account","message":"{\\"code\\":11158,\\"msg\\":\\"model [gpt-6-luna] is not allowed for user type [personal_free_user]\\"}"}}'
+        _fake, hub = self.hub([('status', 503, msg)])
+        with self.assertRaises(NewsError) as ctx:
+            list(hub.stream('global:gpt-6-luna', MSG, None))
+        self.assertErr(ctx, 'model', '当前账号类型暂不支持该模型，请换选其他模型', retryable=False)
 
     def test_models_401_is_gateway(self):
         fake = FakeHub([])
