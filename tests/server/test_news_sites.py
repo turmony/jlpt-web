@@ -14,7 +14,9 @@ from server.news_sites import DEFAULT_SITES, LOADER_VERSION, allowed_origins, de
 KNOWN_LOADERS = {2: '19e433483d126383af0f7af072df19ee6051eaaba533980b72461a385b23bc0d',
                  3: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c',
                  # v4 only adds the Asahi sites: the generated @match lines changed, the template did not.
-                 4: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c'}
+                 4: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c',
+                 # v5 only adds Yahoo Expert (/expert/articles/*): template unchanged.
+                 5: 'acdd610b9232cd8d05e05ddea98a4fc59273e8fbb007eab7378a6e3debb5899c'}
 
 
 def site(**changes):
@@ -89,6 +91,22 @@ class SitesTests(unittest.TestCase):
         self.assertTrue(rx.search('/articles/bd93f19234247d18f21aadb475e5de44c0e759b3'))
         self.assertFalse(rx.search('/articles/bd93f19234247d18f21aadb475e5de44c0e759b3/images/000'))
         self.assertFalse(rx.search('/articles/bd93f19234247d18f21aadb475e5de44c0e759b3/comments'))
+
+    def test_yahoo_expert_site_covers_expert_articles_and_rejects_other_paths(self):
+        expert = [entry for entry in DEFAULT_SITES if entry['match'] == 'https://news.yahoo.co.jp/expert/articles/*']
+        self.assertEqual(len(expert), 1)
+        entry = expert[0]
+        self.assertEqual(entry['origin'], 'https://news.yahoo.co.jp')
+        self.assertEqual(entry['parts'], ['#uamods-article h1', '#uamods-article section'])
+        rx = re.compile(entry['path'])
+        self.assertTrue(rx.search('/expert/articles/8f49b78c4f0f09f06dfef2de41d26e6b88bbb9ef'))
+        for other in (
+            '/articles/8f49b78c4f0f09f06dfef2de41d26e6b88bbb9ef',
+            '/expert/articles/',
+            '/expert/articles/8f49b78c4f0f09f06dfef2de41d26e6b88bbb9ef/comments',
+            '/expert/articles/8f49b78c4f0f09f06dfef2de41d26e6b88bbb9ef/images/000',
+        ):
+            self.assertFalse(rx.search(other), other)
 
     def test_loader_has_metadata_matches_and_config(self):
         second = site(name='NHK', origin='https://www3.nhk.or.jp', match='https://www3.nhk.or.jp/news/*')

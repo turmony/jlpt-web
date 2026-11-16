@@ -11,6 +11,16 @@ DEFAULT_SITES = [
         "path": "^/articles/[0-9a-f]+$",
         "parts": ["h1", ".article_body"],
     },
+    # Yahoo!ニュース エキスパート lives under /expert/articles/<hex> and puts its headline and body
+    # inside #uamods-article (without .article_body); on iPad/desktop the first <h1> on the page is the
+    # site logo, so the headline selector must stay scoped to #uamods-article.
+    {
+        "name": "雅虎新闻（专家专栏）",
+        "origin": "https://news.yahoo.co.jp",
+        "match": "https://news.yahoo.co.jp/expert/articles/*",
+        "path": "^/expert/articles/[0-9a-f]+$",
+        "parts": ["#uamods-article h1", "#uamods-article section"],
+    },
     # Asahi serves two editions from one origin: iPhone Safari is redirected to /sp/articles/, iPad and
     # desktop get /articles/. Its class names are hashed and differ per edition, so the parts are found by
     # structure: the headline is the h1 inside <main> (the first h1 on the page is the logo), the body is the
@@ -105,7 +115,7 @@ def allowed_origins(config):
 # Userscripts only replaces an installed loader (through @updateURL) when the served @version is higher,
 # while the main script updates on every page load. The version is shown in the script name, so a phone's
 # script list tells which loader is installed.
-LOADER_VERSION = 4
+LOADER_VERSION = 5
 
 
 def _line(text):

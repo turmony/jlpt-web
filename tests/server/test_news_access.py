@@ -108,11 +108,13 @@ class AccessTests(base.NewsHTTPBase):
         self.assertEqual(status, 403)
 
     def test_loader_is_public_and_the_same_for_everyone(self):
+        from server.news_sites import LOADER_VERSION, loader_script
         status, response, raw = self.call('GET', LOADER, cookie=False)
         self.assertEqual(status, 200, raw)
         self.assertEqual(response.getheader('Content-Type'), 'text/javascript; charset=utf-8')
         self.assertEqual(response.getheader('Cache-Control'), 'no-store')
-        self.assertIsNone(response.getheader('Content-Disposition'))
+        self.assertEqual(response.getheader('Content-Disposition'),
+                         f'attachment; filename="jlpt-news-v{LOADER_VERSION}.user.js"')
         script = raw.decode('utf-8')
         self.assertIn('// @updateURL    ' + ORIGIN + LOADER, script)
         self.assertIn('// @downloadURL  ' + ORIGIN + LOADER, script)
@@ -122,7 +124,6 @@ class AccessTests(base.NewsHTTPBase):
         self.assertEqual(self.call('GET', LOADER)[2], raw)
         self.assertEqual(self.call('HEAD', LOADER, cookie=False)[0], 200)
         # The site's own text for this exact script is what make_news_loader.py writes.
-        from server.news_sites import loader_script
         self.assertEqual(script, loader_script(ORIGIN, SITES, debug=True))
 
     def test_loader_debug_overlay_follows_news_debug(self):

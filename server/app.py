@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from . import news, papers, review
 from .auth import Auth, YEAR
 from .news_errors import NewsError
-from .news_sites import allowed_origins, debug_enabled, loader_script, online_update_enabled, sites
+from .news_sites import LOADER_VERSION, allowed_origins, debug_enabled, loader_script, online_update_enabled, sites
 from .papers import safe_file
 from .store import Store, Conflict
 
@@ -247,7 +247,8 @@ def create_server(app, address):
                         return self.reply(404, {'error': '在线更新已关闭'})
                     if path == '/loader.user.js':
                         script = loader_script(app.config['origin'], sites(app.config), debug=debug_enabled(app.config))
-                        return self.reply(200, script.encode('utf-8'), 'text/javascript; charset=utf-8')
+                        headers = {'Content-Disposition': f'attachment; filename="jlpt-news-v{LOADER_VERSION}.user.js"'}
+                        return self.reply(200, script.encode('utf-8'), 'text/javascript; charset=utf-8', headers=headers)
                     file = Path(app.config['static']) / 'news-script' / 'client.js'
                     try:
                         code = file.read_bytes()
