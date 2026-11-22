@@ -1,0 +1,22 @@
+[Unit]
+Description=Turmony unified portal authentication service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/srv/portal
+ExecStart=/usr/bin/python3 /srv/portal/portal_auth.py --config /srv/jlpt/state/config.json --xui-db /etc/x-ui/x-ui.db --password-file /srv/jlpt/state/website-password --host 127.0.0.1 --port 8767
+Restart=always
+RestartSec=3
+UMask=0077
+KillMode=control-group
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

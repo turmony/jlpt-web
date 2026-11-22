@@ -1,12 +1,53 @@
-# Navigation page for turmony.site / www.turmony.site (served over the Cloudflare Tunnel).
-# Only the exact root path on those two hosts; every other host/path keeps its normal behaviour.
+# Navigation page & unified credential management for turmony.site / www.turmony.site.
 @portal {
     host turmony.site www.turmony.site
     path / /index.html
 }
 handle @portal {
+    forward_auth 127.0.0.1:8767 {
+        uri /auth/check
+        @unauthorized status 401
+        handle_response @unauthorized {
+            redir * /login.html 303
+        }
+    }
     root * /srv/portal
     rewrite * /index.html
+    header Cache-Control "no-store"
+    file_server
+}
+
+@portalAccountBare path /account
+handle @portalAccountBare {
+    redir * /account/ 308
+}
+
+@portalAccountJs path /account/account.js
+handle @portalAccountJs {
+    forward_auth 127.0.0.1:8767 {
+        uri /auth/check
+        @unauthorized status 401
+        handle_response @unauthorized {
+            redir * /login.html?next=/account/ 303
+        }
+    }
+    root * /srv/portal
+    rewrite * /account.js
+    header Cache-Control "no-store"
+    file_server
+}
+
+@portalAccount path /account/*
+handle @portalAccount {
+    forward_auth 127.0.0.1:8767 {
+        uri /auth/check
+        @unauthorized status 401
+        handle_response @unauthorized {
+            redir * /login.html?next=/account/ 303
+        }
+    }
+    root * /srv/portal
+    rewrite * /account.html
     header Cache-Control "no-store"
     file_server
 }

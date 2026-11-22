@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>凭证管理 · turmony</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f4f7fc;
+  --hero-bg: linear-gradient(145deg, #eaf1fe 0%, #eef7f4 100%);
+  --hero-border: #d9e3f4;
+  --surface: #ffffff;
+  --surface-sub: #f2f6fd;
+  --border: #dfe5f0;
+  --fg: #181a1f;
+  --dim: #434750;
+  --muted: #5d626d;
+  --primary: #0b57d0;
+  --primary-fg: #ffffff;
+  --primary-tonal-bg: #d3e3fd;
+  --primary-tonal-fg: #041e49;
+  --danger: #b3261e;
+  --danger-border: rgba(179, 38, 30, .35);
+  --danger-bg-hover: rgba(179, 38, 30, .07);
+  --ok: #0d652d;
+  --shadow: 0 1px 2px rgba(24, 34, 56, .05), 0 6px 16px rgba(24, 34, 56, .04);
+  --spring: cubic-bezier(.22, 1.4, .36, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e0f11;
+    --hero-bg: linear-gradient(145deg, #1b2230 0%, #16211d 100%);
+    --hero-border: #2c313b;
+    --surface: #1b1c1f;
+    --surface-sub: #24262b;
+    --border: #2a2d33;
+    --fg: #f0f2f5;
+    --dim: #c3c7d1;
+    --muted: #9398a3;
+    --primary: #8ab4f8;
+    --primary-fg: #062e6f;
+    --primary-tonal-bg: rgba(138, 180, 248, .20);
+    --primary-tonal-fg: #8ab4f8;
+    --danger: #f2b8b5;
+    --danger-border: rgba(242, 184, 181, .35);
+    --danger-bg-hover: rgba(242, 184, 181, .09);
+    --ok: #5bb974;
+    --shadow: 0 2px 6px rgba(0, 0, 0, .35), 0 8px 20px rgba(0, 0, 0, .25);
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.55 "Google Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  display: flex;
+  justify-content: center;
+}
+main {
+  width: 100%;
+  max-width: 740px;
+  padding: 24px 16px 56px;
+}
+@media (min-width: 640px) {
+  main { padding: 44px 24px 64px; }
+}
+header.hero {
+  background: var(--hero-bg);
+  border: 1px solid var(--hero-border);
+  border-radius: 32px;
+  padding: 20px 22px 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 6px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--dim);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  transition: transform .3s var(--spring), color .18s ease, border-color .18s ease;
+}
+.back:hover {
+  color: var(--primary);
+  transform: translateX(-2px);
+}
+h1 {
+  margin: 0 0 6px;
+  font-size: clamp(28px, 6vw, 34px);
+  font-weight: 800;
+  letter-spacing: -.025em;
+  line-height: 1.15;
+}
+.sub { margin: 0; color: var(--dim); font-size: 14px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+  padding: 22px;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.card h2 { margin: 0 0 6px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.card-head h2 { margin: 0; }
+.hint { margin: 0 0 16px; color: var(--dim); font-size: 13px; }
+.count-line {
+  font-size: 13px;
+  color: var(--dim);
+  margin: 0 0 14px;
+}
+label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dim);
+  margin: 14px 0 6px;
+}
+input {
+  width: 100%;
+  padding: 12px 15px;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  transition: border-color .18s ease;
+}
+input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+button {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: opacity .15s ease, background-color .18s ease, transform .3s var(--spring);
+}
+button.primary {
+  margin-top: 18px;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 20px;
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+button.primary:hover { opacity: .94; transform: translateY(-1px); }
+button.primary:active { transform: scale(.985); }
+button.secondary,
+button.danger-outline {
+  min-height: 44px;
+  padding: 10px 20px;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+button.secondary:hover,
+button.danger-outline:hover {
+  background: var(--danger-bg-hover);
+}
+button.secondary {
+  width: 100%;
+}
+button.mini {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+button:disabled { opacity: .55; cursor: not-allowed; }
+.msg {
+  margin: 12px 0 0;
+  font-size: 13px;
+  min-height: 20px;
+}
+.msg.error { color: var(--danger); }
+.msg.ok { color: var(--ok); }
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+}
+.session-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 15px 16px;
+  background: var(--surface-sub);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  transition: border-radius .3s var(--spring);
+}
+.session-item:first-child { border-radius: 22px 22px 10px 10px; }
+.session-item:last-child { border-radius: 10px 10px 22px 22px; }
+.session-item:only-child { border-radius: 22px; }
+.session-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.session-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.dev-name {
+  font-weight: 700;
+  font-size: 15px;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary-tonal-fg);
+  background: var(--primary-tonal-bg);
+}
+.cookie-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.session-meta {
+  font-size: 12px;
+  color: var(--dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.session-ua {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (prefers-reduced-motion: reduce) {
+  .back, button, .session-item { transition: none; }
+}
+</style>
+<script type="module" src="/account/account.js"></script>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <a class="back" href="/">← 返回导航页</a>
+    <h1>凭证管理</h1>
+    <p class="sub">统一管理 turmony.site 主站及所有子入口的登录凭证。</p>
+  </header>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>已登录设备与 Cookie</h2>
+      <button id="revoke-others-btn" class="danger-outline mini" type="button" hidden>踢出其他所有设备</button>
+    </div>
+    <p id="session-count" class="count-line">正在读取登录设备…</p>
+    <p id="sessions-msg" class="msg" role="status" aria-live="polite" hidden></p>
+    <ul id="session-list" class="session-list"></ul>
+  </section>
+
+  <section class="card">
+    <h2>修改全站登录密码</h2>
+    <p class="hint">修改成功后，其他设备上的已登录 Cookie 会立即失效；当前浏览器保持登录。</p>
+    <form id="password-form">
+      <label for="current-password">当前密码</label>
+      <input id="current-password" name="current_password" type="password" autocomplete="current-password" required>
+      <label for="new-password">新密码（至少 8 位）</label>
+      <input id="new-password" name="new_password" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="confirm-password">确认新密码</label>
+      <input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="8" required>
+      <button class="primary" type="submit">更新密码</button>
+      <p id="status" class="msg" role="status" aria-live="polite" hidden></p>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>会话控制</h2>
+    <p class="hint">退出后，所有入口（导航页、JLPT、VPN、WorkBuddy）均需重新输入主站密码。</p>
+    <button id="logout-btn" class="secondary" type="button">退出全站登录</button>
+  </section>
+</main>
+</body>
+</html>
