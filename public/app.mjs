@@ -1,6 +1,6 @@
 import { selectCards, createSession, createTapHandler, adjacentRanges } from './core.mjs?v=range-shortcuts-2';
 import { createImageLoader } from './image-loader.mjs';
-import { renderCoreContent } from './core-content.mjs?v=readable-core-1';
+import { renderCoreContent } from './core-content.mjs?v=function-count-1';
 import { renderCoreMarkdown } from './core-markdown.mjs?v=readable-core-1';
 
 const $ = id => document.getElementById(id);
